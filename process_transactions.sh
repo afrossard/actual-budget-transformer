@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Configuration
-INPUT_DIR="tmp/transaction_history"
-OUTPUT_DIR="tmp/test_batch_processing"
+INPUT_DIR="tmp/input_files"
+OUTPUT_DIR="tmp/output_files"
 CONFIG_FILE="config.yaml"
 
 # Colors for output
