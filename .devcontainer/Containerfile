@@ -1,0 +1,28 @@
+FROM mcr.microsoft.com/devcontainers/python:3-bookworm
+
+# Install Homebrew
+USER vscode
+RUN NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+# Add env vars and bash completions to ~/.bashrc 
+RUN cat <<EOF >> ~/.bashrc 
+# Homebrew env vars
+eval "\$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+# Homebrew bash completions
+if type brew &>/dev/null; then
+  HOMEBREW_PREFIX="\$(brew --prefix)"
+  if [[ -r "\${HOMEBREW_PREFIX}/etc/profile.d/bash_completion.sh" ]]; then
+    source "\${HOMEBREW_PREFIX}/etc/profile.d/bash_completion.sh"
+  else
+    for COMPLETION in "\${HOMEBREW_PREFIX}/etc/bash_completion.d/"*; do
+      [[ -r "\${COMPLETION}" ]] && source "\${COMPLETION}"
+    done
+  fi
+fi
+EOF
+
+ENV PATH="/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:${PATH}"
+
+RUN brew install bash-completion@2 
+
+RUN sudo apt-get update && sudo apt-get install --no-install-recommends --yes vim rsync 
+

@@ -1,0 +1,14 @@
+name: Build prod docker image
+on:
+  workflow_dispatch:
+
+jobs:
+  actual-budget-transformer-docker-image:
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/generic-docker-build-push.yml
+    with:
+      registry: ghcr.io
+      image-name: ${{ github.repository }}-main
+      file: ./Containerfile

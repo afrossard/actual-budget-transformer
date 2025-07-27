@@ -1,0 +1,3 @@
+[core]
+ignoreCase = false
+autocrlf = input

@@ -1,0 +1,40 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the
+// README at: https://github.com/devcontainers/templates/tree/main/src/python
+{
+  "name": "Python 3",
+  "build": {
+    "dockerfile": "Containerfile"
+  },
+
+  "features": {
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {}
+  },
+
+  // Use this environment variable if you need to bind mount your local source code into a new container.
+  "remoteEnv": {
+    "LOCAL_WORKSPACE_FOLDER": "${localWorkspaceFolder}"
+  },
+
+  "postCreateCommand": "./.devcontainer/postCreateCommand.sh",
+
+  // Avoid dubious ownership issue when git is run from inside the dev-container
+  "postStartCommand": "git config --global --add safe.directory ${containerWorkspaceFolder}",
+
+  // Configure tool-specific properties.
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "EditorConfig.EditorConfig",
+        "esbenp.prettier-vscode",
+        "eamodio.gitlens",
+        "ms-python.black-formatter",
+        "mhutchie.git-graph",
+        "donjayamanne.githistory",
+        "ms-python.pylint",
+        "ms-toolsai.jupyter",
+        "ms-azuretools.vscode-containers",
+        "google.geminicodeassist"
+      ]
+    }
+  }
+}

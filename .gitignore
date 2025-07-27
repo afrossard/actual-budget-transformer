@@ -1,0 +1,12 @@
+# Ignore macOS temporary files
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Ignore Windows temporary files
+Thumbs.db
+Desktop.ini
+
+tmp
+__pycache__
+config.yaml
