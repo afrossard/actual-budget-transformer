@@ -1,0 +1,84 @@
+# Actual Budget Transformer Configuration Template
+# Copy this file to config.yml and fill in your actual values
+
+processors:
+  # UBS CSV Transaction Processor settings
+  ubs_csv:
+    # Map IBANs to friendly names for output files
+    account_names:
+      "CH0000000000": "personal_checking"
+      "CH1111111111": "savings"
+
+    # CSV parsing settings
+    csv_settings:
+      encoding: "utf-8-sig"
+      separator: ";"
+      header_rows: 8
+      expected_columns: 15
+
+    # Expected structure
+    expected_header_labels:
+      - "Numéro de compte:"
+      - "IBAN:"
+      - "Du:"
+      - "Au:"
+      - "Solde initial:"
+      - "Solde final:"
+      - "Évaluation en:"
+      - "Nombre de transactions dans cette période:"
+
+    expected_transaction_labels:
+      - "Date de transaction"
+      - "Heure de transaction"
+      - "Date de comptabilisation"
+      - "Date de valeur"
+      - "Monnaie"
+      - "Débit"
+      - "Crédit"
+      - "Sous-montant"
+      - "Solde"
+      - "N° de transaction"
+      - "Description1"
+      - "Description2"
+      - "Description3"
+      - "Notes de bas de page"
+      - "Unnamed: 14"
+
+    # Date format in the CSV
+    date_format: "%Y-%m-%d" # ISO format YYYY-MM-DD
+
+  # UBS Cards CSV Transaction Processor settings
+  ubs_cards:
+    # CSV parsing settings
+    csv_settings:
+      encoding: "iso-8859-1"
+      separator: ";"
+      header_row: 2
+
+    # Expected column headers
+    expected_columns:
+      - "Numéro de compte"
+      - "Numéro de carte"
+      - "Titulaire de compte/carte"
+      - "Date d'achat"
+      - "Texte comptable"
+      - "Secteur"
+      - "Montant"
+      - "Monnaie originale"
+      - "Cours"
+      - "Monnaie"
+      - "Débit"
+      - "Crédit"
+      - "Ecriture"
+
+    # Date format in the CSV
+    date_format: "%d.%m.%Y"
+
+    # Map card numbers to friendly names for output files
+    account_names:
+      "1234567890123456": "Personal Card"
+      "6543210987654321": "Partner Card"
+
+# Global settings
+output:
+  date_format: "%Y%m" # Format for date in output filenames

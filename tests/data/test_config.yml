@@ -1,0 +1,39 @@
+processors:
+  ubs_csv:
+    csv_settings:
+      encoding: "utf-8-sig"
+      separator: ";"
+      header_rows: 8
+      expected_columns: 15
+
+    expected_header_labels:
+      - "Numéro de compte:"
+      - "IBAN:"
+      - "Du:"
+      - "Au:"
+      - "Solde initial:"
+      - "Solde final:"
+      - "Évaluation en:"
+      - "Nombre de transactions dans cette période:"
+
+    expected_transaction_labels:
+      - "Date de transaction"
+      - "Heure de transaction"
+      - "Date de comptabilisation"
+      - "Date de valeur"
+      - "Monnaie"
+      - "Débit"
+      - "Crédit"
+      - "Sous-montant"
+      - "Solde"
+      - "N° de transaction"
+      - "Description1"
+      - "Description2"
+      - "Description3"
+      - "Notes de bas de page"
+      - "Unnamed: 14"
+
+    date_format: "%Y-%m-%d"
+
+output:
+  date_format: "%Y%m"

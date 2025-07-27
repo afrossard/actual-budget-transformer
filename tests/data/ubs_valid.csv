@@ -1,0 +1,11 @@
+﻿Numéro de compte:;0123 A1234567.8;
+IBAN:;CH42 0012 0123 A123 4567 8;
+Du:;2023-01-01;
+Au:;2023-01-31;
+Solde initial:;1234.55;
+Solde final:;1047.90;
+Évaluation en:;CHF;
+Nombre de transactions dans cette période:;1;
+
+Date de transaction;Heure de transaction;Date de comptabilisation;Date de valeur;Monnaie;Débit;Crédit;Sous-montant;Solde;N° de transaction;Description1;Description2;Description3;Notes de bas de page;
+2023-01-13;;2023-01-14;2023-01-13;CHF;-186.65;;;1047.90;1234563AB9269773;"EXAMPLE; Paiement UBS TWINT";;"Motif du paiement: AWESOME";;
