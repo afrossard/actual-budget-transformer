@@ -56,6 +56,10 @@ docker run --rm -it \
  -v
 ```
 
+Or with local build
+
+`docker build -f Containerfile -t actual-budget-transformer:latest .`
+
 ```bash
 docker run --rm -it \
  -v "${LOCAL_WORKSPACE_FOLDER:-$PWD}/tmp/input_files":/app/input \
@@ -67,8 +71,6 @@ docker run --rm -it \
  -c /app/config.yaml \
  -v
 ```
-
-### Debugging
 
 If you need to debug the container, for instance to check the volume mounts, you can get an interactive shell inside it by overriding the entrypoint:
 
