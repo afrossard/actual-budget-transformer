@@ -11,11 +11,13 @@ dependencies = [
 actual-budget-transformer = "actual_budget_transformer.main:main"
 
 [build-system]
-requires = ["poetry-core>=2.0.0,<3.0.0"]
-build-backend = "poetry.core.masonry.api"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
-[tool.poetry.group.dev.dependencies]
-pytest = "^8.3.5"
-black = "^25.1.0"
-ipykernel = "^6.29.5"
+[dependency-groups]
+dev = [
+    "pytest>=8.3.5,<9",
+    "black>=25.1.0,<26",
+    "ipykernel>=6.29.5,<7",
+]
 
