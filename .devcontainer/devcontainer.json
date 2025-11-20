@@ -32,8 +32,7 @@
         "donjayamanne.githistory",
         "ms-python.pylint",
         "ms-toolsai.jupyter",
-        "ms-azuretools.vscode-containers",
-        "google.geminicodeassist"
+        "ms-azuretools.vscode-containers"
       ]
     }
   }

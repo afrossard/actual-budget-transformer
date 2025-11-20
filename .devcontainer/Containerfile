@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/devcontainers/python:3-bookworm
+FROM mcr.microsoft.com/devcontainers/python:3.13-bookworm
 
 # Install Homebrew
 USER vscode
@@ -26,3 +26,5 @@ RUN brew install bash-completion@2
 
 RUN sudo apt-get update && sudo apt-get install --no-install-recommends --yes vim rsync 
 
+RUN brew install \
+  gemini-cli
