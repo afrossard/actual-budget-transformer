@@ -12,7 +12,8 @@
 
   // Use this environment variable if you need to bind mount your local source code into a new container.
   "remoteEnv": {
-    "LOCAL_WORKSPACE_FOLDER": "${localWorkspaceFolder}"
+    "LOCAL_WORKSPACE_FOLDER": "${localWorkspaceFolder}",
+    "UV_LINK_MODE": "copy"
   },
 
   "postCreateCommand": "./.devcontainer/postCreateCommand.sh",
