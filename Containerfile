@@ -1,32 +1,55 @@
 # The builder image, used to build the virtual environment
-FROM python:3.13-bookworm AS builder
+FROM python:3.13-slim-trixie AS builder
 
-#RUN pip install pipx
+# Install UV
+COPY --from=ghcr.io/astral-sh/uv:0.9.11 /uv /uvx /bin/
 
-RUN pip install poetry==2.1.3
+# Enable bytecode compilation
+ENV UV_COMPILE_BYTECODE=1
 
-ENV POETRY_NO_INTERACTION=1 \
-  POETRY_VIRTUALENVS_IN_PROJECT=1 \
-  POETRY_VIRTUALENVS_CREATE=1 \
-  POETRY_CACHE_DIR=/tmp/poetry_cache
+# Copy from the cache instead of linking since it's a mounted volume
+ENV UV_LINK_MODE=copy
 
+# Disable Python downloads, because we want to use the system interpreter
+# across both images.
+ENV UV_PYTHON_DOWNLOADS=0
+
+# Install the project into `/app`
 WORKDIR /app
 
-COPY pyproject.toml poetry.lock ./
-RUN touch README.md
+# Install the project's dependencies using the lockfile and settings
+RUN --mount=type=cache,target=/root/.cache/uv \
+  --mount=type=bind,source=uv.lock,target=uv.lock \
+  --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+  uv sync --locked --no-install-project --no-dev --no-editable
 
-RUN poetry install --without dev --no-root && rm -rf $POETRY_CACHE_DIR
+# Copy the project into the intermediate image
+COPY . /app
+
+# Sync the project
+RUN --mount=type=cache,target=/root/.cache/uv \
+  uv sync \
+  --locked \
+  --no-dev \
+  --no-editable
 
 # The runtime image, used to just run the code provided its virtual environment
-FROM python:3.13-slim-bookworm AS runtime
+FROM python:3.13-slim-trixie AS runtime
 
+# Setup a non-root user
+RUN groupadd --system --gid 999 app \
+  && useradd --system --gid 999 --uid 999 --create-home app
+
+# Copy the environment, but not the source code
+COPY --from=builder --chown=app:app /app/.venv /app/.venv
+
+# Place executables in the environment at the front of the path
+ENV PATH="/app/.venv/bin:$PATH"
+
+# Use the non-root user to run our application
+USER app
+
+# Use `/app` as the working directory
 WORKDIR /app
-
-ENV VIRTUAL_ENV=/app/.venv \
-  PATH="/app/.venv/bin:$PATH"
-
-COPY --from=builder ${VIRTUAL_ENV} ${VIRTUAL_ENV}
-
-COPY src/actual_budget_transformer ./actual_budget_transformer
 
 ENTRYPOINT ["python", "-m", "actual_budget_transformer.main"] 
