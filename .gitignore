@@ -7,6 +7,12 @@
 Thumbs.db
 Desktop.ini
 
+#Python ignores
+.venv
+**/__pycache__
+**/*.pyc
+
+# Project ignores
 tmp
-__pycache__
 config.yaml
+
