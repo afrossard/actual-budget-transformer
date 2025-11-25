@@ -22,7 +22,12 @@ EOF
 
 ENV PATH="/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:${PATH}"
 
-RUN brew install bash-completion@2 
+RUN brew install bash-completion@2 dive
 
 RUN sudo apt-get update && sudo apt-get install --no-install-recommends --yes vim rsync 
 
+# Install UV
+COPY --from=ghcr.io/astral-sh/uv:0.9.11 /uv /uvx /bin/
+
+RUN brew install \
+  gemini-cli
