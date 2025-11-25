@@ -46,6 +46,7 @@ The following commands allow you to run the application using Docker. They are d
 
 ```bash
 docker run --rm -it \
+ --user "$(id -u):$(id -g)" \
  -v "${LOCAL_WORKSPACE_FOLDER:-$PWD}/tmp/input_files":/app/input \
  -v "${LOCAL_WORKSPACE_FOLDER:-$PWD}/tmp/output_files":/app/output \
  -v "${LOCAL_WORKSPACE_FOLDER:-$PWD}/config.yaml":/app/config.yaml \
@@ -62,6 +63,7 @@ Or with local build
 
 ```bash
 docker run --rm -it \
+ --user "$(id -u):$(id -g)" \
  -v "${LOCAL_WORKSPACE_FOLDER:-$PWD}/tmp/input_files":/app/input \
  -v "${LOCAL_WORKSPACE_FOLDER:-$PWD}/tmp/output_files":/app/output \
  -v "${LOCAL_WORKSPACE_FOLDER:-$PWD}/config.yaml":/app/config.yaml \
@@ -76,9 +78,16 @@ If you need to debug the container, for instance to check the volume mounts, you
 
 ```bash
 docker run --rm -it \
+ --user "$(id -u):$(id -g)" \
  -v "${LOCAL_WORKSPACE_FOLDER:-$PWD}/tmp/input_files":/app/input \
  -v "${LOCAL_WORKSPACE_FOLDER:-$PWD}/tmp/output_files":/app/output \
  -v "${LOCAL_WORKSPACE_FOLDER:-$PWD}/config.yaml":/app/config.yaml \
  --entrypoint /bin/bash \
  actual-budget-transformer:latest
 ```
+
+## Debug
+
+### Docker multi-stage build
+
+`docker build -f Containerfile --target builder -t actual-budget-transformer-builder-stage:latest .`
