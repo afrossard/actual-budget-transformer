@@ -18,16 +18,23 @@ ENV UV_PYTHON_DOWNLOADS=0
 WORKDIR /app
 
 # Install the project's dependencies using the lockfile and settings
+# for optimal image build caching
 RUN --mount=type=cache,target=/root/.cache/uv \
   --mount=type=bind,source=uv.lock,target=uv.lock \
   --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-  uv sync --locked --no-install-project --no-dev --no-editable
+  uv sync \ 
+  --locked \
+  --no-dev \ 
+  --no-editable \
+  --no-install-project 
 
-# Copy the project into the intermediate image
-COPY . /app
+# Copy the project sources into the intermediate image
+COPY src /app
 
 # Sync the project
 RUN --mount=type=cache,target=/root/.cache/uv \
+  --mount=type=bind,source=uv.lock,target=uv.lock \
+  --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
   uv sync \
   --locked \
   --no-dev \
