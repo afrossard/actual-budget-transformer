@@ -2,7 +2,7 @@
 FROM python:3.13-slim-trixie AS builder
 
 # Install UV
-COPY --from=ghcr.io/astral-sh/uv:0.9.11 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.9.12 /uv /uvx /bin/
 
 # Enable bytecode compilation
 ENV UV_COMPILE_BYTECODE=1
