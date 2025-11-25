@@ -1,5 +1,5 @@
 # The builder image, used to build the virtual environment
-FROM python:3.13-slim-trixie AS builder
+FROM python:3.14-slim-trixie AS builder
 
 # Install UV
 COPY --from=ghcr.io/astral-sh/uv:0.9.12 /uv /uvx /bin/
@@ -41,7 +41,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
   --no-editable
 
 # The runtime image, used to just run the code provided its virtual environment
-FROM python:3.13-slim-trixie AS runtime
+FROM python:3.14-slim-trixie AS runtime
 
 # Setup a non-root user
 RUN groupadd --system --gid 999 app \
