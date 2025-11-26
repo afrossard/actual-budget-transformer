@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/devcontainers/python:3-bookworm
+FROM mcr.microsoft.com/devcontainers/python:3-trixie
 
 # Install Homebrew
 USER vscode

@@ -7,7 +7,9 @@
   },
 
   "features": {
-    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {}
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
+      "moby": false
+    }
   },
 
   // Use this environment variable if you need to bind mount your local source code into a new container.
