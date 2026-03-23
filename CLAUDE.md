@@ -102,20 +102,30 @@ os.environ["ACTUAL_BUDGET_TRANSFORMER_CONFIG"] = os.path.join(DATA_DIR, "test_co
 
 ### Anonymizing test data
 
-Two scripts are available to anonymize real files before committing them as fixtures. Both use deterministic fakes (same input → same output).
+> **Security rule — mandatory for public repos:** Always use `--salt <SECRET>` when running any anonymization script. Without a salt, the hash is deterministic and reversible by brute-force: Swiss IBANs, card numbers, and account numbers are finite enumerable sets, so an attacker who knows the algorithm (it's in the repo) can recover the original value. The salt must be kept private and never committed.
+>
+> For the same reason: **never hardcode fake account identifiers** (IBANs, card numbers) in test source files or fixture filenames. Use semantic fixture names (e.g. `camt_single_debit.xml`) and read identifiers dynamically in tests.
+
+Three scripts are available to anonymize real files before committing them as fixtures.
 
 **CAMT.053 XML** (`scripts/anonymize_camt.py`) — replaces IBANs, names, addresses, remittance text, and reference IDs. IBANs in the output filename are also replaced.
 
 ```bash
 for f in /path/to/real/exports/*.xml; do
-    python scripts/anonymize_camt.py "$f" tests/data/
+    python scripts/anonymize_camt.py --salt <SECRET> "$f" tests/data/
 done
 ```
 
 **UBS cards CSV** (`scripts/anonymize_ubs_cards.py`) — replaces account number, card number, cardholder name, merchant names, and sector. Footer/summary lines are preserved as-is.
 
 ```bash
-python scripts/anonymize_ubs_cards.py /path/to/real/cards.csv tests/data/ubs_cards_valid.csv
+python scripts/anonymize_ubs_cards.py --salt <SECRET> /path/to/real/cards.csv tests/data/ubs_cards_anon_1.csv
+```
+
+**UBS account CSV** (`scripts/anonymize_ubs_csv.py`) — replaces account number, IBAN, transaction reference, and description fields.
+
+```bash
+python scripts/anonymize_ubs_csv.py --salt <SECRET> /path/to/real/account.csv tests/data/ubs_valid.csv
 ```
 
 ---
