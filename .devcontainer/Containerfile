@@ -29,5 +29,3 @@ RUN sudo apt-get update && sudo apt-get install --no-install-recommends --yes vi
 # Install UV
 COPY --from=ghcr.io/astral-sh/uv:0.9.12 /uv /uvx /bin/
 
-RUN brew install \
-  gemini-cli

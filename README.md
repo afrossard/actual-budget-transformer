@@ -7,6 +7,7 @@ See [Actual Budget](https://actualbudget.org/)
 - UBS Switzerland e-banking
   - Account transactions CSV files
   - Credit card transactions CSV files
+- CAMT.053 (ISO 20022 XML bank statements) — _in progress_
 
 ## Output format
 
@@ -16,6 +17,19 @@ transaction_date,payee,notes,debit,credit
 ```
 
 ## Usage
+
+### Development setup
+
+```bash
+uv sync       # install dependencies
+uv run pytest # run tests
+```
+
+A convenience script is also available that clears `tmp/output_files/` and processes all files from `tmp/input_files/`:
+
+```bash
+bash process_transactions.sh
+```
 
 ### Installation
 
@@ -84,6 +98,28 @@ docker run --rm -it \
  -v "${LOCAL_WORKSPACE_FOLDER:-$PWD}/config.yaml":/app/config.yaml \
  --entrypoint /bin/bash \
  actual-budget-transformer:latest
+```
+
+## Test data
+
+Real bank statement files can be anonymized before committing as test fixtures using the provided scripts. Both replace sensitive fields with deterministic fakes (same input → same output) while preserving amounts, dates, and structure.
+
+### CAMT.053 XML files
+
+Replaces IBANs, names, addresses, and remittance text. IBANs in filenames are also replaced.
+
+```bash
+for f in /path/to/real/exports/*.xml; do
+    python scripts/anonymize_camt.py "$f" tests/data/
+done
+```
+
+### UBS cards CSV files
+
+Replaces account number, card number, cardholder name, merchant names, and sector. Footer/summary lines are preserved as-is.
+
+```bash
+python scripts/anonymize_ubs_cards.py /path/to/real/cards.csv tests/data/ubs_cards_valid.csv
 ```
 
 ## Debug

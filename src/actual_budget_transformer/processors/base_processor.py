@@ -1,7 +1,8 @@
 # pylint: disable=C0114
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any
+
+import pandas as pd
 
 
 @dataclass
@@ -11,16 +12,21 @@ class ProcessingResult:
 
     Attributes
     ----------
-    data : Any
-        The processed data (typically a pandas DataFrame)
+    data : pd.DataFrame
+        Processed transactions with exactly the columns defined in COLUMNS
     output_prefix : str
         The suggested prefix for output files
-    metadata : dict
-        Additional metadata about the processed file
     """
 
-    data: Any
+    COLUMNS = ["transaction_date", "payee", "notes", "debit", "credit"]
+
+    data: pd.DataFrame
     output_prefix: str
+
+    def __post_init__(self):
+        missing = set(self.COLUMNS) - set(self.data.columns)
+        if missing:
+            raise ValueError(f"ProcessingResult data is missing columns: {missing}")
 
 
 class BaseProcessor(ABC):

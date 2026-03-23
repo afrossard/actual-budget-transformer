@@ -79,6 +79,13 @@ processors:
       "1234567890123456": "Personal Card"
       "6543210987654321": "Partner Card"
 
+  # CAMT.053 Processor settings
+  camt053:
+    # Map IBANs to friendly names for output files
+    account_names:
+      "CH0000000000000000000": "personal_checking"
+      "CH1111111111111111111": "savings"
+
 # Global settings
 output:
   date_format: "%Y%m" # Format for date in output filenames

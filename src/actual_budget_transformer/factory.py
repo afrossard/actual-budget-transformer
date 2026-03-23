@@ -23,11 +23,12 @@ from actual_budget_transformer.processors.ubs_csv_transaction_processor import (
 from actual_budget_transformer.processors.ubs_cards_csv_transaction_processor import (
     UBSCardsCSVTransactionProcessor,
 )
+from actual_budget_transformer.processors.camt053_processor import Camt053Processor
 
 PROCESSORS = [
     UBSCSVTransactionProcessor,
     UBSCardsCSVTransactionProcessor,
-    # Add more processors here
+    Camt053Processor,
 ]
 
 

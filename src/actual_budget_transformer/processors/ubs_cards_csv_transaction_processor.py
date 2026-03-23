@@ -1,6 +1,9 @@
 from dataclasses import dataclass
 import pandas as pd
-from actual_budget_transformer.processors.base_processor import BaseProcessor, ProcessingResult
+from actual_budget_transformer.processors.base_processor import (
+    BaseProcessor,
+    ProcessingResult,
+)
 from actual_budget_transformer.config import load_config
 
 
@@ -64,9 +67,9 @@ class UBSCardsCSVTransactionProcessor(BaseProcessor):
             encoding=csv_settings["encoding"],
             sep=csv_settings["separator"],
             skiprows=csv_settings["header_row"] - 1,
-            parse_dates=["Date d'achat"],
-            date_parser=lambda x: pd.to_datetime(x, format=date_format),
+            dtype={"Numéro de carte": str, "Date d'achat": str},
         )
+        df["Date d'achat"] = pd.to_datetime(df["Date d'achat"], format=date_format)
 
         # Get the card number and map it to an account name
         card_number = df["Numéro de carte"].iloc[0]
@@ -81,7 +84,7 @@ class UBSCardsCSVTransactionProcessor(BaseProcessor):
                 "debit": df["Débit"].fillna(0),
                 "credit": df["Crédit"].fillna(0),
             }
-        )
+        )[ProcessingResult.COLUMNS]
 
         return ProcessingResult(
             data=result,

@@ -4,7 +4,10 @@ Processor for UBS CSV Transactions extracted from accounts (not UBS cards)
 
 import os
 import pandas as pd
-from actual_budget_transformer.processors.base_processor import BaseProcessor, ProcessingResult
+from actual_budget_transformer.processors.base_processor import (
+    BaseProcessor,
+    ProcessingResult,
+)
 from actual_budget_transformer.logging_config import logger
 from actual_budget_transformer.config import get_account_name, get_processor_config
 
@@ -163,7 +166,7 @@ class UBSCSVTransactionProcessor(BaseProcessor):
         ].apply(lambda x: " ".join(filter(None, x.astype(str))), axis=1)
 
         # Keep only the columns we want
-        df = df[["transaction_date", "payee", "notes", "debit", "credit"]]
+        df = df[ProcessingResult.COLUMNS]
 
         # Get friendly name from config
         account_name = get_account_name(iban)

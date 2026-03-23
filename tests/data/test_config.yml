@@ -35,5 +35,33 @@ processors:
 
     date_format: "%Y-%m-%d"
 
+  ubs_cards:
+    csv_settings:
+      encoding: "iso-8859-1"
+      separator: ";"
+      header_row: 2
+
+    expected_columns:
+      - "Numéro de compte"
+      - "Numéro de carte"
+      - "Titulaire de compte/carte"
+      - "Date d'achat"
+      - "Texte comptable"
+      - "Secteur"
+      - "Montant"
+      - "Monnaie originale"
+      - "Cours"
+      - "Monnaie"
+      - "Débit"
+      - "Crédit"
+      - "Ecriture"
+
+    date_format: "%d.%m.%Y"
+
+    account_names: {}
+
+  camt053:
+    account_names: {}
+
 output:
   date_format: "%Y%m"

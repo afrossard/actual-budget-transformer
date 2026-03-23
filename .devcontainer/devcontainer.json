@@ -35,7 +35,8 @@
         "donjayamanne.githistory",
         "ms-python.pylint",
         "ms-toolsai.jupyter",
-        "ms-azuretools.vscode-containers"
+        "ms-azuretools.vscode-containers",
+        "anthropic.claude-code"
       ]
     }
   }
