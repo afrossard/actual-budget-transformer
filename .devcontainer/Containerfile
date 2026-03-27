@@ -3,6 +3,7 @@ FROM mcr.microsoft.com/devcontainers/python:3-trixie
 # Install Homebrew
 USER vscode
 RUN NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
 # Add env vars and zsh completions to ~/.zshrc
 RUN cat <<EOF >> ~/.zshrc
 # Homebrew env vars
@@ -13,16 +14,22 @@ if type brew &>/dev/null; then
   autoload -Uz compinit
   compinit
 fi
+
+# Starship prompt
+eval "\$(starship init zsh)"
 EOF
 
 ENV PATH="/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:${PATH}"
 
-RUN brew install zsh-completions dive
+RUN brew install zsh-completions dive starship
 
-RUN sudo apt-get update && sudo apt-get install --no-install-recommends --yes vim rsync
+# Configure Starship prompt with pure preset
+RUN mkdir -p ~/.config && starship preset pure-preset -o ~/.config/starship.toml
 
 # Set zsh as default shell
 RUN sudo chsh -s /bin/zsh vscode
+
+RUN sudo apt-get update && sudo apt-get install --no-install-recommends --yes vim rsync
 
 # Install UV
 COPY --from=ghcr.io/astral-sh/uv:0.9.12 /uv /uvx /bin/

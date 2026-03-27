@@ -26,6 +26,10 @@
   // Configure tool-specific properties.
   "customizations": {
     "vscode": {
+      "settings": {
+        "terminal.integrated.fontFamily": "FiraCode Nerd Font, monospace",
+        "terminal.integrated.defaultProfile.linux": "zsh"
+      },
       "extensions": [
         "EditorConfig.EditorConfig",
         "esbenp.prettier-vscode",
