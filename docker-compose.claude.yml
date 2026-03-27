@@ -1,0 +1,23 @@
+services:
+  claude:
+    container_name: claude-code
+    build:
+      context: .devcontainer/claude
+      dockerfile: Containerfile
+    volumes:
+      # Shared workspace — uses host path so both containers see the same files
+      - ${LOCAL_WORKSPACE_FOLDER:-.}:/workspaces/actual-budget-transformer
+      # Persist Claude auth tokens across container restarts
+      - claude-auth:/home/vscode/.claude
+    working_dir: /workspaces/actual-budget-transformer
+    environment:
+      - UV_LINK_MODE=copy
+      - CLAUDE_CONFIG_DIR=/home/vscode/.claude
+    user: vscode
+    stdin_open: true
+    tty: true
+    # No docker socket, no SSH agent, no git credentials, no network secrets
+    # Only the workspace and Claude auth are mounted
+
+volumes:
+  claude-auth:
