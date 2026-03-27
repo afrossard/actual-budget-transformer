@@ -7,19 +7,37 @@ dates, amounts, balances, currencies, and CSV structure.
 
 Usage:
     python scripts/anonymize_ubs_csv.py input.csv output.csv
+
+The salt is read from the ``ANONYMIZE_SALT`` environment variable, or prompted
+interactively (not echoed). To set it without it appearing in shell history:
+
+    read -s ANONYMIZE_SALT && export ANONYMIZE_SALT
 """
 
+import argparse
 import csv
-import hashlib
 import io
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _anonymize_utils import (  # pylint: disable=wrong-import-position
+    _hash8,
+    fake_account,
+    fake_iban,
+    fake_text,
+    get_salt,
+    shift_dates_iso,
+)
 
 # Header rows (1-based) and the column index (0-based) holding the sensitive value
 ACCOUNT_ROW = 1  # "Numéro de compte:"
 IBAN_ROW = 2  # "IBAN:"
 
 # Transaction column indices (0-based), after the blank line + header row
+TRANSACTION_DATE_COL = 0  # Date de transaction
+BOOKING_DATE_COL = 2  # Date de comptabilisation
+VALUE_DATE_COL = 3  # Date de valeur
 TRANSACTION_REF_COL = 9  # N° de transaction
 DESCRIPTION1_COL = 10  # Description1 (payee)
 DESCRIPTION2_COL = 11  # Description2
@@ -29,48 +47,15 @@ FOOTNOTES_COL = 13  # Notes de bas de page
 HEADER_ROWS = 8
 
 
-def _hash8(value: str) -> str:
-    """Return an 8-character uppercase hex digest of the value."""
-    return hashlib.sha256(value.encode()).hexdigest()[:8].upper()
-
-
-def fake_account(original: str) -> str:
-    """Return a deterministic fake account number."""
-    return f"ANON-ACCT-{_hash8(original)}"
-
-
-def fake_iban(original: str) -> str:
-    """Keep country code and length, replace the rest deterministically."""
-    clean = original.replace(" ", "")
-    country = clean[:2] if len(clean) >= 2 else "XX"
-    digits = (hashlib.sha256(clean.encode()).hexdigest() * 2)[: len(clean) - 2]
-    digits = "".join(c for c in digits if c.isalnum()).upper()
-    fake = (country + digits)[: len(clean)]
-    # Re-insert spaces at original positions
-    result, j = [], 0
-    for ch in original:
-        if ch == " ":
-            result.append(" ")
-        else:
-            result.append(fake[j])
-            j += 1
-    return "".join(result)
-
-
-def fake_text(original: str) -> str:
-    """Return a deterministic redacted placeholder."""
-    return f"REDACTED-{_hash8(original)}"
-
-
-def fake_ref(original: str) -> str:
+def fake_ref(original: str, salt: str) -> str:
     """Return a deterministic fake transaction reference."""
-    return f"REF-{_hash8(original)}"
+    return f"REF-{_hash8(original, salt)}"
 
 
-def _anonymize_col(cols: list, index: int, fn) -> None:
+def _anonymize_col(cols: list, index: int, fn, salt: str) -> None:
     """Apply fn to cols[index] in place if the value is non-empty."""
     if index < len(cols) and cols[index].strip():
-        cols[index] = fn(cols[index].strip())
+        cols[index] = fn(cols[index].strip(), salt)
 
 
 def _parse_row(line: str) -> list[str]:
@@ -86,7 +71,7 @@ def _write_row(cols: list[str]) -> str:
     return buf.getvalue()
 
 
-def anonymize(input_path: Path, output_path: Path) -> None:
+def anonymize(input_path: Path, output_path: Path, salt: str) -> None:
     """Anonymize sensitive fields in a UBS account CSV file."""
     with open(input_path, "r", encoding="utf-8-sig") as f:
         lines = f.readlines()
@@ -98,18 +83,23 @@ def anonymize(input_path: Path, output_path: Path) -> None:
         if row_number == ACCOUNT_ROW:
             cols = _parse_row(stripped)
             if len(cols) > 1 and cols[1].strip():
-                cols[1] = fake_account(cols[1].strip())
+                cols[1] = fake_account(cols[1].strip(), salt)
             out_lines.append(_write_row(cols))
             continue
 
         if row_number == IBAN_ROW:
             cols = _parse_row(stripped)
             if len(cols) > 1 and cols[1].strip():
-                cols[1] = fake_iban(cols[1].strip())
+                cols[1] = fake_iban(cols[1].strip(), salt)
             out_lines.append(_write_row(cols))
             continue
 
-        # Rows 3–HEADER_ROWS and the blank line + column header row: keep as-is
+        # Rows 3–HEADER_ROWS: shift any dates, keep everything else as-is
+        if row_number <= HEADER_ROWS:
+            out_lines.append(shift_dates_iso(line, salt))
+            continue
+
+        # Blank line + column header row: keep as-is
         if row_number <= HEADER_ROWS + 2:
             out_lines.append(line)
             continue
@@ -120,11 +110,14 @@ def anonymize(input_path: Path, output_path: Path) -> None:
             continue
 
         cols = _parse_row(stripped)
-        _anonymize_col(cols, TRANSACTION_REF_COL, fake_ref)
-        _anonymize_col(cols, DESCRIPTION1_COL, fake_text)
-        _anonymize_col(cols, DESCRIPTION2_COL, fake_text)
-        _anonymize_col(cols, DESCRIPTION3_COL, fake_text)
-        _anonymize_col(cols, FOOTNOTES_COL, fake_text)
+        _anonymize_col(cols, TRANSACTION_DATE_COL, shift_dates_iso, salt)
+        _anonymize_col(cols, BOOKING_DATE_COL, shift_dates_iso, salt)
+        _anonymize_col(cols, VALUE_DATE_COL, shift_dates_iso, salt)
+        _anonymize_col(cols, TRANSACTION_REF_COL, fake_ref, salt)
+        _anonymize_col(cols, DESCRIPTION1_COL, fake_text, salt)
+        _anonymize_col(cols, DESCRIPTION2_COL, fake_text, salt)
+        _anonymize_col(cols, DESCRIPTION3_COL, fake_text, salt)
+        _anonymize_col(cols, FOOTNOTES_COL, fake_text, salt)
         out_lines.append(_write_row(cols))
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -135,7 +128,8 @@ def anonymize(input_path: Path, output_path: Path) -> None:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        print(f"Usage: {sys.argv[0]} <input.csv> <output.csv>")
-        sys.exit(1)
-    anonymize(Path(sys.argv[1]), Path(sys.argv[2]))
+    parser = argparse.ArgumentParser()
+    parser.add_argument("input", type=Path)
+    parser.add_argument("output", type=Path)
+    args = parser.parse_args()
+    anonymize(args.input, args.output, get_salt())

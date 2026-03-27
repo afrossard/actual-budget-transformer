@@ -7,36 +7,37 @@ currencies, and CSV structure.
 
 Usage:
     python scripts/anonymize_ubs_cards.py input.csv output.csv
+
+The salt is read from the ``ANONYMIZE_SALT`` environment variable, or prompted
+interactively (not echoed). To set it without it appearing in shell history:
+
+    read -s ANONYMIZE_SALT && export ANONYMIZE_SALT
 """
 
+import argparse
 import hashlib
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _anonymize_utils import (  # pylint: disable=wrong-import-position
+    _hash8,
+    fake_account,
+    fake_name,
+    get_salt,
+    shift_dates_ch,
+)
 
-def _hash8(value: str) -> str:
-    return hashlib.sha256(value.encode()).hexdigest()[:8].upper()
 
-
-def fake_card_number(original: str) -> str:
+def fake_card_number(original: str, salt: str) -> str:
     """Replace card digits deterministically, preserving length."""
-    digits = hashlib.sha256(original.encode()).hexdigest()
+    digits = hashlib.sha256(f"{salt}:{original}".encode()).hexdigest()
     return "".join(c for c in digits if c.isdigit())[: len(original)]
 
 
-def fake_account_number(original: str) -> str:
-    """Replace account number deterministically."""
-    return f"ANON-ACCT-{_hash8(original)}"
-
-
-def fake_name(original: str) -> str:
-    """Replace a name deterministically."""
-    return f"ANON-{_hash8(original)}"
-
-
-def fake_text(original: str) -> str:
-    """Replace free text deterministically."""
-    return f"MERCHANT-{_hash8(original)}"
+def fake_merchant(original: str, salt: str) -> str:
+    """Replace merchant/sector text deterministically."""
+    return f"MERCHANT-{_hash8(original, salt)}"
 
 
 # Column indices (0-based) in the data rows (after the sep= and header lines)
@@ -46,11 +47,12 @@ def fake_text(original: str) -> str:
 ACCOUNT_COL = 0
 CARD_COL = 1
 HOLDER_COL = 2
+DATE_COL = 3
 MERCHANT_COL = 4
 SECTOR_COL = 5
 
 
-def anonymize(input_path: Path, output_path: Path) -> None:
+def anonymize(input_path: Path, output_path: Path, salt: str) -> None:
     """Anonymize sensitive columns in a UBS cards CSV file."""
     with open(input_path, "r", encoding="iso-8859-1") as f:
         lines = f.readlines()
@@ -76,15 +78,17 @@ def anonymize(input_path: Path, output_path: Path) -> None:
             continue
 
         if len(cols) > ACCOUNT_COL and cols[ACCOUNT_COL].strip():
-            cols[ACCOUNT_COL] = fake_account_number(cols[ACCOUNT_COL].strip())
+            cols[ACCOUNT_COL] = fake_account(cols[ACCOUNT_COL].strip(), salt)
         if len(cols) > CARD_COL and cols[CARD_COL].strip():
-            cols[CARD_COL] = fake_card_number(cols[CARD_COL].strip())
+            cols[CARD_COL] = fake_card_number(cols[CARD_COL].strip(), salt)
         if len(cols) > HOLDER_COL and cols[HOLDER_COL].strip():
-            cols[HOLDER_COL] = fake_name(cols[HOLDER_COL].strip())
+            cols[HOLDER_COL] = fake_name(cols[HOLDER_COL].strip(), salt)
+        if len(cols) > DATE_COL and cols[DATE_COL].strip():
+            cols[DATE_COL] = shift_dates_ch(cols[DATE_COL].strip(), salt)
         if len(cols) > MERCHANT_COL and cols[MERCHANT_COL].strip():
-            cols[MERCHANT_COL] = fake_text(cols[MERCHANT_COL].strip())
+            cols[MERCHANT_COL] = fake_merchant(cols[MERCHANT_COL].strip(), salt)
         if len(cols) > SECTOR_COL and cols[SECTOR_COL].strip():
-            cols[SECTOR_COL] = fake_text(cols[SECTOR_COL].strip())
+            cols[SECTOR_COL] = fake_merchant(cols[SECTOR_COL].strip(), salt)
 
         out_lines.append(";".join(cols) + "\n")
 
@@ -96,7 +100,8 @@ def anonymize(input_path: Path, output_path: Path) -> None:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        print(f"Usage: {sys.argv[0]} <input.csv> <output.csv>")
-        sys.exit(1)
-    anonymize(Path(sys.argv[1]), Path(sys.argv[2]))
+    parser = argparse.ArgumentParser()
+    parser.add_argument("input", type=Path)
+    parser.add_argument("output", type=Path)
+    args = parser.parse_args()
+    anonymize(args.input, args.output, get_salt())

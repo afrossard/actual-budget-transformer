@@ -102,11 +102,25 @@ docker run --rm -it \
 
 ## Test data
 
-Real bank statement files can be anonymized before committing as test fixtures using the provided scripts. Both replace sensitive fields with deterministic fakes (same input → same output) while preserving amounts, dates, and structure.
+Real bank statement files can be anonymized before committing as test fixtures using the provided scripts. They replace sensitive fields with deterministic fakes (same input → same output) while preserving amounts, dates, and structure.
+
+### Salt setup
+
+The scripts require a secret salt to make the hashes irreversible. Generate one and set it for the session:
+
+```bash
+# Generate a strong salt (copy the output to a password manager)
+python -c "import secrets; print(secrets.token_hex(32))"
+
+# Set it for the current shell session (not saved to history)
+read -s ANONYMIZE_SALT && export ANONYMIZE_SALT
+```
+
+If `ANONYMIZE_SALT` is not set, the scripts will prompt interactively.
 
 ### CAMT.053 XML files
 
-Replaces IBANs, names, addresses, and remittance text. IBANs in filenames are also replaced.
+Replaces IBANs, names, addresses, postal codes, BIC codes, and remittance text. IBANs in filenames are also replaced.
 
 ```bash
 for f in /path/to/real/exports/*.xml; do
@@ -120,6 +134,14 @@ Replaces account number, card number, cardholder name, merchant names, and secto
 
 ```bash
 python scripts/anonymize_ubs_cards.py /path/to/real/cards.csv tests/data/ubs_cards_valid.csv
+```
+
+### UBS account CSV files
+
+Replaces account number, IBAN, transaction reference, and description fields.
+
+```bash
+python scripts/anonymize_ubs_csv.py /path/to/real/account.csv tests/data/ubs_valid.csv
 ```
 
 ## Debug

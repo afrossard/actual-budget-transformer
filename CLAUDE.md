@@ -102,30 +102,37 @@ os.environ["ACTUAL_BUDGET_TRANSFORMER_CONFIG"] = os.path.join(DATA_DIR, "test_co
 
 ### Anonymizing test data
 
-> **Security rule — mandatory for public repos:** Always use `--salt <SECRET>` when running any anonymization script. Without a salt, the hash is deterministic and reversible by brute-force: Swiss IBANs, card numbers, and account numbers are finite enumerable sets, so an attacker who knows the algorithm (it's in the repo) can recover the original value. The salt must be kept private and never committed.
+> **Security rule — mandatory for public repos:** The salt must be high-entropy (generate with `python -c "import secrets; print(secrets.token_hex(32))"`), kept private, and never committed. Without a strong secret salt, hashes are reversible by brute-force: Swiss IBANs, card numbers, and account numbers are finite enumerable sets, so an attacker who knows the algorithm (it's in the repo) can recover the original value.
+>
+> **Never pass the salt as a CLI argument** — it would appear in shell history and process listings. Set it via the environment variable instead (see below).
 >
 > For the same reason: **never hardcode fake account identifiers** (IBANs, card numbers) in test source files or fixture filenames. Use semantic fixture names (e.g. `camt_single_debit.xml`) and read identifiers dynamically in tests.
 
-Three scripts are available to anonymize real files before committing them as fixtures.
+Three scripts are available to anonymize real files before committing them as fixtures. The salt is read from `ANONYMIZE_SALT` (preferred) or prompted interactively.
 
-**CAMT.053 XML** (`scripts/anonymize_camt.py`) — replaces IBANs, names, addresses, remittance text, and reference IDs. IBANs in the output filename are also replaced.
+```bash
+# Set the salt for the session without it entering shell history
+read -s ANONYMIZE_SALT && export ANONYMIZE_SALT
+```
+
+**CAMT.053 XML** (`scripts/anonymize_camt.py`) — replaces IBANs, names, addresses, postal codes, BIC codes, remittance text, and reference IDs. IBANs in the output filename are also replaced.
 
 ```bash
 for f in /path/to/real/exports/*.xml; do
-    python scripts/anonymize_camt.py --salt <SECRET> "$f" tests/data/
+    python scripts/anonymize_camt.py "$f" tests/data/
 done
 ```
 
 **UBS cards CSV** (`scripts/anonymize_ubs_cards.py`) — replaces account number, card number, cardholder name, merchant names, and sector. Footer/summary lines are preserved as-is.
 
 ```bash
-python scripts/anonymize_ubs_cards.py --salt <SECRET> /path/to/real/cards.csv tests/data/ubs_cards_anon_1.csv
+python scripts/anonymize_ubs_cards.py /path/to/real/cards.csv tests/data/ubs_cards_anon_1.csv
 ```
 
 **UBS account CSV** (`scripts/anonymize_ubs_csv.py`) — replaces account number, IBAN, transaction reference, and description fields.
 
 ```bash
-python scripts/anonymize_ubs_csv.py --salt <SECRET> /path/to/real/account.csv tests/data/ubs_valid.csv
+python scripts/anonymize_ubs_csv.py /path/to/real/account.csv tests/data/ubs_valid.csv
 ```
 
 ---

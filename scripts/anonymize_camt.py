@@ -11,39 +11,32 @@ IBANs found in the input filename are also replaced in the output filename.
 Usage:
     python scripts/anonymize_camt.py input.xml output_dir/
     python scripts/anonymize_camt.py input.xml output.xml
+
+The salt is read from the ``ANONYMIZE_SALT`` environment variable, or prompted
+interactively (not echoed). To set it without it appearing in shell history:
+
+    read -s ANONYMIZE_SALT && export ANONYMIZE_SALT
 """
 
-import hashlib
+import argparse
 import re
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-# Matches IBANs: 2-letter country code, 2 check digits, 4-30 alphanumeric chars
-_IBAN_RE = re.compile(r"[A-Z]{2}[0-9]{2}[A-Z0-9]{4,30}")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _anonymize_utils import (  # pylint: disable=wrong-import-position
+    _hash8,
+    fake_iban,
+    fake_name,
+    fake_text,
+    get_salt,
+    shift_dates_iso,
+)
 
-
-def _hash8(value: str) -> str:
-    return hashlib.sha256(value.encode()).hexdigest()[:8].upper()
-
-
-def fake_iban(original: str) -> str:
-    """Keep country code and original length, replace the rest deterministically."""
-    country = original[:2] if len(original) >= 2 else "XX"
-    digits = (hashlib.sha256(original.encode()).hexdigest() * 2)[: len(original) - 2]
-    # Use only alphanumeric chars matching IBAN charset
-    digits = "".join(c for c in digits if c.isalnum()).upper()
-    return (country + digits)[: len(original)]
-
-
-def fake_name(original: str) -> str:
-    """Return a deterministic anonymized name."""
-    return f"ANON-{_hash8(original)}"
-
-
-def fake_text(original: str) -> str:
-    """Return a deterministic redacted placeholder."""
-    return f"REDACTED-{_hash8(original)}"
+# Matches alphanumeric tokens of 8+ characters in filenames (identifiers,
+# IBANs, statement IDs, etc.).  Short tokens like "Z53" or "CHF" are kept.
+_ID_TOKEN_RE = re.compile(r"[A-Za-z0-9]{8,}")
 
 
 # Local XML tag names whose text content should be anonymized
@@ -57,17 +50,24 @@ TEXT_TAGS = {
     "MsgId",  # Message ID
     "AcctSvcrRef",  # Account servicer reference
     "AdrLine",  # Address line
+    "Pstl",  # Postal code
+    "TwnNm",  # Town name
     "AddtlTxInf",  # Additional transaction information
     "AddtlNtryInf",  # Additional entry information
+    "BICFI",  # BIC code (identifies counterparty bank)
+    "BIC",  # BIC code (alternative tag)
 }
 
 
-def anonymize_filename(name: str) -> str:
-    """Replace any IBANs found in a filename stem with their fake counterparts."""
-    return _IBAN_RE.sub(lambda m: fake_iban(m.group()), name)
+def anonymize_filename(name: str, salt: str) -> str:
+    """Replace long alphanumeric tokens and shift dates in a filename."""
+    name = shift_dates_iso(name, salt)
+    return _ID_TOKEN_RE.sub(lambda m: _hash8(m.group(), salt), name)
 
 
-def anonymize(input_path: Path, output_path: Path) -> None:
+def anonymize(  # pylint: disable=too-many-branches
+    input_path: Path, output_path: Path, salt: str
+) -> None:
     """Anonymize sensitive fields in a CAMT.053 XML file and write the result."""
     # Preserve all namespace declarations from the original document
     for _, elem in ET.iterparse(input_path, events=["start-ns"]):
@@ -77,23 +77,36 @@ def anonymize(input_path: Path, output_path: Path) -> None:
     tree = ET.parse(input_path)
     root = tree.getroot()
 
+    # Anonymize Stmt/Id elements (statement identifier — too generic to match
+    # by tag name alone since <Id> appears in many unrelated contexts).
+    for stmt_id in root.findall(".//{*}Stmt/{*}Id"):
+        if stmt_id.text and stmt_id.text.strip():
+            stmt_id.text = fake_text(stmt_id.text.strip(), salt)
+
     for elem in root.iter():
         local = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
         text = elem.text
         if not text or not text.strip():
             continue
         if local in IBAN_TAGS:
-            elem.text = fake_iban(text.strip())
+            elem.text = fake_iban(text.strip(), salt)
         elif local in NAME_TAGS:
-            elem.text = fake_name(text.strip())
+            elem.text = fake_name(text.strip(), salt)
         elif local in TEXT_TAGS:
-            elem.text = fake_text(text.strip())
+            elem.text = fake_text(text.strip(), salt)
 
-    anon_filename = anonymize_filename(input_path.name)
+    # Shift all ISO dates (YYYY-MM-DD) in every element's text
+    for elem in root.iter():
+        if elem.text:
+            shifted = shift_dates_iso(elem.text, salt)
+            if shifted != elem.text:
+                elem.text = shifted
+
+    anon_filename = anonymize_filename(input_path.name, salt)
     if output_path.is_dir() or not output_path.suffix:
         output_path = output_path / anon_filename
     else:
-        output_path = output_path.parent / anonymize_filename(output_path.name)
+        output_path = output_path.parent / anonymize_filename(output_path.name, salt)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     tree.write(output_path, encoding="unicode", xml_declaration=True)
@@ -101,7 +114,8 @@ def anonymize(input_path: Path, output_path: Path) -> None:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        print(f"Usage: {sys.argv[0]} <input.xml> <output.xml>")
-        sys.exit(1)
-    anonymize(Path(sys.argv[1]), Path(sys.argv[2]))
+    parser = argparse.ArgumentParser()
+    parser.add_argument("input", type=Path)
+    parser.add_argument("output", type=Path)
+    args = parser.parse_args()
+    anonymize(args.input, args.output, get_salt())
