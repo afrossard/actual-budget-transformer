@@ -58,10 +58,12 @@ processors:
 
     date_format: "%d.%m.%Y"
 
-    account_names: {}
+    account_names:
+      "9659086893219337559": "test_card"
 
   camt053:
-    account_names: {}
+    account_names:
+      "CH9DDDC4D8456C5AFFACD": "test_account"
 
 output:
   date_format: "%Y%m"
