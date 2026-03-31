@@ -86,11 +86,11 @@ def test_process_debit_row_fields():
 
 
 def test_process_credit_row_fields():
-    # Credit row: 06.02.2020, credit=50
+    # Credit row: 06.01.2020, credit=50
     result = UBSCardsCSVTransactionProcessor().process(VALID_MAPPED)
     df = result.data
     row = df[
-        (df["transaction_date"] == pd.Timestamp("2020-02-06")) & (df["credit"] > 0)
+        (df["transaction_date"] == pd.Timestamp("2020-01-06")) & (df["credit"] > 0)
     ].iloc[0]
     assert pytest.approx(row["credit"]) == 50
     assert row["debit"] == 0
