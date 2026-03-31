@@ -48,20 +48,18 @@ def save_monthly_transactions(df, output_dir: str, output_prefix: str) -> None:
                 existing_df["transaction_date"]
             )
 
-            # Find new transactions by comparing all columns
-            merged = month_df.merge(
-                existing_df,
-                on=["transaction_date", "payee", "notes", "debit", "credit"],
-                how="left",
-                indicator=True,
-            )
-            new_transactions = merged[merged["_merge"] == "left_only"].drop(
-                columns=["_merge"]
-            )
+            # Find new transactions by combining and dropping duplicates.
+            # Fill NaN in text columns so empty strings from processors
+            # match NaN values from CSV round-trips.
+            compare_cols = ["transaction_date", "payee", "notes", "debit", "credit"]
+            text_cols = ["payee", "notes"]
+            existing_df[text_cols] = existing_df[text_cols].fillna("")
+            month_df[text_cols] = month_df[text_cols].fillna("")
+            combined_df = pd.concat([existing_df, month_df])
+            combined_df = combined_df.drop_duplicates(subset=compare_cols, keep="first")
+            new_count = len(combined_df) - len(existing_df)
 
-            if len(new_transactions) > 0:
-                # Combine existing and new transactions
-                combined_df = pd.concat([existing_df, new_transactions])
+            if new_count > 0:
 
                 # Sort by date
                 combined_df = combined_df.sort_values("transaction_date")
@@ -70,12 +68,12 @@ def save_monthly_transactions(df, output_dir: str, output_prefix: str) -> None:
                 combined_df.to_csv(output_path, index=False)
 
                 files_updated.append(output_filename)
-                new_transactions_by_month[yearmonth] = len(new_transactions)
+                new_transactions_by_month[yearmonth] = new_count
                 transactions_by_month[yearmonth] = len(combined_df)
 
                 logger.info(
                     "Added %d new transactions to existing file %s (total: %d)",
-                    len(new_transactions),
+                    new_count,
                     output_filename,
                     len(combined_df),
                 )
