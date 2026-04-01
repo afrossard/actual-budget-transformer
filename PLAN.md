@@ -236,6 +236,50 @@ Produces a `Document` with `BkToCstmrStmt/GrpHdr` (UUID `MsgId`, `CreDtTm`), and
 
 ---
 
+### Iteration 2.1b — Preserve Transaction References Through the Pipeline
+
+**Goal:** Ensure that transaction reference IDs survive the input→output round-trip. When the output format is CAMT.053, each `Ntry` should carry a meaningful `AcctSvcrRef`. This is critical because Actual Budget uses `AcctSvcrRef` as the sole `imported_id` for deduplication on import ([source](https://github.com/actualbudget/actual/blob/master/packages/loot-core/src/server/transactions/import/xmlcamt2json.ts)). Three scenarios:
+
+| Source | Reference available? | Strategy |
+|--------|---------------------|----------|
+| CAMT.053 input | Yes — `AcctSvcrRef` (always), sometimes `EndToEndId` | Preserve as-is |
+| UBS account CSV | Yes — `transaction_number` column (e.g. `1234563AB9269773`) | Carry through as `AcctSvcrRef` |
+| UBS cards CSV | No | Generate a reproducible hash from `(transaction_date, payee, amount, direction)` so the same row always produces the same ID |
+
+**Changes:**
+
+1. **`ProcessingResult.COLUMNS`** — append `"reference"` to the column list (all processors must now include this column)
+
+2. **`camt053_parser.py`** — extract `acct_svcr_ref` from each `Ntry` and include it as a `reference` key in `Camt053Entry`
+
+3. **`camt053_processor.py`** — map `reference` into the DataFrame
+
+4. **`ubs_csv_transaction_processor.py`** — rename `transaction_number` → `reference` in the column mapping instead of discarding it
+
+5. **`ubs_cards_csv_transaction_processor.py`** — generate a reproducible reference via a deterministic hash:
+   ```python
+   import hashlib
+   def _generate_reference(row) -> str:
+       key = f"{row['transaction_date']}|{row['payee']}|{row['debit']}|{row['credit']}"
+       return hashlib.sha256(key.encode()).hexdigest()[:16]
+   ```
+
+6. **`camt053_writer.py`** — if `reference` column is present and non-empty, set `AcctSvcrRef` on the `Ntry` and `Refs/AcctSvcrRef` on the `TxDtls` (Actual Budget only reads `AcctSvcrRef` — `EndToEndId` is ignored, so we don't need to populate it)
+
+7. **`main.py`** — `save_monthly_transactions` (CSV output) includes `reference` in the written columns; existing CSV output gains the column but is otherwise unchanged
+
+**Tests:**
+- CAMT parser returns `reference` for each entry
+- CAMT processor DataFrame includes `reference` column
+- UBS CSV processor carries `transaction_number` through as `reference`
+- UBS cards processor generates stable references (same input → same hash)
+- UBS cards processor generates distinct references for different rows
+- CAMT writer round-trip preserves the original reference
+- CAMT writer with empty reference produces valid XML (no `AcctSvcrRef`)
+- `ProcessingResult` rejects DataFrame missing `reference` column
+
+---
+
 ### Iteration 2.2 — `--format` Flag + Output Integration
 
 **Files modified:**
@@ -264,7 +308,7 @@ Harden `save_monthly_camt053` to handle the incremental-export scenario (same as
 When a monthly `.xml` already exists:
 1. Parse the existing file with `parse_camt053`
 2. Convert to DataFrame
-3. Deduplicate on `(transaction_date, payee, debit, credit)`
+3. Deduplicate: prefer `reference` when present, fall back to `(transaction_date, payee, debit, credit)`
 4. Rebuild with `build_camt053_document` and overwrite
 
 Logs new vs. existing transaction counts using the same `logger.info` pattern as `save_monthly_transactions`.
