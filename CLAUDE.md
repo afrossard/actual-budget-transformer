@@ -149,7 +149,8 @@ Branch `feature/handle-camt-files` adds support for **CAMT.053** (ISO 20022 XML 
 - Iteration 1.3b ✅ — `ProcessingResult.COLUMNS` centralised in `BaseProcessor` with `__post_init__` validation
 - Iteration 1.3c ✅ — UBS cards processor tests added; also fixed card number read as float bug and deprecated `date_parser` warning
 - Iteration 1.4 ✅ — `Camt053Processor` registered in factory; `camt053` section added to `config.template.yml`; factory + integration tests added
-- Next: Iteration 2.1 — CAMT.053 XML Builder Utility
+- Iteration 2.1 ✅ — `build_camt053_document` implemented in `writers/camt053_writer.py` with roundtrip tests
+- Next: Iteration 2.2 — `--format` flag + output integration
 
 **Key decisions:**
 - Use `pyiso20022` + `xsdata` for parsing/generating CAMT.053 (not stdlib `xml.etree`)

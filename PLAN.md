@@ -212,7 +212,7 @@ Follows the same pattern as `test_ubs_csv_transaction_processor.py`. Requires ad
 
 ## Feature 2: CAMT.053 Output Writer
 
-### Iteration 2.1 — XML Builder Utility
+### Iteration 2.1 — XML Builder Utility ✅
 
 **New file:** `src/actual_budget_transformer/writers/camt053_writer.py`
 **New file:** `src/actual_budget_transformer/writers/__init__.py` (empty)
