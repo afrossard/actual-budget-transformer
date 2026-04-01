@@ -1,4 +1,3 @@
-# pylint: disable=missing-function-docstring,missing-module-docstring
 import os
 
 import pandas as pd
@@ -99,7 +98,7 @@ def test_process_credit_row_fields():
 def test_can_process_returns_false_for_wrong_encoding(tmp_path):
     # A valid-structure file saved as UTF-8 instead of iso-8859-1 should be rejected
     # because accented column names won't match when read as iso-8859-1
-    with open(VALID_MAPPED, "r", encoding="iso-8859-1") as fh:
+    with open(VALID_MAPPED, encoding="iso-8859-1") as fh:
         src = fh.read()
     f = tmp_path / "utf8.csv"
     f.write_text(src, encoding="utf-8")

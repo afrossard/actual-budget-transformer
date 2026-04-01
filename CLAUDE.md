@@ -165,5 +165,4 @@ Branch `feature/handle-camt-files` adds support for **CAMT.053** (ISO 20022 XML 
 | pyyaml       | Config file loading                       |
 | pyiso20022   | CAMT.053 typed dataclasses (via xsdata)   |
 | pytest       | Test runner (dev only)                    |
-| pylint       | Linter (dev only)                         |
-| black        | Code formatter (dev only)                 |
+| ruff         | Linter & formatter (dev only)             |

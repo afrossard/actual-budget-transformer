@@ -1,4 +1,3 @@
-# pylint: disable=missing-function-docstring,missing-module-docstring
 import os
 
 from actual_budget_transformer.processors.ubs_csv_transaction_processor import (

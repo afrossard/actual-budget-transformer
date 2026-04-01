@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-# pylint:disable=C0114
 import argparse
+import logging
 import os
 import sys
-import logging
+
 import pandas as pd
+
+from actual_budget_transformer.config import load_config
 from actual_budget_transformer.factory import get_processor_for_file
 from actual_budget_transformer.logging_config import logger
-from actual_budget_transformer.config import load_config
 
 
 def save_monthly_transactions(df, output_dir: str, output_prefix: str) -> None:
@@ -60,7 +61,6 @@ def save_monthly_transactions(df, output_dir: str, output_prefix: str) -> None:
             new_count = len(combined_df) - len(existing_df)
 
             if new_count > 0:
-
                 # Sort by date
                 combined_df = combined_df.sort_values("transaction_date")
 

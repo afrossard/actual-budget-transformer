@@ -1,4 +1,3 @@
-# pylint: disable=missing-function-docstring,missing-module-docstring
 import os
 
 import pandas as pd
@@ -8,11 +7,11 @@ from actual_budget_transformer.processors.base_processor import ProcessingResult
 from actual_budget_transformer.processors.camt053_processor import Camt053Processor
 from tests.conftest import (
     DATA_DIR,
-    XML_FIXTURES,
-    SINGLE_DEBIT,
-    SINGLE_CREDIT,
     MULTI_ENTRY,
     NO_ENTRIES,
+    SINGLE_CREDIT,
+    SINGLE_DEBIT,
+    XML_FIXTURES,
 )
 
 CSV_FIXTURE = os.path.join(DATA_DIR, "ubs_valid.csv")

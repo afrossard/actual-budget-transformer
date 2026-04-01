@@ -1,4 +1,3 @@
-# pylint: disable=missing-function-docstring,missing-module-docstring
 import glob
 import os
 

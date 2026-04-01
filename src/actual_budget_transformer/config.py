@@ -2,8 +2,9 @@
 
 import os
 from pathlib import Path
-from typing import Dict, Optional
+
 import yaml
+
 from actual_budget_transformer.logging_config import logger
 
 # Environment variable for config path
@@ -17,9 +18,9 @@ class _ConfigManager:
     """Manages loading and caching of the application configuration."""
 
     def __init__(self):
-        self._config_cache: Optional[Dict] = None
+        self._config_cache: dict | None = None
 
-    def load(self, config_path_override: Optional[str] = None) -> Dict:
+    def load(self, config_path_override: str | None = None) -> dict:
         """
         Load configuration from a YAML file, caching the result.
 
@@ -36,8 +37,10 @@ class _ConfigManager:
 
         if not config_path:
             logger.warning(
-                "Configuration file not specified via argument or %s environment variable. "
-                "Using default settings. Please copy config.template.yml to create your configuration.",
+                "Configuration file not specified via argument or "
+                "%s environment variable. Using default settings. "
+                "Please copy config.template.yml to create your "
+                "configuration.",
                 CONFIG_PATH_ENV,
             )
             self._config_cache = config
@@ -46,7 +49,7 @@ class _ConfigManager:
         try:
             path = Path(config_path)
             if path.exists():
-                with open(path, "r", encoding="utf-8") as f:
+                with open(path, encoding="utf-8") as f:
                     loaded_config = yaml.safe_load(f)
                     if loaded_config:
                         logger.info("Loaded configuration from %s", path)
@@ -67,11 +70,12 @@ class _ConfigManager:
 _config_manager = _ConfigManager()
 
 
-def load_config(config_path_override: Optional[str] = None) -> Dict:
+def load_config(config_path_override: str | None = None) -> dict:
     """
     Load configuration from a YAML file.
 
-    The configuration is loaded once and cached. Subsequent calls return the cached version.
+    The configuration is loaded once and cached.
+    Subsequent calls return the cached version.
     The config file location is determined in the following order:
     1. The `config_path_override` argument.
     2. The `ACTUAL_BUDGET_TRANSFORMER_CONFIG` environment variable.
@@ -85,7 +89,7 @@ def load_config(config_path_override: Optional[str] = None) -> Dict:
     return _config_manager.load(config_path_override)
 
 
-def get_processor_config(processor_name: str) -> Dict:
+def get_processor_config(processor_name: str) -> dict:
     """
     Get configuration for a specific processor.
 

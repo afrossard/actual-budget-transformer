@@ -1,10 +1,12 @@
 from dataclasses import dataclass
+
 import pandas as pd
+
+from actual_budget_transformer.config import load_config
 from actual_budget_transformer.processors.base_processor import (
     BaseProcessor,
     ProcessingResult,
 )
-from actual_budget_transformer.config import load_config
 
 
 @dataclass
@@ -28,7 +30,7 @@ class UBSCardsCSVTransactionProcessor(BaseProcessor):
 
             # Check if all expected columns are present
             return all(col in df.columns for col in expected_columns)
-        except Exception:  # pylint: disable=broad-except
+        except Exception:  # noqa: BLE001
             return False
 
     @classmethod
@@ -36,7 +38,7 @@ class UBSCardsCSVTransactionProcessor(BaseProcessor):
         """Check if this processor can handle the file."""
         try:
             # First check for the sep=; line
-            with open(file_path, "r", encoding="iso-8859-1") as f:
+            with open(file_path, encoding="iso-8859-1") as f:
                 first_line = f.readline().strip()
                 if first_line != "sep=;":
                     return False
@@ -46,7 +48,7 @@ class UBSCardsCSVTransactionProcessor(BaseProcessor):
             # Create instance for validation
             instance = cls()
             return instance._validate_headers(file_path, config)
-        except Exception:  # pylint: disable=broad-except
+        except Exception:  # noqa: BLE001
             return False
 
     def process(self, file_path: str) -> ProcessingResult:

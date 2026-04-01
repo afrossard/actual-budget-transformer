@@ -1,9 +1,10 @@
-# pylint: disable=missing-function-docstring,missing-module-docstring
 import os
 
+import pandas as pd
 import pytest
 
 from actual_budget_transformer.factory import get_processor_for_file
+from actual_budget_transformer.main import process_single_file
 from actual_budget_transformer.processors.camt053_processor import Camt053Processor
 from actual_budget_transformer.processors.ubs_cards_csv_transaction_processor import (
     UBSCardsCSVTransactionProcessor,
@@ -11,9 +12,7 @@ from actual_budget_transformer.processors.ubs_cards_csv_transaction_processor im
 from actual_budget_transformer.processors.ubs_csv_transaction_processor import (
     UBSCSVTransactionProcessor,
 )
-from actual_budget_transformer.main import process_single_file
-import pandas as pd
-from tests.conftest import DATA_DIR, XML_FIXTURES, SINGLE_DEBIT, MULTI_ENTRY
+from tests.conftest import DATA_DIR, MULTI_ENTRY, SINGLE_DEBIT, XML_FIXTURES
 
 UBS_CSV_FIXTURE = os.path.join(DATA_DIR, "ubs_valid.csv")
 UBS_CARDS_FIXTURE = os.path.join(DATA_DIR, "ubs_cards_1.csv")

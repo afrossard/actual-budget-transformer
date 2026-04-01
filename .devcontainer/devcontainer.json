@@ -34,10 +34,9 @@
         "EditorConfig.EditorConfig",
         "esbenp.prettier-vscode",
         "eamodio.gitlens",
-        "ms-python.black-formatter",
+        "charliermarsh.ruff",
         "mhutchie.git-graph",
         "donjayamanne.githistory",
-        "ms-python.pylint",
         "ms-toolsai.jupyter",
         "ms-azuretools.vscode-containers"
       ]

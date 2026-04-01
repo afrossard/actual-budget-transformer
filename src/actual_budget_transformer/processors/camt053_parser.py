@@ -3,8 +3,8 @@
 import datetime
 from typing import TypedDict
 
-from xsdata.formats.dataclass.parsers import XmlParser
 from pyiso20022.camt.camt_053_001_08.camt_053_001_08 import Document
+from xsdata.formats.dataclass.parsers import XmlParser
 
 
 class Camt053Entry(TypedDict):

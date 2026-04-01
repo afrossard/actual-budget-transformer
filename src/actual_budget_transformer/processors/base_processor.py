@@ -1,4 +1,3 @@
-# pylint: disable=C0114
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
