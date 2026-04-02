@@ -157,7 +157,7 @@ class UBSCSVTransactionProcessor(BaseProcessor):
             "credit",
             "sub_amount",
             "balance",
-            "transaction_number",
+            "reference",
             "payee",
             "description2",
             "description3",

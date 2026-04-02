@@ -47,7 +47,8 @@ def test_no_entries_returns_empty_list():
 def test_entry_has_expected_keys():
     _, entries = parse_camt053(SINGLE_DEBIT)
     entry = entries[0]
-    assert set(entry.keys()) == {"date", "amount", "direction", "payee", "notes"}
+    expected = {"date", "amount", "direction", "payee", "notes", "reference"}
+    assert set(entry.keys()) == expected
 
 
 def test_payee_is_string():
@@ -64,6 +65,12 @@ def test_uses_value_date_when_differs_from_booking_date():
     _, entries = parse_camt053(VALDT_DIFFERS)
     # First entry has ValDt=2020-02-24, BookgDt=2020-02-25
     assert entries[0]["date"] == datetime.date(2020, 2, 24)
+
+
+def test_reference_is_string():
+    _, entries = parse_camt053(SINGLE_DEBIT)
+    assert isinstance(entries[0]["reference"], str)
+    assert len(entries[0]["reference"]) > 0
 
 
 def test_non_xml_raises_value_error(tmp_path):

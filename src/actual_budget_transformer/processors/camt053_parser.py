@@ -15,6 +15,7 @@ class Camt053Entry(TypedDict):
     direction: str  # 'DBIT' or 'CRDT'
     payee: str
     notes: str
+    reference: str
 
 
 def _extract_payee_and_notes(ntry) -> tuple[str, str]:
@@ -69,6 +70,8 @@ def parse_camt053(file_path: str) -> tuple[str, list[Camt053Entry]]:
 
         payee, notes = _extract_payee_and_notes(ntry)
 
+        reference = ntry.acct_svcr_ref or ""
+
         entries.append(
             Camt053Entry(
                 date=date,
@@ -76,6 +79,7 @@ def parse_camt053(file_path: str) -> tuple[str, list[Camt053Entry]]:
                 direction=direction,
                 payee=payee,
                 notes=notes,
+                reference=reference,
             )
         )
 

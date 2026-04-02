@@ -89,6 +89,12 @@ def test_process_transaction_date_is_timestamp():
     assert isinstance(result.data.iloc[0]["transaction_date"], pd.Timestamp)
 
 
+def test_process_includes_reference_column():
+    result = Camt053Processor().process(SINGLE_DEBIT)
+    assert "reference" in result.data.columns
+    assert result.data.iloc[0]["reference"] != ""
+
+
 def test_processing_result_rejects_missing_columns():
     df = pd.DataFrame({"transaction_date": [], "payee": []})
     with pytest.raises(ValueError, match="missing columns"):

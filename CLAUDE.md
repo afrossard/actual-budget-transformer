@@ -150,6 +150,7 @@ Branch `feature/handle-camt-files` adds support for **CAMT.053** (ISO 20022 XML 
 - Iteration 1.3c ✅ — UBS cards processor tests added; also fixed card number read as float bug and deprecated `date_parser` warning
 - Iteration 1.4 ✅ — `Camt053Processor` registered in factory; `camt053` section added to `config.template.yml`; factory + integration tests added
 - Iteration 2.1 ✅ — `build_camt053_document` implemented in `writers/camt053_writer.py` with roundtrip tests
+- Iteration 2.1b ✅ — `reference` column added to pipeline; CAMT preserves `AcctSvcrRef`, UBS CSV carries `transaction_number`, UBS cards generates deterministic hash from configurable `reference_columns`
 - Next: Iteration 2.2 — `--format` flag + output integration
 
 **Key decisions:**

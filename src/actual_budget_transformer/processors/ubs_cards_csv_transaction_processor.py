@@ -1,3 +1,4 @@
+import hashlib
 from dataclasses import dataclass
 
 import pandas as pd
@@ -86,7 +87,20 @@ class UBSCardsCSVTransactionProcessor(BaseProcessor):
                 "debit": df["Débit"].fillna(0),
                 "credit": df["Crédit"].fillna(0),
             }
-        )[ProcessingResult.COLUMNS]
+        )
+
+        # Generate deterministic references from columns configured in
+        # reference_columns (typically original-currency fields that are
+        # stable across exports, unlike converted CHF amounts).
+        ref_cols = processor_config["reference_columns"]
+        result["reference"] = df[ref_cols].apply(
+            lambda row: hashlib.sha256(
+                "|".join(str(v) for v in row).encode()
+            ).hexdigest()[:16],
+            axis=1,
+        )
+
+        result = result[ProcessingResult.COLUMNS]
 
         return ProcessingResult(
             data=result,

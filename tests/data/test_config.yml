@@ -58,6 +58,12 @@ processors:
 
     date_format: "%d.%m.%Y"
 
+    reference_columns:
+      - "Date d'achat"
+      - "Texte comptable"
+      - "Montant"
+      - "Monnaie originale"
+
     account_names:
       "9659086893219337559": "test_card"
 

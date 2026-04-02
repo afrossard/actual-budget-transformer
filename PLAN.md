@@ -236,7 +236,7 @@ Produces a `Document` with `BkToCstmrStmt/GrpHdr` (UUID `MsgId`, `CreDtTm`), and
 
 ---
 
-### Iteration 2.1b — Preserve Transaction References Through the Pipeline
+### Iteration 2.1b — Preserve Transaction References Through the Pipeline ✅
 
 **Goal:** Ensure that transaction reference IDs survive the input→output round-trip. When the output format is CAMT.053, each `Ntry` should carry a meaningful `AcctSvcrRef`. This is critical because Actual Budget uses `AcctSvcrRef` as the sole `imported_id` for deduplication on import ([source](https://github.com/actualbudget/actual/blob/master/packages/loot-core/src/server/transactions/import/xmlcamt2json.ts)). Three scenarios:
 

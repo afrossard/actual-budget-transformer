@@ -95,6 +95,21 @@ def test_process_credit_row_fields():
     assert row["debit"] == 0
 
 
+def test_process_generates_stable_references():
+    """Same input produces the same reference hashes."""
+    r1 = UBSCardsCSVTransactionProcessor().process(VALID_MAPPED)
+    r2 = UBSCardsCSVTransactionProcessor().process(VALID_MAPPED)
+    assert list(r1.data["reference"]) == list(r2.data["reference"])
+
+
+def test_process_generates_distinct_references():
+    """Different rows produce different references."""
+    result = UBSCardsCSVTransactionProcessor().process(VALID_MAPPED)
+    refs = result.data["reference"]
+    # Most references should be unique (allow for rare genuine duplicates)
+    assert refs.nunique() > 1
+
+
 def test_can_process_returns_false_for_wrong_encoding(tmp_path):
     # A valid-structure file saved as UTF-8 instead of iso-8859-1 should be rejected
     # because accented column names won't match when read as iso-8859-1

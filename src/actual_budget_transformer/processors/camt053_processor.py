@@ -68,6 +68,7 @@ class Camt053Processor(BaseProcessor):
                         "credit": (
                             e["amount"] if e["direction"] == "CRDT" else float("nan")
                         ),
+                        "reference": e["reference"],
                     }
                 )
             df = pd.DataFrame(rows, columns=ProcessingResult.COLUMNS)

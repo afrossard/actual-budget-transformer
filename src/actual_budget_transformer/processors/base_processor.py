@@ -17,7 +17,7 @@ class ProcessingResult:
         The suggested prefix for output files
     """
 
-    COLUMNS = ["transaction_date", "payee", "notes", "debit", "credit"]
+    COLUMNS = ["transaction_date", "payee", "notes", "debit", "credit", "reference"]
 
     data: pd.DataFrame
     output_prefix: str

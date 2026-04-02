@@ -25,6 +25,7 @@ from pyiso20022.camt.camt_053_001_08.camt_053_001_08 import (
     PartyIdentification135,
     ReportEntry10,
     TransactionParties6,
+    TransactionReferences6,
 )
 from xsdata.formats.dataclass.serializers import XmlSerializer
 from xsdata.formats.dataclass.serializers.config import SerializerConfig
@@ -60,7 +61,10 @@ def _build_entry(row, currency: str) -> ReportEntry10:
         else:
             rltd_pties = TransactionParties6(dbtr=party)
 
-    tx_dtls = EntryTransaction10(rltd_pties=rltd_pties)
+    # Set transaction reference if available
+    reference = row.get("reference", "") or ""
+    refs = TransactionReferences6(acct_svcr_ref=reference) if reference else None
+    tx_dtls = EntryTransaction10(refs=refs, rltd_pties=rltd_pties)
     ntry_dtls = EntryDetails9(tx_dtls=[tx_dtls])
 
     val_dt = DateAndDateTime2Choice(dt=_to_xml_date(row["transaction_date"]))
@@ -74,6 +78,7 @@ def _build_entry(row, currency: str) -> ReportEntry10:
         bk_tx_cd=BankTransactionCodeStructure4(),
         ntry_dtls=[ntry_dtls],
         addtl_ntry_inf=row.get("notes", "") or None,
+        acct_svcr_ref=reference or None,
     )
 
 

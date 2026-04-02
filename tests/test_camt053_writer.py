@@ -14,11 +14,11 @@ from actual_budget_transformer.writers.camt053_writer import build_camt053_docum
 IBAN = "CH9300762011623852957"
 
 
-COLUMNS = ["transaction_date", "payee", "notes", "debit", "credit"]
+COLUMNS = ["transaction_date", "payee", "notes", "debit", "credit", "reference"]
 
 
 def _make_df(rows):
-    """Build a DataFrame from (date, payee, notes, debit, credit) tuples."""
+    """Build a DataFrame from (date, payee, notes, debit, credit, ref) tuples."""
     return pd.DataFrame(rows, columns=COLUMNS)
 
 
@@ -37,7 +37,7 @@ class TestBuildCamt053Document:
     def test_output_is_valid_xml(self):
         df = _make_df(
             [
-                (pd.Timestamp("2025-01-15"), "Migros", "Groceries", 42.50, np.nan),
+                (pd.Timestamp("2025-01-15"), "Migros", "Groceries", 42.50, np.nan, ""),
             ]
         )
         xml = build_camt053_document(df, IBAN)
@@ -52,7 +52,14 @@ class TestBuildCamt053Document:
     def test_debit_entry_serialised_correctly(self):
         df = _make_df(
             [
-                (pd.Timestamp("2025-03-10"), "Shop", "Some notes", 99.95, np.nan),
+                (
+                    pd.Timestamp("2025-03-10"),
+                    "Shop",
+                    "Some notes",
+                    99.95,
+                    np.nan,
+                    "REF-001",
+                ),
             ]
         )
         iban, entries = _roundtrip(build_camt053_document(df, IBAN))
@@ -68,7 +75,14 @@ class TestBuildCamt053Document:
     def test_credit_entry_serialised_correctly(self):
         df = _make_df(
             [
-                (pd.Timestamp("2025-06-01"), "Employer", "Salary", np.nan, 5000.00),
+                (
+                    pd.Timestamp("2025-06-01"),
+                    "Employer",
+                    "Salary",
+                    np.nan,
+                    5000.00,
+                    "REF-002",
+                ),
             ]
         )
         _, entries = _roundtrip(build_camt053_document(df, IBAN))
@@ -81,9 +95,9 @@ class TestBuildCamt053Document:
     def test_multiple_entries_roundtrip(self):
         df = _make_df(
             [
-                (pd.Timestamp("2025-01-05"), "A", "note a", 10.00, np.nan),
-                (pd.Timestamp("2025-01-06"), "B", "note b", np.nan, 20.00),
-                (pd.Timestamp("2025-01-07"), "C", "note c", 30.00, np.nan),
+                (pd.Timestamp("2025-01-05"), "A", "note a", 10.00, np.nan, "R1"),
+                (pd.Timestamp("2025-01-06"), "B", "note b", np.nan, 20.00, "R2"),
+                (pd.Timestamp("2025-01-07"), "C", "note c", 30.00, np.nan, "R3"),
             ]
         )
         _, entries = _roundtrip(build_camt053_document(df, IBAN))
@@ -107,7 +121,7 @@ class TestBuildCamt053Document:
     def test_empty_payee_roundtrips(self):
         df = _make_df(
             [
-                (pd.Timestamp("2025-02-01"), "", "Wire transfer", 100.00, np.nan),
+                (pd.Timestamp("2025-02-01"), "", "Wire transfer", 100.00, np.nan, "R4"),
             ]
         )
         _, entries = _roundtrip(build_camt053_document(df, IBAN))
@@ -116,23 +130,50 @@ class TestBuildCamt053Document:
         assert entries[0]["payee"] == ""
 
     def test_empty_notes_roundtrips(self):
-        df = _make_df([(pd.Timestamp("2025-02-01"), "Shop", "", 50.00, np.nan)])
+        df = _make_df([(pd.Timestamp("2025-02-01"), "Shop", "", 50.00, np.nan, "")])
         _, entries = _roundtrip(build_camt053_document(df, IBAN))
 
         assert len(entries) == 1
         assert entries[0]["notes"] == ""
 
     def test_currency_parameter(self):
-        df = _make_df([(pd.Timestamp("2025-01-01"), "Test", "n", 10.00, np.nan)])
+        df = _make_df([(pd.Timestamp("2025-01-01"), "Test", "n", 10.00, np.nan, "")])
         xml = build_camt053_document(df, IBAN, currency="EUR")
         assert "EUR" in xml
 
     def test_iban_embedded_in_output(self):
-        df = _make_df([(pd.Timestamp("2025-01-01"), "X", "n", 1.00, np.nan)])
+        df = _make_df([(pd.Timestamp("2025-01-01"), "X", "n", 1.00, np.nan, "")])
         xml = build_camt053_document(df, IBAN)
         assert IBAN in xml
 
     def test_booking_date_matches_transaction_date(self):
-        df = _make_df([(pd.Timestamp("2025-07-22"), "P", "n", 5.00, np.nan)])
+        df = _make_df([(pd.Timestamp("2025-07-22"), "P", "n", 5.00, np.nan, "")])
         _, entries = _roundtrip(build_camt053_document(df, IBAN))
         assert entries[0]["date"].isoformat() == "2025-07-22"
+
+    def test_reference_roundtrips(self):
+        df = _make_df(
+            [
+                (pd.Timestamp("2025-01-01"), "X", "n", 10.00, np.nan, "MY-REF-123"),
+            ]
+        )
+        _, entries = _roundtrip(build_camt053_document(df, IBAN))
+        assert entries[0]["reference"] == "MY-REF-123"
+
+    def test_empty_reference_roundtrips(self):
+        df = _make_df(
+            [
+                (pd.Timestamp("2025-01-01"), "X", "n", 10.00, np.nan, ""),
+            ]
+        )
+        _, entries = _roundtrip(build_camt053_document(df, IBAN))
+        assert entries[0]["reference"] == ""
+
+    def test_reference_appears_in_xml(self):
+        df = _make_df(
+            [
+                (pd.Timestamp("2025-01-01"), "X", "n", 10.00, np.nan, "UNIQUE-REF"),
+            ]
+        )
+        xml = build_camt053_document(df, IBAN)
+        assert "UNIQUE-REF" in xml

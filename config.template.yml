@@ -74,6 +74,15 @@ processors:
     # Date format in the CSV
     date_format: "%d.%m.%Y"
 
+    # Columns used to generate a stable transaction reference (hash).
+    # Use original-currency fields rather than converted amounts, which
+    # can shift between exports due to exchange rate changes.
+    reference_columns:
+      - "Date d'achat"
+      - "Texte comptable"
+      - "Montant"
+      - "Monnaie originale"
+
     # Map card numbers to friendly names for output files
     account_names:
       "1234567890123456": "Personal Card"
