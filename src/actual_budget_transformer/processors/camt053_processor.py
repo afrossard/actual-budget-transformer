@@ -79,4 +79,6 @@ class Camt053Processor(BaseProcessor):
         output_prefix = f"camt053_{account_name}"
         logger.debug("Using output prefix: %s", output_prefix)
 
-        return ProcessingResult(data=df, output_prefix=output_prefix)
+        return ProcessingResult(
+            data=df, output_prefix=output_prefix, metadata={"account_id": iban}
+        )

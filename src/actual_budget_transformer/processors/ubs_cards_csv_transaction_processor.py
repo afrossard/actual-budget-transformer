@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import pandas as pd
 
 from actual_budget_transformer.config import load_config
+from actual_budget_transformer.logging_config import logger
 from actual_budget_transformer.processors.base_processor import (
     BaseProcessor,
     ProcessingResult,
@@ -72,11 +73,27 @@ class UBSCardsCSVTransactionProcessor(BaseProcessor):
             skiprows=csv_settings["header_row"] - 1,
             dtype={"Numéro de carte": str, "Date d'achat": str},
         )
-        df["Date d'achat"] = pd.to_datetime(df["Date d'achat"], format=date_format)
+        df["Date d'achat"] = pd.to_datetime(
+            df["Date d'achat"], format=date_format, errors="coerce"
+        )
 
-        # Get the card number and map it to an account name
+        # Get the card number before filtering (first data row always has it)
         card_number = df["Numéro de carte"].iloc[0]
         account_name = account_names.get(card_number, f"card_{card_number}")
+
+        # Filter out pending transactions (no Débit or Crédit) and
+        # footer/summary rows (no account number).
+        raw_count = len(df)
+        pending = df["Débit"].isna() & df["Crédit"].isna()
+        footer = df["Numéro de compte"].isna()
+        df = df[~(pending | footer)].reset_index(drop=True)
+        skipped = raw_count - len(df)
+        if skipped > 0:
+            logger.info(
+                "Skipped %d rows (pending/footer) from %s",
+                skipped,
+                file_path,
+            )
 
         # Normalize column names and select relevant ones
         result = pd.DataFrame(
@@ -92,17 +109,22 @@ class UBSCardsCSVTransactionProcessor(BaseProcessor):
         # Generate deterministic references from columns configured in
         # reference_columns (typically original-currency fields that are
         # stable across exports, unlike converted CHF amounts).
+        # A per-group counter disambiguates identical transactions on the
+        # same day (same merchant, same amount, same currency).
         ref_cols = processor_config["reference_columns"]
+        occurrence = df.groupby(ref_cols).cumcount()
         result["reference"] = df[ref_cols].apply(
-            lambda row: hashlib.sha256(
-                "|".join(str(v) for v in row).encode()
-            ).hexdigest()[:16],
+            lambda row: "|".join(str(v) for v in row),
             axis=1,
         )
+        result["reference"] = (
+            result["reference"] + "|" + occurrence.astype(str)
+        ).apply(lambda key: hashlib.sha256(key.encode()).hexdigest()[:16])
 
         result = result[ProcessingResult.COLUMNS]
 
         return ProcessingResult(
             data=result,
             output_prefix=f"ubs_cards_{account_name.lower().replace(' ', '_')}",
+            metadata={"account_id": card_number},
         )

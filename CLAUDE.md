@@ -21,14 +21,20 @@ All processors live in `src/actual_budget_transformer/processors/` and inherit f
 
 ```
 src/actual_budget_transformer/
-├── main.py               # CLI entry point; orchestrates file discovery and output
+├── main.py               # CLI entry point; orchestrates file discovery and writer dispatch
 ├── factory.py            # Processor registry; auto-selects processor per file
 ├── config.py             # YAML config loader with singleton cache
 ├── logging_config.py     # Shared logger
-└── processors/
-    ├── base_processor.py                       # Abstract base + ProcessingResult dataclass
-    ├── ubs_csv_transaction_processor.py        # UBS account CSV
-    └── ubs_cards_csv_transaction_processor.py  # UBS card CSV
+├── processors/
+│   ├── base_processor.py                       # Abstract base + ProcessingResult dataclass
+│   ├── camt053_parser.py                       # CAMT.053 XML parser utility
+│   ├── camt053_processor.py                    # CAMT.053 processor
+│   ├── ubs_csv_transaction_processor.py        # UBS account CSV
+│   └── ubs_cards_csv_transaction_processor.py  # UBS card CSV
+└── writers/
+    ├── base_writer.py      # Abstract base with monthly-split + dedup orchestration
+    ├── csv_writer.py       # CSV output (read-back for dedup + write)
+    └── camt053_writer.py   # CAMT.053 XML output (build_camt053_document + Camt053Writer)
 ```
 
 ### Output contract
@@ -151,7 +157,10 @@ Branch `feature/handle-camt-files` adds support for **CAMT.053** (ISO 20022 XML 
 - Iteration 1.4 ✅ — `Camt053Processor` registered in factory; `camt053` section added to `config.template.yml`; factory + integration tests added
 - Iteration 2.1 ✅ — `build_camt053_document` implemented in `writers/camt053_writer.py` with roundtrip tests
 - Iteration 2.1b ✅ — `reference` column added to pipeline; CAMT preserves `AcctSvcrRef`, UBS CSV carries `transaction_number`, UBS cards generates deterministic hash from configurable `reference_columns`
-- Next: Iteration 2.2 — `--format` flag + output integration
+- Iteration 2.2 ✅ — `--format` CLI flag (`csv`/`camt053`/`both`), `metadata.account_id` on all processors; refactored writers into `BaseWriter`/`CsvWriter`/`Camt053Writer` with shared dedup in base class
+- Iteration 2.3 ✅ — Merge/dedup for CAMT.053 output (folded into 2.2 refactor — `BaseWriter.save_monthly` handles dedup for both formats, preferring `reference` when available)
+- Iteration 3.1 ✅ — Skip pending transactions and footer/summary rows in UBS cards processor; filter before `fillna(0)` and reference generation
+- Iteration 3.2 ✅ — Stable references for UBS cards: `reference_columns` config + `cumcount()` disambiguator for identical same-day transactions
 
 **Key decisions:**
 - Use `pyiso20022` + `xsdata` for parsing/generating CAMT.053 (not stdlib `xml.etree`)

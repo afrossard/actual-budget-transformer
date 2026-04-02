@@ -280,7 +280,7 @@ Produces a `Document` with `BkToCstmrStmt/GrpHdr` (UUID `MsgId`, `CreDtTm`), and
 
 ---
 
-### Iteration 2.2 — `--format` Flag + Output Integration
+### Iteration 2.2 — `--format` Flag + Output Integration ✅ (refactored)
 
 **Files modified:**
 - `src/actual_budget_transformer/processors/base_processor.py` — add `metadata: dict = field(default_factory=dict)` to `ProcessingResult` (non-breaking: defaults to empty dict)
@@ -301,7 +301,7 @@ Produces a `Document` with `BkToCstmrStmt/GrpHdr` (UUID `MsgId`, `CreDtTm`), and
 
 ---
 
-### Iteration 2.3 — Merge/Dedup for CAMT.053 Output
+### Iteration 2.3 — Merge/Dedup for CAMT.053 Output ✅ (folded into 2.2 refactor)
 
 Harden `save_monthly_camt053` to handle the incremental-export scenario (same as the CSV path).
 
@@ -331,33 +331,37 @@ Currently the processor `fillna(0)` on debit/credit, so pending rows become `deb
 
 Pending rows have `Montant` and original currency but empty `Débit`, `Crédit`, and `Ecriture` columns. Booked rows have all fields populated.
 
-### Iteration 3.1 — Skip Pending Transactions
+### Iteration 3.1 — Skip Pending Transactions ✅
 
-**Strategy:** Filter out rows where `Débit` and `Crédit` are both empty (i.e. `Ecriture`/booking date is absent). These are not yet final and will appear as booked rows in a future export.
+**Strategy:** Filter out rows where `Débit` and `Crédit` are both empty (i.e. `Ecriture`/booking date is absent). These are not yet final and will appear as booked rows in a future export. Also filter footer/summary rows (no `Numéro de compte`).
 
 **Files modified:**
-- `ubs_cards_csv_transaction_processor.py` — after reading the CSV, drop rows where both `Débit` and `Crédit` are NaN (before the `fillna(0)` call). Log skipped count at INFO level.
+- `ubs_cards_csv_transaction_processor.py` — after reading the CSV, drop rows where both `Débit` and `Crédit` are NaN OR `Numéro de compte` is NaN (before the `fillna(0)` call). Log skipped count at INFO level. Also added `errors="coerce"` to date parsing to handle footer rows with no date.
 
 **Tests:**
 - Process a fixture with pending rows at the top → they are excluded from the result
-- Process a fixture with only booked rows → all rows present
+- Process a fixture with only booked rows → all rows present (footer rows still filtered)
 - Process a fixture with a mix → only booked rows in output, count matches
+- Pending merchants do not appear in output payees
 
-### Iteration 3.2 — Stable References for UBS Cards (ties into 2.1b)
+### Iteration 3.2 — Stable References for UBS Cards (ties into 2.1b) ✅
 
-With pending rows excluded, the reference hash from iteration 2.1b should be generated from booked transaction data only. This ensures that:
+With pending rows excluded, the reference hash from iteration 2.1b is generated from booked transaction data only. This ensures that:
 - The same booked transaction always gets the same reference regardless of which export file it came from
 - References are stable for Actual Budget's `imported_id` deduplication
 - No phantom references from pending rows that later change shape
 
-The `Montant` (original-currency amount) + `Date d'achat` + `Texte comptable` form the most stable identity for a card transaction, since `Débit`/`Crédit` in CHF may differ slightly between exports due to exchange rate changes. The hash should use these original-currency fields:
+The `Montant` (original-currency amount) + `Date d'achat` + `Texte comptable` form the most stable identity for a card transaction, since `Débit`/`Crédit` in CHF may differ slightly between exports due to exchange rate changes. The hash uses these original-currency fields (configured via `reference_columns`).
 
-```python
-key = f"{date}|{payee}|{montant}|{monnaie_originale}"
-```
+A per-group `cumcount()` disambiguator is appended to the hash input so that two identical transactions on the same day (same merchant, same amount, same currency) get different references.
 
 **Files modified:**
-- `ubs_cards_csv_transaction_processor.py` — pass `Montant` and `Monnaie originale` into the hash (these columns are read but currently discarded)
+- `ubs_cards_csv_transaction_processor.py` — `reference_columns` from config drive the hash; `groupby(ref_cols).cumcount()` appended to disambiguate duplicates
+
+**Tests:**
+- Same input produces the same references (stability)
+- Different rows produce different references
+- Two identical transactions on the same day get different references (disambiguation)
 
 **Tests:**
 - Same transaction in two different exports → same reference

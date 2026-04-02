@@ -13,6 +13,8 @@ from tests.conftest import DATA_DIR
 VALID_MAPPED = os.path.join(DATA_DIR, "ubs_cards_1.csv")
 # ubs_cards_2.csv has an unmapped card number
 VALID_UNMAPPED = os.path.join(DATA_DIR, "ubs_cards_2.csv")
+VALID_WITH_PENDING = os.path.join(DATA_DIR, "ubs_cards_pending.csv")
+VALID_WITH_DUPES = os.path.join(DATA_DIR, "ubs_cards_dupes.csv")
 CSV_NO_SEP = os.path.join(DATA_DIR, "ubs_valid.csv")
 
 
@@ -108,6 +110,45 @@ def test_process_generates_distinct_references():
     refs = result.data["reference"]
     # Most references should be unique (allow for rare genuine duplicates)
     assert refs.nunique() > 1
+
+
+def test_process_disambiguates_identical_transactions():
+    """Two identical transactions on the same day get different references."""
+    result = UBSCardsCSVTransactionProcessor().process(VALID_WITH_DUPES)
+    assert len(result.data) == 2
+    refs = list(result.data["reference"])
+    assert refs[0] != refs[1]
+
+
+def test_process_skips_pending_transactions():
+    """Rows with empty Débit and Crédit (pending) are excluded."""
+    result = UBSCardsCSVTransactionProcessor().process(VALID_WITH_PENDING)
+    # Fixture has 2 pending + 3 booked + 2 footer = 7 data rows; only 3 booked kept
+    assert len(result.data) == 3
+
+
+def test_process_pending_fixture_keeps_booked_rows():
+    """Booked transactions survive the pending filter."""
+    result = UBSCardsCSVTransactionProcessor().process(VALID_WITH_PENDING)
+    payees = set(result.data["payee"])
+    assert "MERCHANT-57823B77" in payees
+    assert "MERCHANT-30A2B4C6" in payees
+    assert "MERCHANT-A5BC10A8" in payees
+
+
+def test_process_pending_fixture_excludes_pending_rows():
+    """Pending rows do not appear in output."""
+    result = UBSCardsCSVTransactionProcessor().process(VALID_WITH_PENDING)
+    payees = set(result.data["payee"])
+    assert "MERCHANT-PENDING1" not in payees
+    assert "MERCHANT-PENDING2" not in payees
+
+
+def test_process_no_pending_rows_keeps_all():
+    """File with only booked rows keeps all transactions."""
+    result = UBSCardsCSVTransactionProcessor().process(VALID_MAPPED)
+    # ubs_cards_1.csv has 3 booked + 2 footer = 5 data rows; 3 booked kept
+    assert len(result.data) == 3
 
 
 def test_can_process_returns_false_for_wrong_encoding(tmp_path):

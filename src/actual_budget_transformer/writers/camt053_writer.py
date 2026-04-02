@@ -1,4 +1,4 @@
-"""Builder utility for CAMT.053 XML bank statement documents (ISO 20022)."""
+"""CAMT.053 XML output writer and document builder."""
 
 import math
 import uuid
@@ -30,6 +30,9 @@ from pyiso20022.camt.camt_053_001_08.camt_053_001_08 import (
 from xsdata.formats.dataclass.serializers import XmlSerializer
 from xsdata.formats.dataclass.serializers.config import SerializerConfig
 from xsdata.models.datatype import XmlDate, XmlDateTime
+
+from actual_budget_transformer.processors.camt053_parser import parse_camt053
+from actual_budget_transformer.writers.base_writer import BaseWriter
 
 
 def _to_xml_date(d) -> XmlDate:
@@ -142,3 +145,46 @@ def build_camt053_document(df: pd.DataFrame, iban: str, currency: str = "CHF") -
 
     serializer = XmlSerializer(config=SerializerConfig(pretty_print=True))
     return serializer.render(doc)
+
+
+class Camt053Writer(BaseWriter):
+    """Write transaction DataFrames as CAMT.053 XML files."""
+
+    def __init__(self, account_id: str, currency: str = "CHF"):
+        self.account_id = account_id
+        self.currency = currency
+
+    @property
+    def file_extension(self) -> str:
+        return ".xml"
+
+    def read_existing(self, path: str) -> pd.DataFrame:
+        _, entries = parse_camt053(path)
+        if not entries:
+            from actual_budget_transformer.processors.base_processor import (
+                ProcessingResult,
+            )
+
+            return pd.DataFrame(columns=ProcessingResult.COLUMNS)
+        rows = []
+        for e in entries:
+            rows.append(
+                {
+                    "transaction_date": pd.Timestamp(e["date"]),
+                    "payee": e["payee"],
+                    "notes": e["notes"],
+                    "debit": (
+                        e["amount"] if e["direction"] == "DBIT" else float("nan")
+                    ),
+                    "credit": (
+                        e["amount"] if e["direction"] == "CRDT" else float("nan")
+                    ),
+                    "reference": e["reference"],
+                }
+            )
+        return pd.DataFrame(rows)
+
+    def write_file(self, df: pd.DataFrame, path: str) -> None:
+        xml_str = build_camt053_document(df, self.account_id, self.currency)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(xml_str)

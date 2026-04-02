@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import pandas as pd
 
@@ -15,12 +15,15 @@ class ProcessingResult:
         Processed transactions with exactly the columns defined in COLUMNS
     output_prefix : str
         The suggested prefix for output files
+    metadata : dict
+        Processor-specific metadata (e.g. {"iban": "CH..."} from CAMT)
     """
 
     COLUMNS = ["transaction_date", "payee", "notes", "debit", "credit", "reference"]
 
     data: pd.DataFrame
     output_prefix: str
+    metadata: dict = field(default_factory=dict)
 
     def __post_init__(self):
         missing = set(self.COLUMNS) - set(self.data.columns)

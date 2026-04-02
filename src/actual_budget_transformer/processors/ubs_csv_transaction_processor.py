@@ -177,4 +177,6 @@ class UBSCSVTransactionProcessor(BaseProcessor):
         output_prefix = f"ubs_{account_name}"
         logger.debug("Using output prefix: %s", output_prefix)
 
-        return ProcessingResult(data=df, output_prefix=output_prefix)
+        return ProcessingResult(
+            data=df, output_prefix=output_prefix, metadata={"account_id": iban}
+        )
