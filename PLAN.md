@@ -318,3 +318,47 @@ Logs new vs. existing transaction counts using the same `logger.info` pattern as
 - Write 2 entries, call with 1 duplicate + 1 new → file has 3 entries
 - Merged file still passes `can_process`
 - Merged file round-trips correctly through `parse_camt053`
+
+---
+
+## Feature 3: UBS Cards Pending Transaction Handling
+
+### Problem
+
+UBS cards CSV exports include **pending (announced) transactions** at the top of the file. These rows have a `Montant` (original-currency amount) but empty `Débit`/`Crédit` and empty `Ecriture` (booking date). A few days later the same transaction appears booked with `Débit`/`Crédit` populated.
+
+Currently the processor `fillna(0)` on debit/credit, so pending rows become `debit=0, credit=0`. When the booked version appears in a later export, Actual Budget sees two different transactions instead of one updated one — causing duplicates.
+
+Pending rows have `Montant` and original currency but empty `Débit`, `Crédit`, and `Ecriture` columns. Booked rows have all fields populated.
+
+### Iteration 3.1 — Skip Pending Transactions
+
+**Strategy:** Filter out rows where `Débit` and `Crédit` are both empty (i.e. `Ecriture`/booking date is absent). These are not yet final and will appear as booked rows in a future export.
+
+**Files modified:**
+- `ubs_cards_csv_transaction_processor.py` — after reading the CSV, drop rows where both `Débit` and `Crédit` are NaN (before the `fillna(0)` call). Log skipped count at INFO level.
+
+**Tests:**
+- Process a fixture with pending rows at the top → they are excluded from the result
+- Process a fixture with only booked rows → all rows present
+- Process a fixture with a mix → only booked rows in output, count matches
+
+### Iteration 3.2 — Stable References for UBS Cards (ties into 2.1b)
+
+With pending rows excluded, the reference hash from iteration 2.1b should be generated from booked transaction data only. This ensures that:
+- The same booked transaction always gets the same reference regardless of which export file it came from
+- References are stable for Actual Budget's `imported_id` deduplication
+- No phantom references from pending rows that later change shape
+
+The `Montant` (original-currency amount) + `Date d'achat` + `Texte comptable` form the most stable identity for a card transaction, since `Débit`/`Crédit` in CHF may differ slightly between exports due to exchange rate changes. The hash should use these original-currency fields:
+
+```python
+key = f"{date}|{payee}|{montant}|{monnaie_originale}"
+```
+
+**Files modified:**
+- `ubs_cards_csv_transaction_processor.py` — pass `Montant` and `Monnaie originale` into the hash (these columns are read but currently discarded)
+
+**Tests:**
+- Same transaction in two different exports → same reference
+- Different transactions on the same date → different references
