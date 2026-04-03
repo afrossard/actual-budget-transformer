@@ -10,9 +10,12 @@ from pyiso20022.camt.camt_053_001_08.camt_053_001_08 import (
     AccountIdentification4Choice,
     AccountStatement9,
     ActiveOrHistoricCurrencyAndAmount,
+    BalanceType10Choice,
+    BalanceType13,
     BankToCustomerStatementV08,
     BankTransactionCodeStructure4,
     CashAccount39,
+    CashBalance8,
     CreditDebitCode,
     DateAndDateTime2Choice,
     DateTimePeriod1,
@@ -47,6 +50,13 @@ def _to_xml_datetime(d) -> XmlDateTime:
     return XmlDateTime(d.year, d.month, d.day, 0, 0, 0)
 
 
+def _safe_str(value) -> str:
+    """Convert a value to string, treating NaN/None as empty."""
+    if value is None or (isinstance(value, float) and math.isnan(value)):
+        return ""
+    return str(value) if not pd.isna(value) else ""
+
+
 def _build_entry(row, currency: str) -> ReportEntry10:
     """Build a single CAMT.053 entry from a DataFrame row."""
     debit = row["debit"]
@@ -56,7 +66,7 @@ def _build_entry(row, currency: str) -> ReportEntry10:
 
     # Build related parties with payee
     rltd_pties = None
-    payee = row.get("payee", "")
+    payee = _safe_str(row.get("payee", ""))
     if payee:
         party = Party40Choice(pty=PartyIdentification135(nm=payee))
         if is_debit:
@@ -65,12 +75,14 @@ def _build_entry(row, currency: str) -> ReportEntry10:
             rltd_pties = TransactionParties6(dbtr=party)
 
     # Set transaction reference if available
-    reference = row.get("reference", "") or ""
+    reference = _safe_str(row.get("reference", ""))
     refs = TransactionReferences6(acct_svcr_ref=reference) if reference else None
     tx_dtls = EntryTransaction10(refs=refs, rltd_pties=rltd_pties)
     ntry_dtls = EntryDetails9(tx_dtls=[tx_dtls])
 
     val_dt = DateAndDateTime2Choice(dt=_to_xml_date(row["transaction_date"]))
+
+    notes = _safe_str(row.get("notes", ""))
 
     return ReportEntry10(
         amt=ActiveOrHistoricCurrencyAndAmount(value=amount, ccy=currency),
@@ -80,7 +92,7 @@ def _build_entry(row, currency: str) -> ReportEntry10:
         val_dt=val_dt,
         bk_tx_cd=BankTransactionCodeStructure4(),
         ntry_dtls=[ntry_dtls],
-        addtl_ntry_inf=row.get("notes", "") or None,
+        addtl_ntry_inf=notes or None,
         acct_svcr_ref=reference or None,
     )
 
@@ -97,7 +109,7 @@ def build_camt053_document(df: pd.DataFrame, iban: str, currency: str = "CHF") -
         XML string of the CAMT.053 document.
     """
     now = datetime.now()
-    msg_id = str(uuid.uuid4())
+    msg_id = uuid.uuid4().hex[:35]
 
     entries = [_build_entry(row, currency) for _, row in df.iterrows()]
 
@@ -114,12 +126,24 @@ def build_camt053_document(df: pd.DataFrame, iban: str, currency: str = "CHF") -
         to_dt_tm=_to_xml_datetime(max_date),
     )
 
+    # A closing booked balance (CLBD) is required by the schema.
+    # We don't track balances, so emit a zero placeholder.
+    closing_bal = CashBalance8(
+        tp=BalanceType13(cd_or_prtry=BalanceType10Choice(cd="CLBD")),
+        amt=ActiveOrHistoricCurrencyAndAmount(
+            value=Decimal("0"), ccy=currency
+        ),
+        cdt_dbt_ind=CreditDebitCode.CRDT,
+        dt=DateAndDateTime2Choice(dt=_to_xml_date(max_date)),
+    )
+
     stmt = AccountStatement9(
         id=msg_id,
         acct=CashAccount39(
             id=AccountIdentification4Choice(iban=iban),
             ccy=currency,
         ),
+        bal=[closing_bal],
         fr_to_dt=fr_to_dt,
         ntry=entries,
     )
@@ -144,7 +168,8 @@ def build_camt053_document(df: pd.DataFrame, iban: str, currency: str = "CHF") -
     )
 
     serializer = XmlSerializer(config=SerializerConfig(pretty_print=True))
-    return serializer.render(doc)
+    ns_map = {"": "urn:iso:std:iso:20022:tech:xsd:camt.053.001.08"}
+    return serializer.render(doc, ns_map=ns_map)
 
 
 class Camt053Writer(BaseWriter):
