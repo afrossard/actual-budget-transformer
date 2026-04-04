@@ -174,7 +174,7 @@ class UBSCSVTransactionProcessor(BaseProcessor):
 
         # Get friendly name from config
         account_name = get_account_name(iban)
-        output_prefix = f"ubs_{account_name}"
+        output_prefix = account_name
         logger.debug("Using output prefix: %s", output_prefix)
 
         return ProcessingResult(

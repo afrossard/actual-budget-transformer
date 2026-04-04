@@ -51,7 +51,14 @@ class TestBuildCamt053Document:
     def test_output_passes_iso20022_validation(self):
         df = _make_df(
             [
-                (pd.Timestamp("2025-01-15"), "Migros", "Groceries", 42.50, np.nan, "R1"),
+                (
+                    pd.Timestamp("2025-01-15"),
+                    "Migros",
+                    "Groceries",
+                    42.50,
+                    np.nan,
+                    "R1",
+                ),
                 (pd.Timestamp("2025-01-16"), "Coop", np.nan, np.nan, 20.0, "R2"),
             ]
         )
@@ -63,9 +70,7 @@ class TestBuildCamt053Document:
         parser = XmlParser()
         doc = parser.from_string(xml, Document)
         result = validate_message(doc)
-        assert result.is_valid, [
-            f"{e.field_name}: {e.message}" for e in result.errors
-        ]
+        assert result.is_valid, [f"{e.field_name}: {e.message}" for e in result.errors]
         assert len(doc.bk_to_cstmr_stmt.stmt) == 1
 
     def test_debit_entry_serialised_correctly(self):

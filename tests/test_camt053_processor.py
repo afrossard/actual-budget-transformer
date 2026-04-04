@@ -75,13 +75,13 @@ def test_process_zero_entries_returns_empty_dataframe():
 def test_process_output_prefix_uses_friendly_name():
     # CH9DDDC4D8456C5AFFACD is mapped to 'test_account' in test_config.yml
     result = Camt053Processor().process(SINGLE_DEBIT)
-    assert result.output_prefix == "camt053_test_account"
+    assert result.output_prefix == "test_account"
 
 
 def test_process_output_prefix_falls_back_to_iban():
     # CH1E021EA3AA5468CA95B has no mapping in test_config.yml
     result = Camt053Processor().process(SINGLE_CREDIT)
-    assert result.output_prefix == "camt053_CH1E021EA3AA5468CA95B"
+    assert result.output_prefix == "CH1E021EA3AA5468CA95B"
 
 
 def test_process_transaction_date_is_timestamp():

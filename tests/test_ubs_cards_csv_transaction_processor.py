@@ -59,12 +59,13 @@ def test_process_transaction_date_is_timestamp():
 
 def test_process_output_prefix_uses_friendly_name():
     result = UBSCardsCSVTransactionProcessor().process(VALID_MAPPED)
-    assert result.output_prefix == "ubs_cards_test_card"
+    assert result.output_prefix == "test_card"
 
 
 def test_process_output_prefix_falls_back_to_card_number():
     result = UBSCardsCSVTransactionProcessor().process(VALID_UNMAPPED)
-    assert result.output_prefix.startswith("ubs_cards_card_")
+    # Unmapped card number is used as-is
+    assert result.output_prefix == "3768370152058368113"
 
 
 def test_process_raises_on_invalid_file(tmp_path):

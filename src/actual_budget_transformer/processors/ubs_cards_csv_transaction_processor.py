@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from actual_budget_transformer.config import load_config
+from actual_budget_transformer.config import get_account_name, load_config
 from actual_budget_transformer.logging_config import logger
 from actual_budget_transformer.processors.base_processor import (
     BaseProcessor,
@@ -58,7 +58,6 @@ class UBSCardsCSVTransactionProcessor(BaseProcessor):
         config = load_config()
         processor_config = config["processors"]["ubs_cards"]
         csv_settings = processor_config["csv_settings"]
-        account_names = processor_config["account_names"]
         date_format = processor_config["date_format"]
 
         # Validate headers before processing
@@ -79,7 +78,7 @@ class UBSCardsCSVTransactionProcessor(BaseProcessor):
 
         # Get the card number before filtering (first data row always has it)
         card_number = df["Numéro de carte"].iloc[0]
-        account_name = account_names.get(card_number, f"card_{card_number}")
+        account_name = get_account_name(card_number)
 
         # Filter out pending transactions (no Débit or Crédit) and
         # footer/summary rows (no account number).
@@ -125,6 +124,6 @@ class UBSCardsCSVTransactionProcessor(BaseProcessor):
 
         return ProcessingResult(
             data=result,
-            output_prefix=f"ubs_cards_{account_name.lower().replace(' ', '_')}",
+            output_prefix=account_name.lower().replace(" ", "_"),
             metadata={"account_id": card_number},
         )

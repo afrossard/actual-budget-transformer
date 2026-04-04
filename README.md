@@ -1,4 +1,4 @@
-# CLI program to transform some bank statements into CSV files understood by Actual Budget
+# CLI program to transform bank statements into formats understood by Actual Budget
 
 See [Actual Budget](https://actualbudget.org/)
 
@@ -6,15 +6,20 @@ See [Actual Budget](https://actualbudget.org/)
 
 - UBS Switzerland e-banking
   - Account transactions CSV files
-  - Credit card transactions CSV files
-- CAMT.053 (ISO 20022 XML bank statements) — _in progress_
+  - Credit card transactions CSV files (pending transactions are automatically skipped)
+- CAMT.053 (ISO 20022 XML bank statements)
 
-## Output format
+## Output formats
 
-```
-transaction_date,payee,notes,debit,credit
-<YYYY-MM-DD>,<some payee>,<some notes>,<debit>,<credit>
-```
+Use `--format` to select the output format:
+
+| Flag | Output | Use case |
+|------|--------|----------|
+| `--format csv` (default) | CSV files | Actual Budget CSV import |
+| `--format camt053` | CAMT.053 XML files | Actual Budget CAMT import (preserves transaction references as `imported_id`) |
+| `--format both` | Both CSV and XML | |
+
+Output files are grouped by account and month (e.g. `202507_personal.csv`). Transactions from different input formats for the same account are merged into a single output file. Re-running with overlapping data deduplicates automatically.
 
 ## Usage
 
@@ -39,15 +44,16 @@ Inspiration available in `./devcontainer` or `./Containerfile`.
 
 Create a new `config.yaml` based on `config.template.yml`.
 
-Optional: edit the `account_names` sections to replace your IBANs and card numbers with user friendly names.
+Optional: edit the top-level `account_names` section to map your IBANs and card numbers to friendly names. These names are used across all processors and in output filenames.
 
 ### CLI
 
-`python -m actual_budget_transformer.main -f <INPUT_DIR> -o <OUTPUT_DIR> -c <CONFIG_FILE> -v`
+`python -m actual_budget_transformer.main -f <INPUT> -o <OUTPUT_DIR> -c <CONFIG_FILE> --format <FORMAT> -v`
 
-- `INPUT_DIR`: path to input file or directory. Any file will opened and scanned. Supported files will be processed, others will be ignored. Files can contain overlapping date ranges. For instance, if you're lazy and always download the last 90 days of transactions, the transformer will detect duplicates and only output unique transactions.
-- `OUTPUT_DIR`: location for output files. Transactions will be grouped into separate files by account, year and month. For instance, 202507_personal.csv will contain transactions from July 2025 for account "personal". Account names are configured in the config file, otherwise IBANs and card numbers are used.
+- `INPUT`: path to input file or directory. Any file will be opened and scanned. Supported files are processed, others are ignored. Files can contain overlapping date ranges — the transformer detects duplicates and only outputs unique transactions.
+- `OUTPUT_DIR`: location for output files. Transactions are grouped by account and month (e.g. `202507_personal.csv`). Account names are configured in the config file; IBANs and card numbers are used as fallback.
 - `CONFIG_FILE`: path to config file.
+- `FORMAT`: `csv` (default), `camt053`, or `both`.
 
 ### Running with Docker
 
@@ -68,6 +74,7 @@ docker run --rm -it \
  -f /app/input \
  -o /app/output \
  -c /app/config.yaml \
+ --format csv \
  -v
 ```
 
@@ -85,6 +92,7 @@ docker run --rm -it \
  -f /app/input \
  -o /app/output \
  -c /app/config.yaml \
+ --format csv \
  -v
 ```
 
@@ -99,6 +107,12 @@ docker run --rm -it \
  --entrypoint /bin/bash \
  actual-budget-transformer:latest
 ```
+
+## Known limitations
+
+- **Don't mix input formats for the same account**: CAMT and CSV exports from the same bank account use different languages (e.g. French vs English), merchant names, and reference schemes. The deduplication logic cannot reliably match the same transaction across formats. Pick one input format per account.
+
+- **Actual Budget CAMT import preview**: When importing generated CAMT.053 files into Actual Budget, the import dialog may not show the duplicate-detection preview (matched/skipped transactions) that CSV import shows. This is a [bug in Actual Budget's import UI](https://github.com/actualbudget/actual/blob/master/packages/desktop-client/src/components/modals/ImportTransactionsModal/ImportTransactionsModal.tsx) where CAMT files are not treated as pre-parsed for date handling in the preview path. The transactions themselves import correctly with proper `imported_id` for deduplication.
 
 ## Test data
 

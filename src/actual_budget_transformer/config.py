@@ -103,29 +103,39 @@ def get_processor_config(processor_name: str) -> dict:
     return config.get("processors", {}).get(processor_name, {})
 
 
-def get_account_name(iban: str, processor_name: str = "ubs_csv") -> str:
+def get_account_name(account_id: str) -> str:
     """
-    Get friendly name for an IBAN from a specific processor's configuration.
+    Get friendly name for an account identifier from configuration.
+
+    Looks up the top-level ``account_names`` mapping first, then falls
+    back to per-processor ``account_names`` for backwards compatibility.
 
     Args:
-        iban: The IBAN to look up
-        processor_name: Name of the processor to get account mappings from
+        account_id: The account identifier to look up (IBAN, card number, etc.)
 
     Returns:
-        Friendly name if found, cleaned IBAN if not found
+        Friendly name if found, cleaned identifier if not found
     """
-    processor_config = get_processor_config(processor_name)
+    config = load_config()
+    clean_id = account_id.replace(" ", "")
 
-    # Clean the IBAN for comparison
-    clean_iban = iban.replace(" ", "")
-
-    # Try to get friendly name from config
-    friendly_name = processor_config.get("account_names", {}).get(clean_iban)
-
+    # Top-level account_names (preferred)
+    friendly_name = config.get("account_names", {}).get(clean_id)
     if friendly_name:
-        logger.debug("Found friendly name '%s' for IBAN %s", friendly_name, iban)
+        logger.debug("Found friendly name '%s' for %s", friendly_name, account_id)
         return friendly_name
 
-    # If no friendly name found, return cleaned IBAN
-    logger.debug("No friendly name found for IBAN %s", iban)
-    return clean_iban
+    # Fallback: per-processor account_names (backwards compat)
+    for proc_config in config.get("processors", {}).values():
+        if isinstance(proc_config, dict):
+            friendly_name = proc_config.get("account_names", {}).get(clean_id)
+            if friendly_name:
+                logger.debug(
+                    "Found friendly name '%s' for %s (processor config)",
+                    friendly_name,
+                    account_id,
+                )
+                return friendly_name
+
+    logger.debug("No friendly name found for %s", account_id)
+    return clean_id

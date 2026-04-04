@@ -75,8 +75,8 @@ class Camt053Processor(BaseProcessor):
         else:
             df = pd.DataFrame(columns=ProcessingResult.COLUMNS)
 
-        account_name = get_account_name(iban, processor_name="camt053")
-        output_prefix = f"camt053_{account_name}"
+        account_name = get_account_name(iban)
+        output_prefix = account_name
         logger.debug("Using output prefix: %s", output_prefix)
 
         return ProcessingResult(

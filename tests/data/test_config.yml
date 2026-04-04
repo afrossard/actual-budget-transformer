@@ -1,3 +1,7 @@
+account_names:
+  "9659086893219337559": "test_card"
+  "CH9DDDC4D8456C5AFFACD": "test_account"
+
 processors:
   ubs_csv:
     csv_settings:
@@ -64,12 +68,7 @@ processors:
       - "Montant"
       - "Monnaie originale"
 
-    account_names:
-      "9659086893219337559": "test_card"
-
-  camt053:
-    account_names:
-      "CH9DDDC4D8456C5AFFACD": "test_account"
+  camt053: {}
 
 output:
   date_format: "%Y%m"

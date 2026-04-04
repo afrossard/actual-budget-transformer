@@ -130,9 +130,7 @@ def build_camt053_document(df: pd.DataFrame, iban: str, currency: str = "CHF") -
     # We don't track balances, so emit a zero placeholder.
     closing_bal = CashBalance8(
         tp=BalanceType13(cd_or_prtry=BalanceType10Choice(cd="CLBD")),
-        amt=ActiveOrHistoricCurrencyAndAmount(
-            value=Decimal("0"), ccy=currency
-        ),
+        amt=ActiveOrHistoricCurrencyAndAmount(value=Decimal("0"), ccy=currency),
         cdt_dbt_ind=CreditDebitCode.CRDT,
         dt=DateAndDateTime2Choice(dt=_to_xml_date(max_date)),
     )
