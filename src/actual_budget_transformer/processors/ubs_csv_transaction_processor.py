@@ -3,13 +3,17 @@ Processor for UBS CSV Transactions extracted from accounts (not UBS cards)
 """
 
 import os
+
 import pandas as pd
-from actual_budget_transformer.processors.base_processor import BaseProcessor, ProcessingResult
-from actual_budget_transformer.logging_config import logger
+
 from actual_budget_transformer.config import get_account_name, get_processor_config
+from actual_budget_transformer.logging_config import logger
+from actual_budget_transformer.processors.base_processor import (
+    BaseProcessor,
+    ProcessingResult,
+)
 
 
-# pylint: disable=C0115
 class UBSCSVTransactionProcessor(BaseProcessor):
     """Process UBS CSV transaction files."""
 
@@ -57,7 +61,8 @@ class UBSCSVTransactionProcessor(BaseProcessor):
         # Check header labels
         if rows.shape[0] < instance.header_rows or rows.shape[1] < 2:
             logger.debug(
-                "Rejected %s: file lacks the expected %s header rows with 2 columns each",
+                "Rejected %s: file lacks the expected "
+                "%s header rows with 2 columns each",
                 file_path,
                 instance.header_rows,
             )
@@ -67,7 +72,8 @@ class UBSCSVTransactionProcessor(BaseProcessor):
             actual = rows.iloc[i, 0].strip()
             if actual != label:
                 logger.debug(
-                    "Rejected %s: header label mismatch at row %d (expected '%s', found '%s')",
+                    "Rejected %s: header label mismatch at "
+                    "row %d (expected '%s', found '%s')",
                     file_path,
                     i + 1,
                     label,
@@ -92,7 +98,8 @@ class UBSCSVTransactionProcessor(BaseProcessor):
         transaction_headers = [col.strip() for col in rows.columns.tolist()]
         if transaction_headers != instance.expected_transaction_labels:
             logger.debug(
-                "Rejected %s: transaction section columns mismatch.\nExpected: %s\nFound: %s",
+                "Rejected %s: transaction section columns "
+                "mismatch.\nExpected: %s\nFound: %s",
                 file_path,
                 instance.expected_transaction_labels,
                 transaction_headers,
@@ -150,7 +157,7 @@ class UBSCSVTransactionProcessor(BaseProcessor):
             "credit",
             "sub_amount",
             "balance",
-            "transaction_number",
+            "reference",
             "payee",
             "description2",
             "description3",
@@ -163,11 +170,13 @@ class UBSCSVTransactionProcessor(BaseProcessor):
         ].apply(lambda x: " ".join(filter(None, x.astype(str))), axis=1)
 
         # Keep only the columns we want
-        df = df[["transaction_date", "payee", "notes", "debit", "credit"]]
+        df = df[ProcessingResult.COLUMNS]
 
         # Get friendly name from config
         account_name = get_account_name(iban)
-        output_prefix = f"ubs_{account_name}"
+        output_prefix = account_name
         logger.debug("Using output prefix: %s", output_prefix)
 
-        return ProcessingResult(data=df, output_prefix=output_prefix)
+        return ProcessingResult(
+            data=df, output_prefix=output_prefix, metadata={"account_id": iban}
+        )

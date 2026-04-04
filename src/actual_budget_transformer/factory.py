@@ -17,17 +17,18 @@ Raises:
 """
 
 from actual_budget_transformer.processors.base_processor import BaseProcessor
-from actual_budget_transformer.processors.ubs_csv_transaction_processor import (
-    UBSCSVTransactionProcessor,
-)
+from actual_budget_transformer.processors.camt053_processor import Camt053Processor
 from actual_budget_transformer.processors.ubs_cards_csv_transaction_processor import (
     UBSCardsCSVTransactionProcessor,
+)
+from actual_budget_transformer.processors.ubs_csv_transaction_processor import (
+    UBSCSVTransactionProcessor,
 )
 
 PROCESSORS = [
     UBSCSVTransactionProcessor,
     UBSCardsCSVTransactionProcessor,
-    # Add more processors here
+    Camt053Processor,
 ]
 
 

@@ -3,31 +3,34 @@ FROM mcr.microsoft.com/devcontainers/python:3-trixie
 # Install Homebrew
 USER vscode
 RUN NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-# Add env vars and bash completions to ~/.bashrc 
-RUN cat <<EOF >> ~/.bashrc 
+
+# Add env vars and zsh completions to ~/.zshrc
+RUN cat <<EOF >> ~/.zshrc
 # Homebrew env vars
 eval "\$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
-# Homebrew bash completions
+# Homebrew zsh completions
 if type brew &>/dev/null; then
-  HOMEBREW_PREFIX="\$(brew --prefix)"
-  if [[ -r "\${HOMEBREW_PREFIX}/etc/profile.d/bash_completion.sh" ]]; then
-    source "\${HOMEBREW_PREFIX}/etc/profile.d/bash_completion.sh"
-  else
-    for COMPLETION in "\${HOMEBREW_PREFIX}/etc/bash_completion.d/"*; do
-      [[ -r "\${COMPLETION}" ]] && source "\${COMPLETION}"
-    done
-  fi
+  FPATH="\$(brew --prefix)/share/zsh/site-functions:\${FPATH}"
+  autoload -Uz compinit
+  compinit
 fi
+
+# Starship prompt
+eval "\$(starship init zsh)"
 EOF
 
 ENV PATH="/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:${PATH}"
 
-RUN brew install bash-completion@2 dive
+RUN brew install zsh-completions dive starship
 
-RUN sudo apt-get update && sudo apt-get install --no-install-recommends --yes vim rsync 
+# Configure Starship prompt with pure preset
+RUN mkdir -p ~/.config && starship preset pure-preset -o ~/.config/starship.toml
+
+# Set zsh as default shell
+RUN sudo chsh -s /bin/zsh vscode
+
+RUN sudo apt-get update && sudo apt-get install --no-install-recommends --yes vim rsync
 
 # Install UV
-COPY --from=ghcr.io/astral-sh/uv:0.9.12 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.11.2 /uv /uvx /bin/
 
-RUN brew install \
-  gemini-cli

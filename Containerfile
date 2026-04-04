@@ -2,7 +2,7 @@
 FROM python:3.14-slim-trixie AS builder
 
 # Install UV
-COPY --from=ghcr.io/astral-sh/uv:0.9.12 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.11.2 /uv /uvx /bin/
 
 # Enable bytecode compilation
 ENV UV_COMPILE_BYTECODE=1
@@ -19,21 +19,20 @@ WORKDIR /app
 
 # Install the project's dependencies using the lockfile and settings
 # for optimal image build caching
-RUN --mount=type=cache,target=/root/.cache/uv \
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-${TARGETPLATFORM} \
   --mount=type=bind,source=uv.lock,target=uv.lock \
   --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-  uv sync \ 
+  uv sync \
   --locked \
-  --no-dev \ 
+  --no-dev \
   --no-editable \
-  --no-install-project 
+  --no-install-project
 
 # Copy the project sources into the intermediate image
 COPY src /app
 
-# Sync the project
-RUN --mount=type=cache,target=/root/.cache/uv \
-  --mount=type=bind,source=uv.lock,target=uv.lock \
+# Sync the project (no cache mount — ensures fresh source is always installed)
+RUN --mount=type=bind,source=uv.lock,target=uv.lock \
   --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
   uv sync \
   --locked \
@@ -59,4 +58,4 @@ USER app
 # Use `/app` as the working directory
 WORKDIR /app
 
-ENTRYPOINT ["python", "-m", "actual_budget_transformer.main"] 
+ENTRYPOINT ["python", "-m", "actual_budget_transformer.main"]

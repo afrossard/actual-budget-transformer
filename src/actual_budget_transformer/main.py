@@ -1,144 +1,42 @@
 #!/usr/bin/env python3
-# pylint:disable=C0114
 import argparse
+import logging
 import os
 import sys
-import logging
+
 import pandas as pd
+
+from actual_budget_transformer.config import load_config
 from actual_budget_transformer.factory import get_processor_for_file
 from actual_budget_transformer.logging_config import logger
-from actual_budget_transformer.config import load_config
+from actual_budget_transformer.writers.camt053_writer import Camt053Writer
+from actual_budget_transformer.writers.csv_writer import CsvWriter
 
 
-def save_monthly_transactions(df, output_dir: str, output_prefix: str) -> None:
-    """
-    Split transactions by month and save to separate files.
-    If a monthly file already exists, merge new transactions with it.
-
-    Args:
-        df: pandas DataFrame with transaction_date column
-        output_dir: Directory to save the files
-        output_prefix: Prefix to use for output filenames
-    """
-    # Convert transaction_date to datetime if it's not already
-    df["transaction_date"] = pd.to_datetime(df["transaction_date"])
-
-    # Get output date format from config
-    config = load_config()
-    output_date_format = config["output"]["date_format"]
-
-    # Group by year and month using configured format
-    grouped = df.groupby(df["transaction_date"].dt.strftime(output_date_format))
-
-    # Track summary information
-    files_created = []
-    files_updated = []
-    transactions_by_month = {}
-    new_transactions_by_month = {}
-
-    # Process each month's transactions
-    for yearmonth, month_df in grouped:
-        output_filename = f"{yearmonth}_{output_prefix}.csv"
-        output_path = os.path.join(output_dir, output_filename)
-
-        if os.path.exists(output_path):
-            # Read existing file
-            existing_df = pd.read_csv(output_path)
-            existing_df["transaction_date"] = pd.to_datetime(
-                existing_df["transaction_date"]
-            )
-
-            # Find new transactions by comparing all columns
-            merged = month_df.merge(
-                existing_df,
-                on=["transaction_date", "payee", "notes", "debit", "credit"],
-                how="left",
-                indicator=True,
-            )
-            new_transactions = merged[merged["_merge"] == "left_only"].drop(
-                columns=["_merge"]
-            )
-
-            if len(new_transactions) > 0:
-                # Combine existing and new transactions
-                combined_df = pd.concat([existing_df, new_transactions])
-
-                # Sort by date
-                combined_df = combined_df.sort_values("transaction_date")
-
-                # Save updated file
-                combined_df.to_csv(output_path, index=False)
-
-                files_updated.append(output_filename)
-                new_transactions_by_month[yearmonth] = len(new_transactions)
-                transactions_by_month[yearmonth] = len(combined_df)
-
-                logger.info(
-                    "Added %d new transactions to existing file %s (total: %d)",
-                    len(new_transactions),
-                    output_filename,
-                    len(combined_df),
-                )
-            else:
-                transactions_by_month[yearmonth] = len(existing_df)
-                new_transactions_by_month[yearmonth] = 0
-                logger.info(
-                    "No new transactions to add to %s (existing: %d)",
-                    output_filename,
-                    len(existing_df),
-                )
-        else:
-            # Create new file
-            month_df = month_df.sort_values("transaction_date")
-            month_df.to_csv(output_path, index=False)
-
-            files_created.append(output_filename)
-            transactions_by_month[yearmonth] = len(month_df)
-            new_transactions_by_month[yearmonth] = len(month_df)
-
-            logger.info(
-                "Created new file %s with %d transactions",
-                output_filename,
-                len(month_df),
-            )
-
-    # Print summary
-    logger.info("\nProcessing summary:")
-    if files_created:
-        logger.info("New files created: %d", len(files_created))
-        for filename in sorted(files_created):
-            logger.info("  - %s", filename)
-
-    if files_updated:
-        logger.info("\nExisting files updated: %d", len(files_updated))
-        for filename in sorted(files_updated):
-            logger.info("  - %s", filename)
-
-    logger.info("\nTransactions by month:")
-    for yearmonth in sorted(transactions_by_month.keys()):
-        total = transactions_by_month[yearmonth]
-        new = new_transactions_by_month[yearmonth]
-        if new > 0:
-            logger.info("  %s: %d transactions (%d new)", yearmonth, total, new)
-        else:
-            logger.info("  %s: %d transactions (no changes)", yearmonth, total)
-
-    logger.info(
-        "\nTotal transactions across all files: %d", sum(transactions_by_month.values())
-    )
-    logger.info(
-        "Total new transactions added: %d", sum(new_transactions_by_month.values())
-    )
+def _get_writers(output_format: str, metadata: dict) -> list:
+    """Return the writer(s) for the requested output format."""
+    writers = []
+    if output_format in ("csv", "both"):
+        writers.append(CsvWriter())
+    if output_format in ("camt053", "both"):
+        account_id = metadata.get("account_id", "UNKNOWN")
+        writers.append(Camt053Writer(account_id))
+    return writers
 
 
-def process_single_file(file_path: str, output_dir: str | None = None) -> None:
+def process_single_file(
+    file_path: str,
+    output_dir: str | None = None,
+    output_format: str = "csv",
+) -> None:
     """Process a single file and optionally save to output directory."""
     logger.info("Processing %s...", file_path)
     processor = get_processor_for_file(file_path)
     result = processor.process(file_path)
 
     if output_dir:
-        save_monthly_transactions(result.data, output_dir, result.output_prefix)
+        for writer in _get_writers(output_format, result.metadata):
+            writer.save_monthly(result.data, output_dir, result.output_prefix)
     else:
         total_transactions = len(result.data)
         logger.info("Preview of %d transactions:", total_transactions)
@@ -146,7 +44,11 @@ def process_single_file(file_path: str, output_dir: str | None = None) -> None:
         logger.info("Showing 5 of %d transactions", total_transactions)
 
 
-def process_directory(directory: str, output_dir: str | None = None) -> None:
+def process_directory(
+    directory: str,
+    output_dir: str | None = None,
+    output_format: str = "csv",
+) -> None:
     """Process all files in a directory that can be handled by available processors."""
     files_processed = 0
     files_skipped = 0
@@ -156,7 +58,7 @@ def process_directory(directory: str, output_dir: str | None = None) -> None:
         for file in files:
             file_path = os.path.join(root, file)
             try:
-                process_single_file(file_path, output_dir)
+                process_single_file(file_path, output_dir, output_format)
                 files_processed += 1
             except ValueError as e:
                 logger.warning("Skipping %s: %s", file_path, e)
@@ -200,6 +102,13 @@ def main():
         dest="config_path",
         help="Path to the configuration file (optional)",
     )
+    parser.add_argument(
+        "--format",
+        dest="output_format",
+        choices=["csv", "camt053", "both"],
+        default="csv",
+        help="Output format: csv (default), camt053, or both",
+    )
 
     args = parser.parse_args()
 
@@ -217,9 +126,9 @@ def main():
     try:
         # Process input path
         if os.path.isfile(args.file_path):
-            process_single_file(args.file_path, args.output_dir)
+            process_single_file(args.file_path, args.output_dir, args.output_format)
         elif os.path.isdir(args.file_path):
-            process_directory(args.file_path, args.output_dir)
+            process_directory(args.file_path, args.output_dir, args.output_format)
         else:
             logger.error("%s is not a valid file or directory", args.file_path)
             sys.exit(1)

@@ -1,5 +1,6 @@
-#!/bin/bash
-cp ./.devcontainer/.bash_aliases ~/
-echo 'eval "$(uv generate-shell-completion bash)"' | sudo tee /etc/bash_completion.d/uv
-echo 'eval "$(uvx --generate-shell-completion bash)"'  | sudo tee /etc/bash_completion.d/uvx
+#!/bin/zsh
+cp ./.devcontainer/.zsh_aliases ~/.zsh_aliases
+echo 'source ~/.zsh_aliases' >> ~/.zshrc
+echo 'eval "$(uv generate-shell-completion zsh)"' >> ~/.zshrc
+echo 'eval "$(uvx --generate-shell-completion zsh)"' >> ~/.zshrc
 UV_LINK_MODE=copy uv sync

@@ -1,0 +1,7 @@
+sep=;
+Numéro de compte;Numéro de carte;Titulaire de compte/carte;Date d'achat;Texte comptable;Secteur;Montant;Monnaie originale;Cours;Monnaie;Débit;Crédit;Ecriture
+ANON-ACCT-9C509B35;9659086893219337559;ANON-88738581;24.02.2020;MERCHANT-57823B77;MERCHANT-9B929026;41;CHF;;CHF;41;;16.03.2026
+ANON-ACCT-9C509B35;9659086893219337559;ANON-88738581;24.02.2020;MERCHANT-57823B77;MERCHANT-9B929026;41;CHF;;CHF;41;;16.03.2026
+
+;;;;Total par monnaie;;;;;;;;Total
+;;;;Total des écritures de carte;;;;;CHF;69;50;-19

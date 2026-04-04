@@ -1,3 +1,7 @@
+account_names:
+  "9659086893219337559": "test_card"
+  "CH9DDDC4D8456C5AFFACD": "test_account"
+
 processors:
   ubs_csv:
     csv_settings:
@@ -34,6 +38,37 @@ processors:
       - "Unnamed: 14"
 
     date_format: "%Y-%m-%d"
+
+  ubs_cards:
+    csv_settings:
+      encoding: "iso-8859-1"
+      separator: ";"
+      header_row: 2
+
+    expected_columns:
+      - "Numéro de compte"
+      - "Numéro de carte"
+      - "Titulaire de compte/carte"
+      - "Date d'achat"
+      - "Texte comptable"
+      - "Secteur"
+      - "Montant"
+      - "Monnaie originale"
+      - "Cours"
+      - "Monnaie"
+      - "Débit"
+      - "Crédit"
+      - "Ecriture"
+
+    date_format: "%d.%m.%Y"
+
+    reference_columns:
+      - "Date d'achat"
+      - "Texte comptable"
+      - "Montant"
+      - "Monnaie originale"
+
+  camt053: {}
 
 output:
   date_format: "%Y%m"

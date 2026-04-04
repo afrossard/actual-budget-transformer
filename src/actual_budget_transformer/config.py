@@ -2,8 +2,9 @@
 
 import os
 from pathlib import Path
-from typing import Dict, Optional
+
 import yaml
+
 from actual_budget_transformer.logging_config import logger
 
 # Environment variable for config path
@@ -17,9 +18,9 @@ class _ConfigManager:
     """Manages loading and caching of the application configuration."""
 
     def __init__(self):
-        self._config_cache: Optional[Dict] = None
+        self._config_cache: dict | None = None
 
-    def load(self, config_path_override: Optional[str] = None) -> Dict:
+    def load(self, config_path_override: str | None = None) -> dict:
         """
         Load configuration from a YAML file, caching the result.
 
@@ -36,8 +37,10 @@ class _ConfigManager:
 
         if not config_path:
             logger.warning(
-                "Configuration file not specified via argument or %s environment variable. "
-                "Using default settings. Please copy config.template.yml to create your configuration.",
+                "Configuration file not specified via argument or "
+                "%s environment variable. Using default settings. "
+                "Please copy config.template.yml to create your "
+                "configuration.",
                 CONFIG_PATH_ENV,
             )
             self._config_cache = config
@@ -46,7 +49,7 @@ class _ConfigManager:
         try:
             path = Path(config_path)
             if path.exists():
-                with open(path, "r", encoding="utf-8") as f:
+                with open(path, encoding="utf-8") as f:
                     loaded_config = yaml.safe_load(f)
                     if loaded_config:
                         logger.info("Loaded configuration from %s", path)
@@ -67,11 +70,12 @@ class _ConfigManager:
 _config_manager = _ConfigManager()
 
 
-def load_config(config_path_override: Optional[str] = None) -> Dict:
+def load_config(config_path_override: str | None = None) -> dict:
     """
     Load configuration from a YAML file.
 
-    The configuration is loaded once and cached. Subsequent calls return the cached version.
+    The configuration is loaded once and cached.
+    Subsequent calls return the cached version.
     The config file location is determined in the following order:
     1. The `config_path_override` argument.
     2. The `ACTUAL_BUDGET_TRANSFORMER_CONFIG` environment variable.
@@ -85,7 +89,7 @@ def load_config(config_path_override: Optional[str] = None) -> Dict:
     return _config_manager.load(config_path_override)
 
 
-def get_processor_config(processor_name: str) -> Dict:
+def get_processor_config(processor_name: str) -> dict:
     """
     Get configuration for a specific processor.
 
@@ -99,29 +103,39 @@ def get_processor_config(processor_name: str) -> Dict:
     return config.get("processors", {}).get(processor_name, {})
 
 
-def get_account_name(iban: str, processor_name: str = "ubs_csv") -> str:
+def get_account_name(account_id: str) -> str:
     """
-    Get friendly name for an IBAN from a specific processor's configuration.
+    Get friendly name for an account identifier from configuration.
+
+    Looks up the top-level ``account_names`` mapping first, then falls
+    back to per-processor ``account_names`` for backwards compatibility.
 
     Args:
-        iban: The IBAN to look up
-        processor_name: Name of the processor to get account mappings from
+        account_id: The account identifier to look up (IBAN, card number, etc.)
 
     Returns:
-        Friendly name if found, cleaned IBAN if not found
+        Friendly name if found, cleaned identifier if not found
     """
-    processor_config = get_processor_config(processor_name)
+    config = load_config()
+    clean_id = account_id.replace(" ", "")
 
-    # Clean the IBAN for comparison
-    clean_iban = iban.replace(" ", "")
-
-    # Try to get friendly name from config
-    friendly_name = processor_config.get("account_names", {}).get(clean_iban)
-
+    # Top-level account_names (preferred)
+    friendly_name = config.get("account_names", {}).get(clean_id)
     if friendly_name:
-        logger.debug("Found friendly name '%s' for IBAN %s", friendly_name, iban)
+        logger.debug("Found friendly name '%s' for %s", friendly_name, account_id)
         return friendly_name
 
-    # If no friendly name found, return cleaned IBAN
-    logger.debug("No friendly name found for IBAN %s", iban)
-    return clean_iban
+    # Fallback: per-processor account_names (backwards compat)
+    for proc_config in config.get("processors", {}).values():
+        if isinstance(proc_config, dict):
+            friendly_name = proc_config.get("account_names", {}).get(clean_id)
+            if friendly_name:
+                logger.debug(
+                    "Found friendly name '%s' for %s (processor config)",
+                    friendly_name,
+                    account_id,
+                )
+                return friendly_name
+
+    logger.debug("No friendly name found for %s", account_id)
+    return clean_id

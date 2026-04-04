@@ -1,13 +1,9 @@
-# pylint: disable=missing-function-docstring,missing-module-docstring
 import os
+
 from actual_budget_transformer.processors.ubs_csv_transaction_processor import (
     UBSCSVTransactionProcessor,
 )
-
-DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
-os.environ["ACTUAL_BUDGET_TRANSFORMER_CONFIG"] = os.path.join(
-    os.path.dirname(__file__), "data", "test_config.yml"
-)
+from tests.conftest import DATA_DIR
 
 
 def test_can_process_valid_ubs_csv():

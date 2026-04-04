@@ -1,14 +1,17 @@
 # Actual Budget Transformer Configuration Template
 # Copy this file to config.yml and fill in your actual values
 
+# Map account identifiers (IBANs, card numbers) to friendly names.
+# Used across all processors for output filenames.
+account_names:
+  "CH0000000000": "personal_checking"
+  "CH1111111111": "savings"
+  "1234567890123456": "personal_card"
+  "6543210987654321": "partner_card"
+
 processors:
   # UBS CSV Transaction Processor settings
   ubs_csv:
-    # Map IBANs to friendly names for output files
-    account_names:
-      "CH0000000000": "personal_checking"
-      "CH1111111111": "savings"
-
     # CSV parsing settings
     csv_settings:
       encoding: "utf-8-sig"
@@ -74,10 +77,17 @@ processors:
     # Date format in the CSV
     date_format: "%d.%m.%Y"
 
-    # Map card numbers to friendly names for output files
-    account_names:
-      "1234567890123456": "Personal Card"
-      "6543210987654321": "Partner Card"
+    # Columns used to generate a stable transaction reference (hash).
+    # Use original-currency fields rather than converted amounts, which
+    # can shift between exports due to exchange rate changes.
+    reference_columns:
+      - "Date d'achat"
+      - "Texte comptable"
+      - "Montant"
+      - "Monnaie originale"
+
+  # CAMT.053 Processor settings
+  camt053: {}
 
 # Global settings
 output:
