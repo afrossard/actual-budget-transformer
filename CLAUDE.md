@@ -1,6 +1,6 @@
 # CLAUDE.md — Contributor Guide for LLMs
 
-> **Note for LLMs:** This file is the persistent memory for this project. Running in a devcontainer means any memory written outside the repo will not survive a restart. Always persist valuable context (decisions, progress, conventions) here or in `PLAN.md` — not in `~/.claude/`.
+> **Note for LLMs:** This file is the persistent memory for this project. Running in a devcontainer means any memory written outside the repo will not survive a restart. Always persist valuable context (decisions, progress, conventions) here — not in `~/.claude/`. See `CHANGELOG.md` for release history.
 
 
 ## Project purpose
@@ -40,7 +40,7 @@ src/actual_budget_transformer/
 ### Output contract
 
 Every processor must return a `ProcessingResult` with:
-- `data`: a `pandas.DataFrame` with exactly these columns: `transaction_date`, `payee`, `notes`, `debit`, `credit`
+- `data`: a `pandas.DataFrame` with exactly these columns: `transaction_date`, `payee`, `notes`, `debit`, `credit`, `reference`
 - `output_prefix`: a string used as the suffix of output filenames (e.g. `ubs_personal` → `202501_ubs_personal.csv`)
 
 ---
@@ -140,31 +140,6 @@ python scripts/anonymize_ubs_cards.py /path/to/real/cards.csv tests/data/ubs_car
 ```bash
 python scripts/anonymize_ubs_csv.py /path/to/real/account.csv tests/data/ubs_valid.csv
 ```
-
----
-
-## Work in progress
-
-Branch `feature/handle-camt-files` adds support for **CAMT.053** (ISO 20022 XML bank statements, used by UBS Switzerland). See `PLAN.md` for the full iteration plan.
-
-**Progress:**
-- Iteration 0 ✅ — `pyiso20022` assessed and adopted (runtime dep)
-- Iteration 1.1 ✅ — `camt053_parser.py` implemented and tested
-- Iteration 1.2 ✅ — `Camt053Processor.can_process` implemented and tested
-- Iteration 1.3 ✅ — `Camt053Processor.process()` implemented and tested
-- Iteration 1.3b ✅ — `ProcessingResult.COLUMNS` centralised in `BaseProcessor` with `__post_init__` validation
-- Iteration 1.3c ✅ — UBS cards processor tests added; also fixed card number read as float bug and deprecated `date_parser` warning
-- Iteration 1.4 ✅ — `Camt053Processor` registered in factory; `camt053` section added to `config.template.yml`; factory + integration tests added
-- Iteration 2.1 ✅ — `build_camt053_document` implemented in `writers/camt053_writer.py` with roundtrip tests
-- Iteration 2.1b ✅ — `reference` column added to pipeline; CAMT preserves `AcctSvcrRef`, UBS CSV carries `transaction_number`, UBS cards generates deterministic hash from configurable `reference_columns`
-- Iteration 2.2 ✅ — `--format` CLI flag (`csv`/`camt053`/`both`), `metadata.account_id` on all processors; refactored writers into `BaseWriter`/`CsvWriter`/`Camt053Writer` with shared dedup in base class
-- Iteration 2.3 ✅ — Merge/dedup for CAMT.053 output (folded into 2.2 refactor — `BaseWriter.save_monthly` handles dedup for both formats, preferring `reference` when available)
-- Iteration 3.1 ✅ — Skip pending transactions and footer/summary rows in UBS cards processor; filter before `fillna(0)` and reference generation
-- Iteration 3.2 ✅ — Stable references for UBS cards: `reference_columns` config + `cumcount()` disambiguator for identical same-day transactions
-
-**Key decisions:**
-- Use `pyiso20022` + `xsdata` for parsing/generating CAMT.053 (not stdlib `xml.etree`)
-- Use `ValDt` (value date) over `BookgDt` (booking date) — more meaningful for budgeting
 
 ---
 
