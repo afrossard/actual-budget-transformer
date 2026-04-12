@@ -1,7 +1,14 @@
 alias ll='ls -al'
 
-# Claude Code isolated container
-alias dev-up='docker compose -f docker-compose.dev.yml up -d --build'
-alias dev-down='docker compose -f docker-compose.dev.yml down'
+# Docker compose (relative to .devcontainer/)
+alias dc='docker compose -f /workspaces/actual-budget-transformer/.devcontainer/docker-compose.yml'
+
+# Actual Budget test server
+alias actual-up='dc --profile actual up -d'
+alias actual-down='dc --profile actual stop'
+
+# Claude Code container
+alias claude-up='dc --profile claude up -d --build'
+alias claude-down='dc --profile claude stop'
 alias claude-run='docker exec -it claude-code bash -lc claude'
-alias dev-shell='docker exec -it claude-code bash'
+alias claude-shell='docker exec -it claude-code bash'

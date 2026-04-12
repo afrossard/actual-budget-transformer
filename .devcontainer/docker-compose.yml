@@ -1,13 +1,23 @@
 services:
-  claude:
-    container_name: claude-code
+  devcontainer:
     build:
-      context: .devcontainer/claude
+      context: .
       dockerfile: Containerfile
     volumes:
-      # Shared workspace — uses host path so both containers see the same files
-      - ${LOCAL_WORKSPACE_FOLDER:-.}:/workspaces/actual-budget-transformer
-      # Persist Claude auth tokens across container restarts
+      - ..:/workspaces/actual-budget-transformer:cached
+    environment:
+      - UV_LINK_MODE=copy
+      - ACTUAL_SERVER_URL=http://actual-server:5006
+    stdin_open: true
+
+  claude:
+    profiles: ["claude"]
+    container_name: claude-code
+    build:
+      context: claude
+      dockerfile: Containerfile
+    volumes:
+      - ..:/workspaces/actual-budget-transformer:cached
       - claude-auth:/home/vscode/.claude
     working_dir: /workspaces/actual-budget-transformer
     environment:
@@ -17,18 +27,14 @@ services:
     user: vscode
     stdin_open: true
     tty: true
-    depends_on:
-      actual-server:
-        condition: service_healthy
-    # No docker socket, no SSH agent, no git credentials, no network secrets
-    # Only the workspace and Claude auth are mounted
 
   actual-server:
+    profiles: ["actual"]
     image: actualbudget/actual-server:25.3.1
     ports:
       - "5006:5006"
-    volumes:
-      - actual-data:/data
+    tmpfs:
+      - /data
     healthcheck:
       test: ["CMD", "node", "-e", "const http = require('http'); http.get('http://localhost:5006', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
       interval: 5s
@@ -38,4 +44,3 @@ services:
 
 volumes:
   claude-auth:
-  actual-data:
