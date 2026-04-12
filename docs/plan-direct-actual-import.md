@@ -65,51 +65,110 @@ actual_budget:
 
 ## Implementation Steps
 
-### Step 0: Evaluate `actualpy` vs direct Actual API
+### Step 0: Evaluate `actualpy` vs direct Actual API ✅
 
-Decide whether to use the `actualpy` library or call Actual Budget's API directly. The concern is long-term reliability and technical debt, not dependency size.
+**Decision: Use the official JS API (`@actual-app/api`) via a Node.js bridge script.**
 
-**`actualpy`:**
-- Pro: Higher-level abstractions, less boilerplate
-- Con: Third-party dependency we don't control — if it becomes unmaintained or diverges from Actual's protocol, we inherit the problem
-- Con: May hide important details of the sync protocol that matter for our dedup/verification logic
-- Question: Is it a thin wrapper or does it handle heavy lifting (sync protocol, encryption, conflict resolution)?
+#### Research findings
 
-**Direct API:**
-- Pro: No third-party coupling — we depend only on Actual Budget itself
-- Pro: Full control over exactly which API calls we make, important for our custom dedup and balance verification
-- Con: More upfront work to implement
-- Con: Need to understand and implement the API protocol ourselves
-- Question: Is the API well-documented and stable enough to use directly?
+**Actual Budget has no REST API.** It uses a CRDT-based sync protocol. Clients download an encrypted SQLite database, apply changes as CRDT messages locally, and sync diffs back to the server. There are three integration options:
+
+**Option 1 — Direct sync protocol reimplementation: ruled out.**
+The sync protocol is undocumented internal machinery (CRDTs, binary message format, optional libsodium encryption). Reimplementing it is infeasible for this project's scope.
+
+**Option 2 — `actualpy` (Python, community): rejected due to database safety risk.**
+- v0.21.0 (Feb 2026), actively maintained, single primary maintainer (bvanelli)
+- Reimplements the CRDT sync protocol in Python using SQLAlchemy ORM against the local SQLite budget database
+- Provides `reconcile_transaction()` for dedup, direct SQLAlchemy queries for flexible data access
+- **Critical risk**: because it reimplements the sync protocol and writes directly to the database schema, a server-side schema or protocol change can cause silent data corruption. The Actual server updates independently of `actualpy` — code that worked yesterday may break the database tomorrow. SQLAlchemy writes could silently produce bad data (renamed column, new required field), and malformed CRDT sync messages could corrupt budget state with no rollback. Integration tests catch breakage *after the fact*; they don't prevent corruption of the user's real budget between test runs.
+
+**Option 3 — Official JS API (`@actual-app/api`): selected.**
+- Maintained by the Actual team, released alongside the server
+- Schema changes are handled internally — we code against the API contract, not the database
+- If the API breaks, it breaks cleanly (method signature changes, missing fields) rather than silently corrupting data
+- Requires Node.js runtime, called from Python via a bridge script (subprocess)
+- **Trade-off**: adds a Node.js dependency and subprocess overhead, but this is a bounded engineering cost. Database corruption risk from a stale third-party sync reimplementation is unbounded.
+
+#### JS API capabilities (covers all plan requirements)
+
+| Need | JS API method | Notes |
+|------|--------------|-------|
+| Import transactions | `importTransactions(accountId, transactions, opts?)` | Returns `{ added, updated, errors }`. Built-in dedup via `imported_id` (exact match) + fuzzy fallback (amount + date + payee). We'll use `imported_id` for skip detection but own the suspicious/clean classification ourselves. |
+| Query existing transactions | `getTransactions(accountId, startDate, endDate)` | Returns full transaction objects including `imported_id`, `cleared`, `amount`, `date`, `notes`, `category` |
+| List accounts | `getAccounts()` | Returns `id`, `name`, `type`, `balance_current`, `offbudget`, `closed` |
+| Account balance at date | `getAccountBalance(id, cutoff?)` | Integer balance (cents) at optional cutoff date — enables balance verification against CAMT checkpoints |
+| Assign category | `category` field on transaction objects | Pass category UUID when importing; use `getCategories()` to resolve name → ID |
+| Flexible queries | `runQuery(query)` | ActualQL queries for anything the typed methods don't cover |
+| Lookup by name | `getIDByName({ type, string })` | Resolve account/payee/category name → UUID |
+
+**Connection lifecycle**: `init({ serverURL, password, dataDir })` → `downloadBudget({ syncId, password? })` → operations → `sync()` → `shutdown()`
+
+**Amounts**: integers in cents. `$120.30` = `12030`. Utility: `utils.amountToInteger()` / `utils.integerToAmount()`.
+
+**Encryption**: pass encryption password in `downloadBudget()`, handled transparently.
+
+**`importTransactions` dedup detail**:
+1. Exact `imported_id` match → updates existing transaction (primary dedup)
+2. No `imported_id` → fuzzy match on amount + date proximity + payee similarity
+3. Known gap: duplicate `imported_id` values *within the same API call* are not deduped (only across calls)
+4. Transactions with *different* `imported_id` values are never fuzzy-merged
+
+#### Bridge architecture
+
+A TypeScript bridge script (`src/actual_budget_transformer/bridge/actual_api_bridge.ts`) exposes the API as a JSON-over-stdio interface:
+- Python subprocess starts the bridge, sends JSON commands to stdin, reads JSON responses from stdout
+- Commands: `init`, `download_budget`, `get_accounts`, `get_transactions`, `import_transactions`, `get_account_balance`, `get_categories`, `sync`, `shutdown`
+- The bridge is stateful (holds the connection) for the duration of a CLI invocation
+- Error handling: bridge returns structured errors; Python side raises typed exceptions
+- **Node.js dependency**: documented as a requirement; checked at startup with a clear error message if missing
+
+This keeps all business logic (batching, dedup classification, circuit breaker) in Python while delegating only the Actual protocol handling to the official JS implementation.
+
+### Step 1: Build the JS API bridge
+
+> Steps 0 and 1 from the original plan are merged — the research is complete, and the next implementation step is the bridge.
+
+Create `src/actual_budget_transformer/bridge/actual_api_bridge.ts`:
+- `@actual-app/api` installed via `package.json` in project root (Node.js available in both dev and prod containers)
+- Implement a stdin/stdout JSON-RPC-like protocol: read newline-delimited JSON commands, execute the corresponding API call, write JSON response
+- Handle connection lifecycle (init/download/sync/shutdown)
+- Handle errors gracefully (return structured error objects, never crash silently)
+
+Create `src/actual_budget_transformer/actual_api.py`:
+- Python wrapper class that manages the Node.js subprocess
+- Methods matching the bridge commands, with typed return values
+- Context manager for lifecycle (`__enter__` starts bridge + init + download, `__exit__` syncs + shuts down)
+- Node.js availability check at startup
+
+**Files**: `src/actual_budget_transformer/bridge/actual_api_bridge.ts`, `package.json`, `src/actual_budget_transformer/actual_api.py`
+
+### Step 1b: Assess client/server version mismatch behavior
+
+Before building on the JS API, understand how `@actual-app/api` handles version mismatches with the Actual server. The server will be updated independently of our pinned `@actual-app/api` version — we need to know what happens when they diverge.
 
 **Research tasks:**
-- Study Actual Budget's API surface: what endpoints exist for importing transactions, querying existing transactions, checking balances, reconciliation status
-- Study `actualpy` source: how much heavy lifting does it do vs thin wrapping? How does it handle the sync protocol?
-- Assess: if `actualpy` became unmaintained tomorrow, how hard is it to replace?
-- Assess: does the direct API give us everything we need for our dedup/verification logic?
-- **API stability**: Actual Budget is actively developed and the user updates frequently. How stable is the API across server versions? Is there a versioned API contract, or do endpoints change with releases? Does `actualpy` pin to a specific server version? If using the direct API, how do we detect or handle breaking changes? This directly impacts maintenance burden — if every server update risks breaking the import, the feature becomes a liability.
+- What happens when the `@actual-app/api` client version is older than the server? Does the sync protocol negotiate versions? Does `init()` or `downloadBudget()` fail with a clear error, silently succeed, or corrupt data?
+- What happens when the client is newer than the server?
+- Does the API or server expose version information we can compare at connection time?
+- Is there a compatibility matrix or documented policy (e.g. "API version N works with server versions N-2 through N")?
+- Check the Actual server source and changelog for past breaking changes to the sync protocol — how often do they happen?
 
-**Decision**: Make based on research findings. Lean toward direct API if it's well-documented and `actualpy` is mostly a thin wrapper. Lean toward `actualpy` if it handles complex protocol details (encryption, sync) that would be costly to reimplement. If neither option offers a stable contract across server updates, reconsider whether direct import is viable at all — or scope it to a known-compatible server version range with a clear compatibility check at connection time.
+**Output:** Based on findings, decide whether to:
+1. Pin `@actual-app/api` to a specific version and document the compatible server range
+2. Add a version check at connection time (query server version, compare against known-compatible range, warn or abort on mismatch)
+3. Both
 
-### Step 1: Research Actual's internals
+Update the bridge script design (Step 1) accordingly — if a version check is needed, add it to the `init` command response.
 
-Study both `actualpy` and Actual Budget's API to inform the Step 0 decision and the dedup/verification implementation:
+### Step 2: Add dependencies
 
-- How does `importTransactions` work? What fields does it match on? What does it return?
-- Can we query existing transactions by date range and amount?
-- Can we read reconciliation status / last reconciled date per account?
-- Can we read account balances at specific dates?
-- Can we assign a category when importing a transaction?
-- What does "merge suggestion" mean at the API level?
-- How does the sync protocol work? Is there encryption or conflict resolution we'd need to handle?
+- Add `@actual-app/api` to `package.json` in project root, with `typescript` and `@types/node` as dev dependencies
+- Commit `package-lock.json` for reproducible installs
+- Add `npm install` to the Dockerfile / devcontainer setup (alongside existing `uv sync`)
+- Add `tsconfig.json` for the bridge script compilation
+- No new Python dependencies needed — subprocess communication uses only stdlib (`subprocess`, `json`)
 
-**Output**: Update this plan with concrete API details and the Step 0 decision before proceeding to implementation.
-
-### Step 2: Add dependency to `pyproject.toml`
-
-Based on Step 0 decision, add either `actualpy` or relevant HTTP/API libraries.
-
-**File**: `pyproject.toml`
+**Files**: `package.json`, `package-lock.json`, `tsconfig.json`, Dockerfile / devcontainer config
 
 ### Step 3: Add `get_actual_budget_config()` to config
 
@@ -153,7 +212,7 @@ New class in `writers/` directory:
      f. Import suspicious transactions with the configured review category
      g. If a balance checkpoint exists at this batch boundary: compare Actual's account balance against CAMT expected balance. On mismatch → stop this account, log the discrepancy (expected vs actual, difference amount)
      h. Log summary: N imported, N flagged for review, N skipped (duplicate), N skipped (reconciled), balance check pass/fail
-- **Handle missing `actualpy`** gracefully: clear error directing user to install
+- **Handle missing Node.js / `@actual-app/api`** gracefully: check at startup, clear error directing user to install
 
 **Bucket classification logic (conservative):**
 ```
@@ -175,8 +234,8 @@ The key insight: without references, we cannot pair source rows to existing rows
 1. Add `"actual"` to `--format` choices
 2. When format is `"actual"`:
    - Read config via `get_actual_budget_config()`
-   - Validate config (url, password, file must be set)
-   - Create `ActualBudgetImporter` context manager
+   - Validate config (url, password, file must be set) and Node.js availability
+   - Create `ActualBudgetImporter` context manager (which starts the JS bridge subprocess)
    - Call `importer.import_transactions(result)` for each processed file
    - Skip the `_get_writers()` / `save_monthly()` path entirely
    - At the end, print a summary of all accounts: what was imported, flagged, skipped, and any tripped circuit breakers
@@ -194,15 +253,15 @@ if args.output_format == "actual":
 
 **File**: `src/actual_budget_transformer/main.py`
 
-### Step 7: Test infrastructure — Actual Budget container
+### Step 7: Test infrastructure — Actual Budget container ✅ (partial)
 
 Add an Actual Budget server container for integration testing and development prototyping.
 
-**`docker-compose.test.yml`** (or extend `docker-compose.claude.yml`):
+**`docker-compose.test.yml`** — done, pinned to `actualbudget/actual-server:25.3.1`:
 ```yaml
 services:
   actual-server:
-    image: actualbudget/actual-server:latest  # pin to specific tag once stable
+    image: actualbudget/actual-server:25.3.1
     ports:
       - "5006:5006"
     volumes:
@@ -210,24 +269,42 @@ services:
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5006"]
       interval: 5s
+      timeout: 3s
       retries: 5
+      start_period: 10s
 
 volumes:
   actual-data:
 ```
 
+**Server bootstrap** — a fresh Actual server has no password and no budget. Bootstrapping requires the sync protocol, not just HTTP calls. Research findings:
+
+1. **Set password**: `POST /account/bootstrap` with `{"password": "..."}` → returns auth token. Simple HTTP.
+2. **Create + upload budget**: Requires creating a local SQLite DB (with CRDT clock and migrations), then uploading it as a zip to `POST /sync/upload-user-file`. This is sync protocol territory — not a simple REST call.
+3. **Create accounts/transactions**: Via CRDT messages posted to `POST /sync/sync` as protobuf. Again, sync protocol.
+
+The raw HTTP sequence is: `GET /account/needs-bootstrap` → `POST /account/bootstrap` → `GET /data/file-index` → `GET /data/<migration>` → `POST /sync/upload-user-file` → `POST /sync/sync`.
+
+**Two options for automating bootstrap in tests:**
+
+- **Option A — `actualpy` as dev-only dependency**: The `actualpy` test suite already does exactly this. `Actual(url, password, bootstrap=True)` → `create_budget()` → `upload_budget()` → create accounts via `get_or_create_account()` → `commit()`. Clean Python, works well for test fixtures. Would be added to `[dependency-groups] dev` only, not used in production import path.
+
+- **Option B — JS API bridge**: Use the same `@actual-app/api` bridge from Step 1 to bootstrap. Keeps the dependency set smaller (no actualpy at all), but means the bridge must be built before tests can run, creating a chicken-and-egg during early development.
+
+**Decision**: TBD — depends on preference for dev dependency vs implementation ordering.
+
 **Test setup fixture** (pytest):
-- Start/verify the container is running (or skip integration tests if not)
-- Create a budget file, set password, create test accounts via the API
+- Skip integration tests if server not reachable
+- Bootstrap server (set password, create budget, create test accounts)
 - Seed known transactions for dedup/balance testing scenarios
-- Tear down: reset budget state between test runs
+- Tear down: reset budget state between test runs (`docker compose down -v` for clean slate)
 
 **Uses:**
 - Integration tests run against real server — catches API breakage on server upgrades
 - Bump the image tag to test compatibility with new Actual releases before updating your own server
 - Quick prototyping during development — no separate Actual instance needed
 
-**Files**: `docker-compose.test.yml`, `tests/conftest.py` (fixtures)
+**Files**: `docker-compose.test.yml` (done), `tests/conftest.py` (fixtures — pending)
 
 ### Step 8: Tests
 
@@ -246,7 +323,8 @@ volumes:
 - Circuit breaker trips → account aborted, others continue
 - Balance verification against CAMT checkpoint → mismatch stops import
 - Resume after partial import → picks up cleanly
-- **Server version compatibility**: run the suite against different Actual image tags
+- **Server version compatibility**: run the suite against different Actual server image tags to detect breakage
+- **Client/server version mismatch**: test with a deliberately mismatched `@actual-app/api` version against the server — verify that the version check (from Step 1b) detects the mismatch and aborts cleanly rather than proceeding with potentially incompatible operations. Test both directions: client older than server, and client newer than server.
 
 **Files**: `tests/test_actual_importer_unit.py`, `tests/test_actual_importer_integration.py`
 
@@ -260,7 +338,7 @@ Update `CLAUDE.md` architecture section and config docs to reflect the new featu
 
 ## Verification
 
-1. `uv sync` — deps install cleanly
+1. `uv sync && cd scripts && npm install` — deps install cleanly
 2. `docker compose -f docker-compose.test.yml up -d` — Actual server starts and is healthy
 3. `uv run pytest tests/test_actual_importer_unit.py` — unit tests pass (no server needed)
 4. `uv run pytest tests/test_actual_importer_integration.py` — integration tests pass against container
@@ -271,9 +349,14 @@ Update `CLAUDE.md` architecture section and config docs to reflect the new featu
 
 ## Critical Files
 
-- `src/actual_budget_transformer/writers/actual_budget_importer.py` (new)
+- `src/actual_budget_transformer/bridge/actual_api_bridge.ts` (new — TypeScript bridge to `@actual-app/api`)
+- `package.json` (new — `@actual-app/api` dependency + TypeScript tooling)
+- `package-lock.json` (new — lockfile)
+- `tsconfig.json` (new)
+- `src/actual_budget_transformer/actual_api.py` (new — Python wrapper around the bridge subprocess)
+- `src/actual_budget_transformer/writers/actual_budget_importer.py` (new — business logic: batching, dedup, circuit breaker)
 - `src/actual_budget_transformer/main.py` (modify)
 - `src/actual_budget_transformer/config.py` (modify)
 - `config.template.yml` (modify)
-- `pyproject.toml` (modify)
-- `tests/test_actual_budget_importer.py` (new)
+- `tests/test_actual_importer_unit.py` (new)
+- `tests/test_actual_importer_integration.py` (new)

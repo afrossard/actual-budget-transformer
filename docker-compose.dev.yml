@@ -13,11 +13,29 @@ services:
     environment:
       - UV_LINK_MODE=copy
       - CLAUDE_CONFIG_DIR=/home/vscode/.claude
+      - ACTUAL_SERVER_URL=http://actual-server:5006
     user: vscode
     stdin_open: true
     tty: true
+    depends_on:
+      actual-server:
+        condition: service_healthy
     # No docker socket, no SSH agent, no git credentials, no network secrets
     # Only the workspace and Claude auth are mounted
 
+  actual-server:
+    image: actualbudget/actual-server:25.3.1
+    ports:
+      - "5006:5006"
+    volumes:
+      - actual-data:/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "const http = require('http'); http.get('http://localhost:5006', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
 volumes:
   claude-auth:
+  actual-data:
