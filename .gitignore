@@ -12,6 +12,13 @@ Desktop.ini
 **/__pycache__
 **/*.pyc
 
+# Node.js / TypeScript
+node_modules/
+dist/
+
+# Claude Code
+.claude/
+
 # Project ignores
 tmp
 config.yaml

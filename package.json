@@ -1,0 +1,26 @@
+{
+  "name": "actual-budget-transformer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "CLI tool that transforms bank statements into Actual Budget imports",
+  "scripts": {
+    "typecheck": "echo 'SKIP: @actual-app/core ships raw .ts source that fails strict checks — tsc unusable until upstream fixes packaging'",
+    "format": "prettier --write 'src/**/*.ts' 'scripts/**/*.ts'",
+    "format:check": "prettier --check 'src/**/*.ts' 'scripts/**/*.ts'",
+    "bootstrap": "ACTUAL_DATA_DIR=/tmp/actual-data tsx scripts/bootstrap_test_budget.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/afrossard/actual-budget-transformer.git"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "@actual-app/api": "^25.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "prettier": "^3.8.2",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2"
+  }
+}

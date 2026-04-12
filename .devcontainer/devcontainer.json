@@ -2,9 +2,10 @@
 // README at: https://github.com/devcontainers/templates/tree/main/src/python
 {
   "name": "Python 3",
-  "build": {
-    "dockerfile": "Containerfile"
-  },
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "devcontainer",
+  "workspaceFolder": "/workspaces/actual-budget-transformer",
+  "shutdownAction": "stopCompose",
 
   "features": {
     "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {

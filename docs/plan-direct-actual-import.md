@@ -253,58 +253,51 @@ if args.output_format == "actual":
 
 **File**: `src/actual_budget_transformer/main.py`
 
-### Step 7: Test infrastructure — Actual Budget container ✅ (partial)
+### Step 7: Test infrastructure — Actual Budget container ✅
 
-Add an Actual Budget server container for integration testing and development prototyping.
+#### Container setup — done
 
-**`docker-compose.test.yml`** — done, pinned to `actualbudget/actual-server:25.3.1`:
-```yaml
-services:
-  actual-server:
-    image: actualbudget/actual-server:25.3.1
-    ports:
-      - "5006:5006"
-    volumes:
-      - actual-data:/data
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5006"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-      start_period: 10s
+Actual server runs as a profiled service in `.devcontainer/docker-compose.yml` (pinned to `actualbudget/actual-server:25.3.1`), on the same Docker network as the devcontainer. Services use compose profiles so only the devcontainer starts automatically; auxiliary services start on demand (`docker compose --profile actual up -d`). Node.js 22 installed in both container images. The `postCreateCommand.sh` runs `npm install` alongside `uv sync`.
 
-volumes:
-  actual-data:
+#### Server bootstrap — done
+
+A fresh Actual server has no password and no budget. The bootstrap is handled by `scripts/bootstrap_test_budget.ts`, which is idempotent (safe to re-run).
+
+**Findings from implementation:**
+
+1. **Password setup**: Simple HTTP — `POST /account/bootstrap` with `{"password": "..."}`. Check first with `GET /account/needs-bootstrap`.
+
+2. **Budget creation**: `api.runImport(name, callback)` is the public API for this. It creates a local SQLite DB, runs the callback (where you create accounts/transactions), then finalizes and uploads to the server. **Requires `ACTUAL_DATA_DIR` env var** pointing to a writable directory — without this, the upload step silently fails because the internal `exportDatabase` function uses `process.env.ACTUAL_DATA_DIR` directly (not the `dataDir` passed to `init()`).
+
+3. **Budget download**: `api.downloadBudget(syncId)` where `syncId` is the **`groupId`** field from `getBudgets()` — not `cloudFileId` (despite the field name in some responses).
+
+4. **Upstream test approach**: The `@actual-app/api` tests work fully offline — `api.init({ dataDir })` with no `serverURL`, loading a pre-built SQLite template. No server, no sync. This is useful for fast unit tests of our business logic.
+
+5. **Account creation**: Standard `api.createAccount({ name, type }, initialBalance)` followed by `api.sync()`.
+
+**Decision: Use `@actual-app/api` directly for bootstrap** (no `actualpy` needed). The bootstrap script uses the same JS API that the production bridge will use, keeping the dependency set minimal.
+
+**Bootstrap script** (`scripts/bootstrap_test_budget.ts`):
 ```
+ACTUAL_DATA_DIR=/tmp/actual-data npx tsx scripts/bootstrap_test_budget.ts
+```
+- Bootstraps server password if needed
+- Creates "Test Budget" with three accounts (Test Checking, Test Savings, Test Credit Card)
+- Idempotent: downloads existing budget on re-run, only creates missing accounts
 
-**Server bootstrap** — a fresh Actual server has no password and no budget. Bootstrapping requires the sync protocol, not just HTTP calls. Research findings:
+#### Test modes
 
-1. **Set password**: `POST /account/bootstrap` with `{"password": "..."}` → returns auth token. Simple HTTP.
-2. **Create + upload budget**: Requires creating a local SQLite DB (with CRDT clock and migrations), then uploading it as a zip to `POST /sync/upload-user-file`. This is sync protocol territory — not a simple REST call.
-3. **Create accounts/transactions**: Via CRDT messages posted to `POST /sync/sync` as protobuf. Again, sync protocol.
+| Mode | Server needed | Use case | API init |
+|------|--------------|----------|----------|
+| Offline | No | Fast unit tests: dedup logic, batching, circuit breaker | `api.init({ dataDir })` + `api.loadBudget(id)` with template SQLite |
+| Online | Yes | Integration tests: full import path, sync, balance verification | `api.init({ serverURL, password, dataDir })` + `api.downloadBudget(groupId)` |
 
-The raw HTTP sequence is: `GET /account/needs-bootstrap` → `POST /account/bootstrap` → `GET /data/file-index` → `GET /data/<migration>` → `POST /sync/upload-user-file` → `POST /sync/sync`.
+#### Remaining work
 
-**Two options for automating bootstrap in tests:**
+- Pytest fixtures for integration tests (skip if server unreachable, seed transactions, teardown)
+- Offline test template budget for unit tests
 
-- **Option A — `actualpy` as dev-only dependency**: The `actualpy` test suite already does exactly this. `Actual(url, password, bootstrap=True)` → `create_budget()` → `upload_budget()` → create accounts via `get_or_create_account()` → `commit()`. Clean Python, works well for test fixtures. Would be added to `[dependency-groups] dev` only, not used in production import path.
-
-- **Option B — JS API bridge**: Use the same `@actual-app/api` bridge from Step 1 to bootstrap. Keeps the dependency set smaller (no actualpy at all), but means the bridge must be built before tests can run, creating a chicken-and-egg during early development.
-
-**Decision**: TBD — depends on preference for dev dependency vs implementation ordering.
-
-**Test setup fixture** (pytest):
-- Skip integration tests if server not reachable
-- Bootstrap server (set password, create budget, create test accounts)
-- Seed known transactions for dedup/balance testing scenarios
-- Tear down: reset budget state between test runs (`docker compose down -v` for clean slate)
-
-**Uses:**
-- Integration tests run against real server — catches API breakage on server upgrades
-- Bump the image tag to test compatibility with new Actual releases before updating your own server
-- Quick prototyping during development — no separate Actual instance needed
-
-**Files**: `docker-compose.test.yml` (done), `tests/conftest.py` (fixtures — pending)
+**Files**: `.devcontainer/docker-compose.yml` (done), `scripts/bootstrap_test_budget.ts` (done), `tests/conftest.py` (fixtures — pending)
 
 ### Step 8: Tests
 
@@ -339,7 +332,7 @@ Update `CLAUDE.md` architecture section and config docs to reflect the new featu
 ## Verification
 
 1. `uv sync && cd scripts && npm install` — deps install cleanly
-2. `docker compose -f docker-compose.test.yml up -d` — Actual server starts and is healthy
+2. `docker compose --profile actual up -d` — Actual server starts and is healthy
 3. `uv run pytest tests/test_actual_importer_unit.py` — unit tests pass (no server needed)
 4. `uv run pytest tests/test_actual_importer_integration.py` — integration tests pass against container
 5. Bump Actual image tag → re-run integration tests → confirm compatibility

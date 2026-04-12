@@ -35,6 +35,10 @@ src/actual_budget_transformer/
     ├── base_writer.py      # Abstract base with monthly-split + dedup orchestration
     ├── csv_writer.py       # CSV output (read-back for dedup + write)
     └── camt053_writer.py   # CAMT.053 XML output (build_camt053_document + Camt053Writer)
+
+scripts/
+├── bootstrap_test_budget.ts  # Bootstrap Actual Budget test server with accounts
+└── anonymize_*.py            # Anonymize real data for test fixtures
 ```
 
 ### Output contract
@@ -87,13 +91,25 @@ Config is loaded once and cached. The path is resolved in order:
 ## Development setup
 
 ```bash
-uv sync          # install dependencies into .venv
+uv sync          # install Python dependencies into .venv
+npm install      # install Node.js dependencies (@actual-app/api)
 uv run pytest    # run tests
 ```
 
 Convenience script (clears output, then processes `tmp/input_files/` → `tmp/output_files/`):
 ```bash
 bash process_transactions.sh
+```
+
+### Devcontainer
+
+The devcontainer uses Docker Compose (`.devcontainer/docker-compose.yml`). Only the main devcontainer starts automatically. Auxiliary services use compose profiles:
+
+```bash
+actual-up       # start Actual Budget test server (profile: actual)
+actual-down     # stop it
+claude-up       # start Claude Code container (profile: claude)
+claude-down     # stop it
 ```
 
 ---
@@ -145,10 +161,12 @@ python scripts/anonymize_ubs_csv.py /path/to/real/account.csv tests/data/ubs_val
 
 ## Dependencies
 
-| Package      | Role                                      |
-|--------------|-------------------------------------------|
-| pandas       | DataFrame parsing & merging               |
-| pyyaml       | Config file loading                       |
-| pyiso20022   | CAMT.053 typed dataclasses (via xsdata)   |
-| pytest       | Test runner (dev only)                    |
-| ruff         | Linter & formatter (dev only)             |
+| Package            | Role                                      |
+|--------------------|-------------------------------------------|
+| pandas             | DataFrame parsing & merging               |
+| pyyaml             | Config file loading                       |
+| pyiso20022         | CAMT.053 typed dataclasses (via xsdata)   |
+| pytest             | Test runner (dev only)                    |
+| ruff               | Linter & formatter (dev only)             |
+| @actual-app/api    | Official Actual Budget JS API (Node.js)   |
+| tsx                | TypeScript execution for bridge scripts   |
