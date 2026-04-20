@@ -2,6 +2,9 @@
 
 > **Note for LLMs:** This file is the persistent memory for this project. Running in a devcontainer means any memory written outside the repo will not survive a restart. Always persist valuable context (decisions, progress, conventions) here — not in `~/.claude/`. See `CHANGELOG.md` for release history.
 
+## Communication style
+
+- Keep answers concise. Prefer short, direct responses over long explanations.
 
 ## Project purpose
 
