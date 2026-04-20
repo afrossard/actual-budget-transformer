@@ -66,6 +66,19 @@ Reviewer's comment: may need a sync_id and an encryption key
 
 ## Implementation Steps
 
+### Current focus
+
+Next up is a **TS-only end-to-end smoke test** before building the bridge or any Python wiring. The test reuses `scripts/bootstrap_test_budget.ts` to get a live budget, then exercises `@actual-app/api` directly: import a handful of synthetic transactions, read them back, assert the round-trip.
+
+Why this ordering:
+
+- **De-risks the API contract first.** We find out whether we can reliably talk to Actual before investing in bridge design or Python plumbing.
+- **Gives us the rig for Step 1b.** Client/server version-mismatch questions are empirical — they need a harness to probe. This test _is_ that harness: swap the Actual image tag, rerun.
+- **Keeps the blast radius small.** The bridge (Step 1) and Python wrapper add subprocess + JSON marshaling failure modes that are orthogonal to "does the API work?". Adding them now would couple protocol research to IPC debugging.
+- **Python comes later.** Once the TS path is proven, the bridge and `actual_api.py` wrap a known-good surface. Pytest can shell out to the TS tests or trust them.
+
+After this smoke test lands, the next decision point is Step 1b (version compatibility), then Step 1 (bridge).
+
 ### Step 0: Evaluate `actualpy` vs direct Actual API ✅
 
 **Decision: Use the official JS API (`@actual-app/api`) via a Node.js bridge script.**
