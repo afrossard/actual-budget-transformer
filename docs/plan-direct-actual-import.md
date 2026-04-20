@@ -9,6 +9,7 @@ Currently the CLI transforms bank statement files into CSV/XML files that must b
 The user's current manual workflow is careful and deliberate: import one month at a time, check the reconciliation boundary, manually review potential duplicates. Actual's built-in dedup (`importTransactions`) is not fully reliable, especially for transactions without a bank reference.
 
 The automated import must be **at least as safe as manual import**. It should never create a mess that's harder to clean up than doing it by hand. Key principles:
+
 - Skip transactions that are already reconciled (locked)
 - Flag uncertain matches for async human review rather than guessing
 - Stop early if too much uncertainty (circuit breaker)
@@ -23,43 +24,43 @@ The automated import must be **at least as safe as manual import**. It should ne
 
 2. **Account matching** — Reuse existing `account_names` values as Actual Budget account names. Before importing, validate that the target account exists in Actual Budget and fail clearly if not (listing available accounts).
 
-3. **Checkpoint-based batching** — Import transactions in batches bounded by whichever comes first: end of calendar month, or the next available balance checkpoint from CAMT files. If CAMT provides a closing balance on Jan 15, the batch covers Jan 1–15, verified against that balance, then Jan 16–31 follows. If no CAMT data exists for an account, fall back to pure monthly batching (no inline verification possible). This ensures you never import more than you can verify.
+3. **Checkpoint-based batching with inline balance verification** — Batches are bounded by whichever comes first: end of calendar month, or the next CAMT.053 statement balance checkpoint. After each batch is committed, compare Actual's account balance at the batch boundary against the CAMT balance; on mismatch, stop this account's import immediately so the user can fix the small, recent discrepancy before resuming. Without CAMT data, fall back to pure monthly batching with no inline verification. CSV files have balance fields structurally but have been empty in practice — support them if populated, don't rely on them.
 
 4. **Reconciliation boundary** — Before importing a batch, query the account's last reconciled transaction date. Skip all transactions dated before that boundary (they're locked and verified). Only process transactions on or after the reconciliation date.
 
-5. **Three-bucket classification** for transactions on/after the reconciliation date:
+5. (needs review) **Three-bucket classification** for transactions on/after the reconciliation date:
    - **Skip** — high-confidence duplicate: same `imported_id`/reference already exists in Actual
    - **Suspicious** — no reference, but an existing transaction in the account matches on amount within ±1 day. Needs count-aware matching (see below). Imported with a configurable "to review" category.
    - **Clean** — no match found → import normally
 
-6. **Conservative duplicate detection** — When matching by amount+date (without payee), we cannot reliably pair specific source transactions with specific existing ones. If there are ANY existing transactions matching on amount within ±1 day and the source transactions lack a reference, the **entire group is suspicious** — flag all for review. The count information is still logged to help the human resolve it quickly (e.g. "5 source transactions of 12.50 around Jan 15, 2 already exist — flagging all 5 for review"). Only transactions with a matching `imported_id` can be confidently skipped.
+6. (needs review) **Conservative duplicate detection** — When matching by amount+date (without payee), we cannot reliably pair specific source transactions with specific existing ones. If there are ANY existing transactions matching on amount within ±1 day and the source transactions lack a reference, the **entire group is suspicious** — flag all for review. The count information is still logged to help the human resolve it quickly (e.g. "5 source transactions of 12.50 around Jan 15, 2 already exist — flagging all 5 for review"). Only transactions with a matching `imported_id` can be confidently skipped.
 
 7. **Circuit breaker** — Per-account threshold. If suspicious transaction count in any monthly batch exceeds a configurable limit, abort that account's import entirely (don't import the clean ones from that batch either — keep it atomic). Continue processing other accounts. Log clearly what happened and where to resume.
 
-8. **Balance verification** — If CAMT.053 files are present in the input directory, extract their statement balances (opening/closing balance per statement period). During import, after each monthly batch is committed, compare Actual's account balance at the statement date against the CAMT balance. If there's a mismatch, **stop the import for that account immediately** — the discrepancy is small and recent, so the user can fix it quickly before resuming. This is an inline check (not post-import), because catching errors early minimizes manual correction work. CSV files also have balance fields structurally, but they've been empty in practice — support them if populated, don't rely on them.
+8. **Resume** — Re-running the tool is safe: already-imported transactions are skipped (by `imported_id`), and the monthly batching means only unprocessed months are attempted. The circuit breaker means a tripped account won't have partial imports to untangle.
 
-9. **Resume** — Re-running the tool is safe: already-imported transactions are skipped (by `imported_id`), and the monthly batching means only unprocessed months are attempted. The circuit breaker means a tripped account won't have partial imports to untangle.
+9. **CLI** — Add `"actual"` to `--format` choices. When used, `--output` is optional/ignored.
 
-10. **CLI** — Add `"actual"` to `--format` choices. When used, `--output` is optional/ignored.
+10. **Config** — New `actual_budget` section in YAML. Environment variables as overrides for sensitive values (password).
 
-11. **Config** — New `actual_budget` section in YAML. Environment variables as overrides for sensitive values (password).
-
-12. **Connection lifecycle** — Single `Actual` connection per CLI invocation via context manager, reused across files in directory mode.
+11. **Connection lifecycle** — Single `Actual` connection per CLI invocation via context manager, reused across files in directory mode.
 
 ---
 
-## Config
+## Config (needs review)
 
 ```yaml
 # Direct import into Actual Budget (--format actual)
 # Env var overrides: ACTUAL_BUDGET_URL, ACTUAL_BUDGET_PASSWORD, ACTUAL_BUDGET_FILE
 actual_budget:
-  url: "http://localhost:5006"
-  password: ""                  # prefer ACTUAL_BUDGET_PASSWORD env var
-  file: "My Budget"
-  review_category: "To Review"  # category assigned to suspicious transactions
-  suspicious_threshold: 5       # per-account: abort if >N suspicious in a monthly batch
+  url: 'http://localhost:5006'
+  password: '' # prefer ACTUAL_BUDGET_PASSWORD env var
+  file: 'My Budget'
+  review_category: 'To Review' # category assigned to suspicious transactions
+  suspicious_threshold: 5 # per-account: abort if >N suspicious in a monthly batch
 ```
+
+Reviewer's comment: may need a sync_id and an encryption key
 
 ---
 
@@ -77,12 +78,14 @@ actual_budget:
 The sync protocol is undocumented internal machinery (CRDTs, binary message format, optional libsodium encryption). Reimplementing it is infeasible for this project's scope.
 
 **Option 2 — `actualpy` (Python, community): rejected due to database safety risk.**
+
 - v0.21.0 (Feb 2026), actively maintained, single primary maintainer (bvanelli)
 - Reimplements the CRDT sync protocol in Python using SQLAlchemy ORM against the local SQLite budget database
 - Provides `reconcile_transaction()` for dedup, direct SQLAlchemy queries for flexible data access
-- **Critical risk**: because it reimplements the sync protocol and writes directly to the database schema, a server-side schema or protocol change can cause silent data corruption. The Actual server updates independently of `actualpy` — code that worked yesterday may break the database tomorrow. SQLAlchemy writes could silently produce bad data (renamed column, new required field), and malformed CRDT sync messages could corrupt budget state with no rollback. Integration tests catch breakage *after the fact*; they don't prevent corruption of the user's real budget between test runs.
+- **Critical risk**: because it reimplements the sync protocol and writes directly to the database schema, a server-side schema or protocol change can cause silent data corruption. The Actual server updates independently of `actualpy` — code that worked yesterday may break the database tomorrow. SQLAlchemy writes could silently produce bad data (renamed column, new required field), and malformed CRDT sync messages could corrupt budget state with no rollback. Integration tests catch breakage _after the fact_; they don't prevent corruption of the user's real budget between test runs.
 
 **Option 3 — Official JS API (`@actual-app/api`): selected.**
+
 - Maintained by the Actual team, released alongside the server
 - Schema changes are handled internally — we code against the API contract, not the database
 - If the API breaks, it breaks cleanly (method signature changes, missing fields) rather than silently corrupting data
@@ -91,15 +94,15 @@ The sync protocol is undocumented internal machinery (CRDTs, binary message form
 
 #### JS API capabilities (covers all plan requirements)
 
-| Need | JS API method | Notes |
-|------|--------------|-------|
-| Import transactions | `importTransactions(accountId, transactions, opts?)` | Returns `{ added, updated, errors }`. Built-in dedup via `imported_id` (exact match) + fuzzy fallback (amount + date + payee). We'll use `imported_id` for skip detection but own the suspicious/clean classification ourselves. |
-| Query existing transactions | `getTransactions(accountId, startDate, endDate)` | Returns full transaction objects including `imported_id`, `cleared`, `amount`, `date`, `notes`, `category` |
-| List accounts | `getAccounts()` | Returns `id`, `name`, `type`, `balance_current`, `offbudget`, `closed` |
-| Account balance at date | `getAccountBalance(id, cutoff?)` | Integer balance (cents) at optional cutoff date — enables balance verification against CAMT checkpoints |
-| Assign category | `category` field on transaction objects | Pass category UUID when importing; use `getCategories()` to resolve name → ID |
-| Flexible queries | `runQuery(query)` | ActualQL queries for anything the typed methods don't cover |
-| Lookup by name | `getIDByName({ type, string })` | Resolve account/payee/category name → UUID |
+| Need                        | JS API method                                        | Notes                                                                                                                                                                                                                            |
+| --------------------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Import transactions         | `importTransactions(accountId, transactions, opts?)` | Returns `{ added, updated, errors }`. Built-in dedup via `imported_id` (exact match) + fuzzy fallback (amount + date + payee). We'll use `imported_id` for skip detection but own the suspicious/clean classification ourselves. |
+| Query existing transactions | `getTransactions(accountId, startDate, endDate)`     | Returns full transaction objects including `imported_id`, `cleared`, `amount`, `date`, `notes`, `category`                                                                                                                       |
+| List accounts               | `getAccounts()`                                      | Returns `id`, `name`, `type`, `balance_current`, `offbudget`, `closed`                                                                                                                                                           |
+| Account balance at date     | `getAccountBalance(id, cutoff?)`                     | Integer balance (cents) at optional cutoff date — enables balance verification against CAMT checkpoints                                                                                                                          |
+| Assign category             | `category` field on transaction objects              | Pass category UUID when importing; use `getCategories()` to resolve name → ID                                                                                                                                                    |
+| Flexible queries            | `runQuery(query)`                                    | ActualQL queries for anything the typed methods don't cover                                                                                                                                                                      |
+| Lookup by name              | `getIDByName({ type, string })`                      | Resolve account/payee/category name → UUID                                                                                                                                                                                       |
 
 **Connection lifecycle**: `init({ serverURL, password, dataDir })` → `downloadBudget({ syncId, password? })` → operations → `sync()` → `shutdown()`
 
@@ -108,14 +111,16 @@ The sync protocol is undocumented internal machinery (CRDTs, binary message form
 **Encryption**: pass encryption password in `downloadBudget()`, handled transparently.
 
 **`importTransactions` dedup detail**:
+
 1. Exact `imported_id` match → updates existing transaction (primary dedup)
 2. No `imported_id` → fuzzy match on amount + date proximity + payee similarity
-3. Known gap: duplicate `imported_id` values *within the same API call* are not deduped (only across calls)
-4. Transactions with *different* `imported_id` values are never fuzzy-merged
+3. Known gap: duplicate `imported_id` values _within the same API call_ are not deduped (only across calls)
+4. Transactions with _different_ `imported_id` values are never fuzzy-merged
 
 #### Bridge architecture
 
 A TypeScript bridge script (`src/actual_budget_transformer/bridge/actual_api_bridge.ts`) exposes the API as a JSON-over-stdio interface:
+
 - Python subprocess starts the bridge, sends JSON commands to stdin, reads JSON responses from stdout
 - Commands: `init`, `download_budget`, `get_accounts`, `get_transactions`, `import_transactions`, `get_account_balance`, `get_categories`, `sync`, `shutdown`
 - The bridge is stateful (holds the connection) for the duration of a CLI invocation
@@ -129,12 +134,14 @@ This keeps all business logic (batching, dedup classification, circuit breaker) 
 > Steps 0 and 1 from the original plan are merged — the research is complete, and the next implementation step is the bridge.
 
 Create `src/actual_budget_transformer/bridge/actual_api_bridge.ts`:
+
 - `@actual-app/api` installed via `package.json` in project root (Node.js available in both dev and prod containers)
 - Implement a stdin/stdout JSON-RPC-like protocol: read newline-delimited JSON commands, execute the corresponding API call, write JSON response
 - Handle connection lifecycle (init/download/sync/shutdown)
 - Handle errors gracefully (return structured error objects, never crash silently)
 
 Create `src/actual_budget_transformer/actual_api.py`:
+
 - Python wrapper class that manages the Node.js subprocess
 - Methods matching the bridge commands, with typed return values
 - Context manager for lifecycle (`__enter__` starts bridge + init + download, `__exit__` syncs + shuts down)
@@ -147,6 +154,7 @@ Create `src/actual_budget_transformer/actual_api.py`:
 Before building on the JS API, understand how `@actual-app/api` handles version mismatches with the Actual server. The server will be updated independently of our pinned `@actual-app/api` version — we need to know what happens when they diverge.
 
 **Research tasks:**
+
 - What happens when the `@actual-app/api` client version is older than the server? Does the sync protocol negotiate versions? Does `init()` or `downloadBudget()` fail with a clear error, silently succeed, or corrupt data?
 - What happens when the client is newer than the server?
 - Does the API or server expose version information we can compare at connection time?
@@ -154,6 +162,7 @@ Before building on the JS API, understand how `@actual-app/api` handles version 
 - Check the Actual server source and changelog for past breaking changes to the sync protocol — how often do they happen?
 
 **Output:** Based on findings, decide whether to:
+
 1. Pin `@actual-app/api` to a specific version and document the compatible server range
 2. Add a version check at connection time (query server version, compare against known-compatible range, warn or abort on mismatch)
 3. Both
@@ -215,6 +224,7 @@ New class in `writers/` directory:
 - **Handle missing Node.js / `@actual-app/api`** gracefully: check at startup, clear error directing user to install
 
 **Bucket classification logic (conservative):**
+
 ```
 For each source transaction in the batch:
   if transaction has imported_id AND that imported_id exists in Actual → skip
@@ -278,19 +288,21 @@ A fresh Actual server has no password and no budget. The bootstrap is handled by
 **Decision: Use `@actual-app/api` directly for bootstrap** (no `actualpy` needed). The bootstrap script uses the same JS API that the production bridge will use, keeping the dependency set minimal.
 
 **Bootstrap script** (`scripts/bootstrap_test_budget.ts`):
+
 ```
 ACTUAL_DATA_DIR=/tmp/actual-data npx tsx scripts/bootstrap_test_budget.ts
 ```
+
 - Bootstraps server password if needed
 - Creates "Test Budget" with three accounts (Test Checking, Test Savings, Test Credit Card)
 - Idempotent: downloads existing budget on re-run, only creates missing accounts
 
 #### Test modes
 
-| Mode | Server needed | Use case | API init |
-|------|--------------|----------|----------|
-| Offline | No | Fast unit tests: dedup logic, batching, circuit breaker | `api.init({ dataDir })` + `api.loadBudget(id)` with template SQLite |
-| Online | Yes | Integration tests: full import path, sync, balance verification | `api.init({ serverURL, password, dataDir })` + `api.downloadBudget(groupId)` |
+| Mode    | Server needed | Use case                                                        | API init                                                                     |
+| ------- | ------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Offline | No            | Fast unit tests: dedup logic, batching, circuit breaker         | `api.init({ dataDir })` + `api.loadBudget(id)` with template SQLite          |
+| Online  | Yes           | Integration tests: full import path, sync, balance verification | `api.init({ serverURL, password, dataDir })` + `api.downloadBudget(groupId)` |
 
 #### Remaining work
 
@@ -302,6 +314,7 @@ ACTUAL_DATA_DIR=/tmp/actual-data npx tsx scripts/bootstrap_test_budget.ts
 ### Step 8: Tests
 
 **Unit tests** (no server needed, fast):
+
 - Amount conversion (debit → negative cents, credit → positive cents, NaN handling)
 - Batch boundary computation (month-end + CAMT checkpoint merging)
 - Bucket classification logic (skip / suspicious / clean)
@@ -309,6 +322,7 @@ ACTUAL_DATA_DIR=/tmp/actual-data npx tsx scripts/bootstrap_test_budget.ts
 - Config loading with env var overrides
 
 **Integration tests** (against Actual container):
+
 - Account resolution + account-not-found error with helpful message
 - Import transactions → verify they appear in Actual
 - Re-import same transactions → all skipped (dedup by imported_id)
