@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: Containerfile
     volumes:
-      - ..:/workspaces/actual-budget-transformer:cached
+      - ${LOCAL_WORKSPACE_FOLDER:-..}:/workspaces/actual-budget-transformer:cached
     environment:
       - UV_LINK_MODE=copy
       - ACTUAL_SERVER_URL=http://actual-server:5006
@@ -17,7 +17,7 @@ services:
       context: claude
       dockerfile: Containerfile
     volumes:
-      - ..:/workspaces/actual-budget-transformer:cached
+      - ${LOCAL_WORKSPACE_FOLDER:-..}:/workspaces/actual-budget-transformer:cached
       - claude-auth:/home/vscode/.claude
     working_dir: /workspaces/actual-budget-transformer
     environment:
