@@ -68,7 +68,9 @@ Reviewer's comment: may need a sync_id and an encryption key
 
 ### Current focus
 
-Next up is a **TS-only end-to-end smoke test** before building the bridge or any Python wiring. The test reuses `scripts/bootstrap_test_budget.ts` to get a live budget, then exercises `@actual-app/api` directly: import a handful of synthetic transactions, read them back, assert the round-trip.
+**Next up: Step 1b — assess `@actual-app/api` client/server version mismatch behaviour.** The e2e rig below is now in place, so 1b can be done empirically (swap the Actual server image tag, rerun the smoke test, observe).
+
+Originally: a TS-only end-to-end smoke test before building the bridge or any Python wiring. The test reuses `scripts/bootstrap_test_budget.ts` to get a live budget, then exercises `@actual-app/api` directly: import a handful of synthetic transactions, read them back, assert the round-trip.
 
 Why this ordering:
 
@@ -78,6 +80,25 @@ Why this ordering:
 - **Python comes later.** Once the TS path is proven, the bridge and `actual_api.py` wrap a known-good surface. Pytest can shell out to the TS tests or trust them.
 
 After this smoke test lands, the next decision point is Step 1b (version compatibility), then Step 1 (bridge).
+
+#### First slice ✅
+
+- File: `tests/actual/import_roundtrip.test.ts`
+- Runner: `node --test` via `tsx` (no new deps — `tsx` already in `devDependencies`)
+- npm script: `npm run test:actual`
+- Preconditions: `actual-up` running, `npm run bootstrap` already executed so "Test Budget" with "Test Checking" exists (bootstrap creates `/tmp/actual-data` via `ACTUAL_DATA_DIR`; the dir must exist before first run)
+- Behaviour:
+  1. `api.init` + `downloadBudget` against the dev server (fresh temp `dataDir` per run via `mkdtempSync`)
+  2. Resolve the "Test Checking" account id
+  3. Import 3 synthetic transactions with `Date.now()`-tagged `imported_id`s so repeat runs stay isolated
+  4. `getTransactions` over the matching date range, filter to this run's ids
+  5. Assert count, amount (integer cents), date, notes match
+  6. `api.shutdown` + rm the temp dir
+- Verified idempotent across repeat runs. Tx accumulate in the test budget — teardown deferred.
+
+#### 1b rig
+
+The smoke test doubles as the version-compat rig. To probe mismatch behaviour: change the Actual server image tag in `.devcontainer/docker-compose.yml`, rebuild, rerun `npm run test:actual`. For client-side mismatch, pin `@actual-app/api` to an older/newer version in `package.json` and rerun. Observe whether `init`/`downloadBudget`/`importTransactions` fail cleanly or silently misbehave.
 
 ### Step 0: Evaluate `actualpy` vs direct Actual API ✅
 
