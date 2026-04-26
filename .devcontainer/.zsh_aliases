@@ -1,14 +1,18 @@
 alias ll='ls -al'
 
-# Docker compose (relative to .devcontainer/)
+# Docker compose, scoped to this repo's compose project (set via the top-level
+# `name:` field in docker-compose.yml). Any container started here joins the
+# same network as the dev container.
 alias dc='docker compose -f /workspaces/actual-budget-transformer/.devcontainer/docker-compose.yml'
 
-# Actual Budget test server
-alias actual-up='dc --profile actual up -d'
-alias actual-down='dc --profile actual stop'
+# Actual Budget test server.
+# Service named explicitly so compose doesn't also "up" the devcontainer
+# (which would recreate the container VS Code is attached to).
+alias actual-up='dc --profile actual up -d actual-server'
+alias actual-down='dc --profile actual stop actual-server'
 
 # Claude Code container
-alias claude-up='dc --profile claude up -d --build'
-alias claude-down='dc --profile claude stop'
+alias claude-up='dc --profile claude up -d --build claude'
+alias claude-down='dc --profile claude stop claude'
 alias claude-run='docker exec -it claude-code bash -lc claude'
 alias claude-shell='docker exec -it claude-code bash'
