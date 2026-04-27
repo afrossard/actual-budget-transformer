@@ -54,18 +54,14 @@ before(async () => {
   const budgets = (await api.getBudgets()) as Budget[];
   const budget = budgets.find((b) => b.name === 'Test Budget');
   if (!budget) {
-    throw new Error(
-      'Test Budget not found on server. Run `npm run bootstrap` first.',
-    );
+    throw new Error('Test Budget not found on server. Run `npm run bootstrap` first.');
   }
   await api.downloadBudget(budget.groupId);
 
   const accounts = (await api.getAccounts()) as Account[];
   const checking = accounts.find((a) => a.name === 'Test Checking');
   if (!checking) {
-    throw new Error(
-      'Test Checking account not found. Run `npm run bootstrap` first.',
-    );
+    throw new Error('Test Checking account not found. Run `npm run bootstrap` first.');
   }
   accountId = checking.id;
 });
@@ -106,7 +102,11 @@ test('importTransactions round-trip: written rows come back intact', async () =>
   ];
 
   const result = await api.importTransactions(accountId, txs);
-  assert.equal(result.errors?.length ?? 0, 0, `import errors: ${JSON.stringify(result.errors)}`);
+  assert.equal(
+    result.errors?.length ?? 0,
+    0,
+    `import errors: ${JSON.stringify(result.errors)}`,
+  );
   assert.equal(result.added.length, txs.length, 'all rows should be newly added');
 
   const fetched = (await api.getTransactions(
@@ -116,7 +116,11 @@ test('importTransactions round-trip: written rows come back intact', async () =>
   )) as Transaction[];
 
   const mine = fetched.filter((t) => t.imported_id?.startsWith(runTag));
-  assert.equal(mine.length, txs.length, 'should read back exactly the rows we imported');
+  assert.equal(
+    mine.length,
+    txs.length,
+    'should read back exactly the rows we imported',
+  );
 
   for (const source of txs) {
     const match = mine.find((t) => t.imported_id === source.imported_id);

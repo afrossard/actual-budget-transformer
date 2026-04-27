@@ -4,31 +4,14 @@ A new `--format actual` option that imports transactions straight into a self-ho
 
 ## Status
 
-- **Now**: Step 1 — build the JS API bridge (TS) and the Python wrapper around it.
+- **Now**: Python integration — `get_actual_budget_config()`, `ActualBudgetImporter`, `main.py --format actual` wiring, `config.template.yml` block.
 - **Pinned**: `@actual-app/api@26.4.0`. Version-skew strategy: log on connect, never abort.
-- **Done**: API choice (use official JS API), version-skew policy, test infra (devcontainer + bootstrap + compat rigs), TS smoke test.
-- **Carrying**: pytest fixtures and an offline template-budget for unit tests.
+- **Done**: API choice, version-skew policy, test infra (devcontainer + bootstrap + compat rigs), TS smoke test, **JS-API bridge end-to-end** (TS bridge + Python wrapper + 6-test pytest smoke suite).
+- **Carrying**: pytest fixtures (per-test budgets) and an offline template-budget for unit tests; verify `npm install` runs in the devcontainer's `postCreateCommand.sh`.
 
 ---
 
 ## Open work
-
-### Bridge (TS + Python wrapper)
-
-Create `src/actual_budget_transformer/bridge/actual_api_bridge.ts` — newline-delimited JSON over stdio:
-
-- Commands: `init`, `download_budget`, `get_accounts`, `get_transactions`, `import_transactions`, `get_account_balance`, `get_categories`, `sync`, `shutdown`.
-- Stateful for the CLI invocation lifetime.
-- Returns structured error objects; never crashes silently.
-- On `init`, fetch `${serverURL}/info` and log `{ server, api }` versions side by side (see Decisions log).
-
-Create `src/actual_budget_transformer/actual_api.py` — Python wrapper:
-
-- Manages the Node subprocess; methods mirror the bridge commands with typed return values.
-- Context manager: `__enter__` runs init + downloadBudget; `__exit__` syncs + shuts down.
-- Checks Node availability at startup with a clear error if missing.
-
-Dependency wiring: `@actual-app/api` already in `dependencies`; ensure `npm install` runs in the Dockerfile / devcontainer setup alongside `uv sync`. No new Python deps — `subprocess` + `json` only.
 
 ### Python integration
 
@@ -186,25 +169,29 @@ Tested compatible range: `@actual-app/api` 25.3.1 ↔ 26.4.0 against `actualbudg
 
 ### Critical files
 
-- `src/actual_budget_transformer/bridge/actual_api_bridge.ts` (new)
-- `src/actual_budget_transformer/actual_api.py` (new — Python wrapper around the bridge subprocess)
+- `src/actual_budget_transformer/bridge/actual_api_bridge.ts` (in place — bridge)
+- `src/actual_budget_transformer/actual_api.py` (in place — Python wrapper around the bridge subprocess)
+- `tests/test_actual_api_smoke.py` (in place — bridge end-to-end smoke)
 - `src/actual_budget_transformer/writers/actual_budget_importer.py` (new — batching, dedup, circuit breaker)
 - `src/actual_budget_transformer/main.py` (modify)
 - `src/actual_budget_transformer/config.py` (modify)
 - `config.template.yml` (modify)
 - `tests/test_actual_importer_unit.py` (new)
 - `tests/test_actual_importer_integration.py` (new)
-- `package.json`, `package-lock.json`, `tsconfig.json` (already in place)
+- `package.json`, `package-lock.json`, `tsconfig.json` (in place)
 
 ### Bootstrap-script gotchas (for future reference)
 
-From building `scripts/bootstrap_test_budget.ts` against a fresh server:
+From building `scripts/bootstrap_test_budget.ts` and the bridge against a fresh server:
 
 1. **Password setup**: `POST /account/bootstrap` with `{"password": "..."}`; check first via `GET /account/needs-bootstrap`.
 2. **Budget creation**: `api.runImport(name, callback)` is the public entry point. **Requires `ACTUAL_DATA_DIR`** — the internal `exportDatabase` reads `process.env.ACTUAL_DATA_DIR` directly (not the `dataDir` passed to `init()`), so without it the upload step silently fails.
 3. **Budget download**: `api.downloadBudget(syncId)` uses the **`groupId`** field from `getBudgets()`, not `cloudFileId`.
 4. **Offline mode**: `api.init({ dataDir })` (no `serverURL`) loads a pre-built SQLite template — useful for fast unit tests of business logic with no server, no sync.
 5. **Account creation**: `api.createAccount({ name }, initialBalance)` then `api.sync()`. (`type` was removed from `APIAccountEntity` in 26.x.)
+6. **`importTransactions` requires `account` per tx in 26.x**. The bridge injects `accountId` into every tx automatically; callers should not bother setting it.
+7. **`@actual-app/api` writes `[Breadcrumb]` lines to `console.log`**. Anything using stdout as a protocol channel (the bridge) MUST monkey-patch `console.{log,info,warn,error}` to write to stderr before importing the API.
+8. **`getAccountBalance(id, cutoff?)`** takes a `Date`, not a string. The bridge converts an ISO date string from Python into a `Date` object before calling.
 
 ### Test modes
 
@@ -218,6 +205,11 @@ From building `scripts/bootstrap_test_budget.ts` against a fresh server:
 ## Archive
 
 Done implementation work. Detail lives in code; this is just an index.
+
+- **JS-API bridge (TS + Python wrapper)**:
+  - `src/actual_budget_transformer/bridge/actual_api_bridge.ts` — JSON-over-stdio bridge. Commands: `open`, `get_accounts`, `get_transactions`, `import_transactions`, `get_account_balance`, `get_categories`, `sync`, `shutdown`. Stdout reserved for protocol JSON; `console.*` rerouted to stderr; server `/info` probed on `open` and logged with the api package name.
+  - `src/actual_budget_transformer/actual_api.py` — `ActualBridge` context manager. Spawns the bridge via `node_modules/.bin/tsx`, drains stderr to the project logger, raises `BridgeError` on any non-ok response.
+  - `tests/test_actual_api_smoke.py` — 6 pytest cases (accounts list, unknown-budget error, import round-trip, balance with/without cutoff, categories, idempotent sync). Module-level skip when the server is unreachable.
 
 - **TS smoke test** — `tests/actual/import_roundtrip.test.ts`, run via `npm run test:actual`. Idempotent (`Date.now()`-tagged `imported_id`s); transactions accumulate in the test budget — teardown deferred.
 - **Devcontainer Actual server profile** — `.devcontainer/docker-compose.yml`, profiled service pinned to `actualbudget/actual-server:25.3.1`, on the same network as the devcontainer. Started on demand via `actual-up` / `docker compose --profile actual up -d`. Node 22 in both containers; `postCreateCommand.sh` runs `npm install` alongside `uv sync`.
