@@ -68,7 +68,7 @@ Reviewer's comment: may need a sync_id and an encryption key
 
 ### Current focus
 
-**Next up: Step 1b — assess `@actual-app/api` client/server version mismatch behaviour.** The e2e rig below is now in place, so 1b can be done empirically (swap the Actual server image tag, rerun the smoke test, observe).
+**Next up: Step 1 — build the JS API bridge.** Step 1b is closed (see findings + decision below); Step 0 and Step 7 (test infra) are also done. The pinned `@actual-app/api` version (26.4.0) and the log-only version-check decision feed directly into the bridge's `init` command.
 
 Originally: a TS-only end-to-end smoke test before building the bridge or any Python wiring. The test reuses `scripts/bootstrap_test_budget.ts` to get a live budget, then exercises `@actual-app/api` directly: import a handful of synthetic transactions, read them back, assert the round-trip.
 
@@ -96,9 +96,14 @@ After this smoke test lands, the next decision point is Step 1b (version compati
   6. `api.shutdown` + rm the temp dir
 - Verified idempotent across repeat runs. Tx accumulate in the test budget — teardown deferred.
 
-#### 1b rig
+#### 1b rig ✅
 
-The smoke test doubles as the version-compat rig. To probe mismatch behaviour: change the Actual server image tag in `.devcontainer/docker-compose.yml`, rebuild, rerun `npm run test:actual`. For client-side mismatch, pin `@actual-app/api` to an older/newer version in `package.json` and rerun. Observe whether `init`/`downloadBudget`/`importTransactions` fail cleanly or silently misbehave.
+Two scripts cover the version-compat surface:
+
+- `scripts/test_version_matrix.sh` — fresh-slate `(client, server)` matrix; each cell starts with a clean tmpfs server volume and a clean per-cell `ACTUAL_DATA_DIR`. Proves the API surface boots across the matrix.
+- `scripts/test_staggered_upgrade.sh` — single persistent budget volume across version transitions. Two scenarios: server-ahead (server upgrades first) and client-ahead (api upgrades first). Each scenario runs three phases that import + verify the prior phases' tagged transactions still round-trip. Bypasses the compose `tmpfs:/data` by running the server with `docker run` and a docker named volume on the compose-managed network.
+
+Both run today against `25.3.1 ↔ 26.4.0`. To validate a future upgrade target: `V_OLD=<current> V_NEW=<target> ./scripts/test_staggered_upgrade.sh`.
 
 ### Step 0: Evaluate `actualpy` vs direct Actual API ✅
 
@@ -183,25 +188,27 @@ Create `src/actual_budget_transformer/actual_api.py`:
 
 **Files**: `src/actual_budget_transformer/bridge/actual_api_bridge.ts`, `package.json`, `src/actual_budget_transformer/actual_api.py`
 
-### Step 1b: Assess client/server version mismatch behavior
+### Step 1b: Assess client/server version mismatch behavior ✅
 
-Before building on the JS API, understand how `@actual-app/api` handles version mismatches with the Actual server. The server will be updated independently of our pinned `@actual-app/api` version — we need to know what happens when they diverge.
+#### Findings
 
-**Research tasks:**
+- **Server version endpoint**: `GET /info` (unauthenticated) returns `{ build: { name, description, version: "X.Y.Z" } }`. Implemented in `packages/sync-server/src/app.ts` of `actualbudget/actual`. The compiled `@actual-app/api` already calls it internally (`get-server-version` handler) but does not expose it on the public API surface — we'd hit it ourselves with plain `fetch` (same way `bootstrap_test_budget.ts` calls `/account/needs-bootstrap`).
+- **No documented compatibility matrix**. Actual ships calver releases roughly monthly; the 25 → 26 bump is calver, not semver, and carries no implied break. Sampled release notes (25.4.0, 26.1.0, 26.4.0) mention no sync-protocol changes. Sync routes (`/sync`, `/upload-user-file`, `/download-user-file`, …) are stable.
+- **Empirical coverage** (`scripts/test_version_matrix.sh` + `scripts/test_staggered_upgrade.sh`):
+  - Fresh-slate matrix `{25.3.1, 26.4.0}² = 4` cells: all pass.
+  - Staggered upgrade with persistent budget volume across version transitions: server-ahead and client-ahead scenarios both pass.
+  - 13-month, 13-release gap survives bidirectional skew.
+- **Breaks we did hit**: surface-level type changes in `@actual-app/api` between 25.3.1 and 26.4.0 — `APIAccountEntity` dropped `type`, `ImportTransactionEntity` now requires `account`. These are caught by `tsc` at build time on the project that uses the SDK; they don't manifest as runtime sync corruption. `@actual-app/core` ships raw `.ts` source that fails strict tsc, so type checking has to scope to our own files (`tsc --noEmit 2>&1 | grep -E "^(scripts|tests|src)/"`).
 
-- What happens when the `@actual-app/api` client version is older than the server? Does the sync protocol negotiate versions? Does `init()` or `downloadBudget()` fail with a clear error, silently succeed, or corrupt data?
-- What happens when the client is newer than the server?
-- Does the API or server expose version information we can compare at connection time?
-- Is there a compatibility matrix or documented policy (e.g. "API version N works with server versions N-2 through N")?
-- Check the Actual server source and changelog for past breaking changes to the sync protocol — how often do they happen?
+#### Decision: pin + log, no abort
 
-**Output:** Based on findings, decide whether to:
+1. **Pin `@actual-app/api`** in `dependencies` (currently `26.4.0`). The two version-matrix aliases stay in `devDependencies` so production installs don't pull duplicates.
+2. **Log-only runtime version check**. On import startup, fetch `/info`, log `{ server: X.Y.Z, api: X.Y.Z }`. Do not abort on mismatch — the user's "conservative automation" workflow (monthly imports, circuit breaker) values surfaceable diagnostics over hard failures, and our staggered test shows wide skew is fine in practice. If runtime breakage ever does appear, the log gives us the version pair to reproduce against.
+3. **Re-validate before any planned upgrade**: `V_OLD=<current> V_NEW=<target> ./scripts/test_staggered_upgrade.sh` exercises a real budget across the boundary; run it before bumping either component in production.
 
-1. Pin `@actual-app/api` to a specific version and document the compatible server range
-2. Add a version check at connection time (query server version, compare against known-compatible range, warn or abort on mismatch)
-3. Both
+#### Tested compatible range
 
-Update the bridge script design (Step 1) accordingly — if a version check is needed, add it to the `init` command response.
+`@actual-app/api` 25.3.1 ↔ 26.4.0 against `actualbudget/actual-server` 25.3.1 ↔ 26.4.0, both directions, fresh-slate and staggered-volume.
 
 ### Step 2: Add dependencies
 

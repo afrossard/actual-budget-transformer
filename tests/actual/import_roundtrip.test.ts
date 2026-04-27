@@ -14,7 +14,9 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import * as api from '@actual-app/api';
+import { loadApi, apiPackage } from '../../scripts/api-loader.ts';
+
+console.log(`Using API package: ${apiPackage}`);
 
 const serverURL = process.env.ACTUAL_SERVER_URL || 'http://actual-server:5006';
 const password = process.env.ACTUAL_PASSWORD || 'test-password';
@@ -41,9 +43,11 @@ interface Transaction {
 
 let dataDir: string;
 let accountId: string;
+let api: Awaited<ReturnType<typeof loadApi>>;
 const runTag = `roundtrip-${Date.now()}`;
 
 before(async () => {
+  api = await loadApi();
   dataDir = mkdtempSync(join(tmpdir(), 'actual-test-'));
   await api.init({ serverURL, password, dataDir });
 
@@ -76,6 +80,7 @@ after(async () => {
 test('importTransactions round-trip: written rows come back intact', async () => {
   const txs = [
     {
+      account: accountId,
       date: '2026-01-05',
       amount: -1234,
       payee_name: 'Coffee Shop',
@@ -83,6 +88,7 @@ test('importTransactions round-trip: written rows come back intact', async () =>
       notes: 'morning latte',
     },
     {
+      account: accountId,
       date: '2026-01-06',
       amount: -8900,
       payee_name: 'Grocery Store',
@@ -90,6 +96,7 @@ test('importTransactions round-trip: written rows come back intact', async () =>
       notes: 'weekly shop',
     },
     {
+      account: accountId,
       date: '2026-01-07',
       amount: 250000,
       payee_name: 'Employer',
@@ -99,7 +106,7 @@ test('importTransactions round-trip: written rows come back intact', async () =>
   ];
 
   const result = await api.importTransactions(accountId, txs);
-  assert.equal(result.errors.length, 0, `import errors: ${JSON.stringify(result.errors)}`);
+  assert.equal(result.errors?.length ?? 0, 0, `import errors: ${JSON.stringify(result.errors)}`);
   assert.equal(result.added.length, txs.length, 'all rows should be newly added');
 
   const fetched = (await api.getTransactions(
