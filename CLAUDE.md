@@ -6,6 +6,10 @@
 
 - Keep answers concise. Prefer short, direct responses over long explanations.
 
+## Working style
+
+- **Don't mark plan/checklist items "done" until validated.** Writing the code is not the same as confirming it works. For changes that need a human to run something I can't (docker, the staggered/matrix scripts, Actual UI), wait for the user to report results before editing the plan's status. Pre-marking creates false signal that's worse than the unfinished state. Reason: I can't run docker in this devcontainer (see auto-memory), so the user is the only one who can confirm staggered/integration test outcomes.
+
 ## Project purpose
 
 CLI tool that transforms bank statement files into CSV files compatible with [Actual Budget](https://actualbudget.org/). Input files are detected automatically; output is grouped by account, year, and month, with deduplication across overlapping exports.
