@@ -21,8 +21,11 @@
 
   "postCreateCommand": "./.devcontainer/postCreateCommand.sh",
 
-  // Avoid dubious ownership issue when git is run from inside the dev-container
-  "postStartCommand": "git config --global --add safe.directory ${containerWorkspaceFolder}",
+  // Avoid dubious ownership issue when git is run from inside the dev-container.
+  // Also neutralise the host's docker credsStore on every start (docker-outside-of-docker
+  // restores it from the host config on each start; macOS sets "desktop" whose helper
+  // binary doesn't exist inside this Linux container).
+  "postStartCommand": "git config --global --add safe.directory ${containerWorkspaceFolder} && mkdir -p ~/.docker && python3 -c \"import json,os; p=os.path.expanduser('~/.docker/config.json'); c=json.load(open(p)) if os.path.exists(p) else {}; c.pop('credsStore',None); json.dump(c,open(p,'w'))\"",
 
   // Configure tool-specific properties.
   "customizations": {
