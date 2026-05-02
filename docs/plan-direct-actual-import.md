@@ -4,10 +4,10 @@ A new `--format actual` option that imports transactions straight into a self-ho
 
 ## Status
 
-- **Now**: Fix staggered-test browser compat gap (add `browser_compat_check` after `client-ahead` p2 — see open work). Then: Python integration — `get_actual_budget_config()`, `ActualBudgetImporter`, `main.py --format actual` wiring, `config.template.yml` block.
-- **Pinned**: `@actual-app/api@26.4.0`. Version-skew strategy: log on connect, never abort.
+- **Now**: Build `ActualBudgetImporter` (writers/actual_budget_importer.py) — see Python integration in open work.
+- **Pinned**: `@actual-app/api@26.4.0`. Version-skew strategy: log on connect, never abort. **Caveat (manually confirmed 2026-05-02): `client-ahead` skew breaks the older web client** — see "Version-skew tolerance findings" below. `server-ahead` not yet assessed.
 - **Done**: API choice, version-skew policy, test infra (devcontainer + bootstrap + compat rigs), TS smoke test, **JS-API bridge end-to-end** (TS bridge + Python wrapper + 6-test pytest smoke suite).
-- **Carrying**: pytest fixtures (per-test budgets) and an offline template-budget for unit tests; verify `npm install` runs in the devcontainer's `postCreateCommand.sh`.
+- **Carrying**: pytest fixtures (per-test budgets) and an offline template-budget for unit tests; verify `npm install` runs in the devcontainer's `postCreateCommand.sh`. Assess whether `server-ahead` skew (newer server, older API/web client) breaks the web client; same manual procedure as `client-ahead`.
 
 ---
 
@@ -44,9 +44,7 @@ Integration (Actual container):
 - Resume after partial import.
 - Server-version compatibility (already partially covered by `test_version_matrix.sh` / `test_staggered_upgrade.sh`).
 
-**Known gap (discovered 2026-04-27):** `test_staggered_upgrade.sh` only verifies API↔API round-trips. It does not check whether the old web browser client can still open the budget after the new API has touched it. In practice: running `test_actual_api_smoke.py` (26.4.0 API) against the 25.3.1 compose server migrates the SQLite schema forward; the 25.3.1 web client then shows "Please update Actual!" — a failure the staggered test silently passes.
-
-Fix: add a `browser_compat_check` step in `test_staggered_upgrade.sh` after phase p2 in the `client-ahead` scenario. It should open the budget using the **old API** (`ACTUAL_API_VERSION=$V_OLD`) in read-only mode (no writes, e.g. `PHASE_TX_COUNT=0`). If the old API can open it, the old web browser can too; if it throws a migration error, the test should fail with a clear message. This turns a silent, real-world breakage into a caught regression.
+**Known gap (discovered 2026-04-27, characterised 2026-05-02):** `test_staggered_upgrade.sh` only verifies API↔API round-trips. It cannot detect web-browser breakage caused by API↔server skew. See "Version-skew tolerance findings" below for what we tried and why an automated check inside the staggered rig isn't viable. Browser compatibility currently has to be verified manually after a version bump.
 
 ### Docs
 
@@ -103,15 +101,15 @@ A TypeScript script exposes the JS API as a JSON-over-stdio interface; a Python 
 
 ### JS API surface used
 
-| Need                        | Method                                        | Notes                                                                                                                          |
-| --------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| Import transactions         | `importTransactions(accountId, txs, opts?)`   | Returns `{ added, updated, errors }`. `imported_id` exact-match dedup + fuzzy fallback. We use `imported_id` only.             |
-| Query existing transactions | `getTransactions(accountId, start, end)`      | Full tx objects: `imported_id`, `cleared`, `amount`, `date`, `notes`, `category`.                                              |
-| List accounts               | `getAccounts()`                               | `id`, `name`, `offbudget`, `closed`, `balance_current`. (No `type` field in 26.x — see version-skew log.)                      |
-| Account balance at date     | `getAccountBalance(id, cutoff?)`              | Integer cents at optional cutoff; enables CAMT-checkpoint verification.                                                        |
-| Assign category             | `category` field on tx objects                | Pass UUID; resolve via `getCategories()` or `getIDByName({ type: 'category', string })`.                                       |
-| Flexible queries            | `runQuery(query)`                             | ActualQL fallback.                                                                                                             |
-| Lookup by name              | `getIDByName({ type, string })`               | Resolve account/payee/category name → UUID.                                                                                    |
+| Need                        | Method                                      | Notes                                                                                                              |
+| --------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Import transactions         | `importTransactions(accountId, txs, opts?)` | Returns `{ added, updated, errors }`. `imported_id` exact-match dedup + fuzzy fallback. We use `imported_id` only. |
+| Query existing transactions | `getTransactions(accountId, start, end)`    | Full tx objects: `imported_id`, `cleared`, `amount`, `date`, `notes`, `category`.                                  |
+| List accounts               | `getAccounts()`                             | `id`, `name`, `offbudget`, `closed`, `balance_current`. (No `type` field in 26.x — see version-skew log.)          |
+| Account balance at date     | `getAccountBalance(id, cutoff?)`            | Integer cents at optional cutoff; enables CAMT-checkpoint verification.                                            |
+| Assign category             | `category` field on tx objects              | Pass UUID; resolve via `getCategories()` or `getIDByName({ type: 'category', string })`.                           |
+| Flexible queries            | `runQuery(query)`                           | ActualQL fallback.                                                                                                 |
+| Lookup by name              | `getIDByName({ type, string })`             | Resolve account/payee/category name → UUID.                                                                        |
 
 **Lifecycle**: `init({ serverURL, password, dataDir })` → `downloadBudget(syncId)` (the `groupId` field, not `cloudFileId`) → operations → `sync()` → `shutdown()`.
 **Amounts**: integer cents. `$120.30 = 12030`. Helpers: `utils.amountToInteger`, `utils.integerToAmount`.
@@ -158,7 +156,15 @@ Decision:
 
 Tested compatible range: `@actual-app/api` 25.3.1 ↔ 26.4.0 against `actualbudget/actual-server` 25.3.1 ↔ 26.4.0, both directions, fresh-slate and staggered-volume.
 
-**Gap (2026-04-27):** The staggered test only verified API↔API compatibility. Browser compatibility (old web client after new API touches the budget) was not checked — and is broken in the `client-ahead` case. See open work item above for the fix.
+### Version-skew tolerance findings (2026-05-02)
+
+We tried to extend `test_staggered_upgrade.sh` with an automated `browser_compat_check` step and learned why it can't work.
+
+- **`client-ahead` skew breaks the older web client (manually confirmed).** Run `actual-up` (server pinned to 25.3.1) → `npm run bootstrap` → `uv run pytest tests/test_actual_api_smoke.py`. The 26.4.0 API migrates the SQLite schema forward; opening `http://localhost:5006` in a browser then shows "Please update Actual!" and refuses to load the budget.
+- **The older API does not detect the same breakage.** After the 26.4.0 API touched the budget, opening it with the 25.3.1 API (fresh data dir → `downloadBudget` → `getAccounts` → `getTransactions` → `getAccountBalance` → `getCategories` → `sync`) succeeds without error. Mirroring the smoke test surface in p2 did trigger the migration but the V_OLD API still opened the result cleanly. So **"old API can open" is not a valid proxy for "old browser can open"** — the API tolerates schema versions the web client refuses.
+- **Implication for the staggered test.** API↔API tests cannot prove web-client compatibility; the only reliable signal is loading the actual web bundle (e.g. headless Playwright against the live server). The `browser_compat_check` direction was abandoned.
+- **`server-ahead` skew (newer server, older API/client) not yet assessed.** Same manual procedure: stand up the newer server, run the older-API smoke test, open the older browser. To do when there's bandwidth.
+- **Proper automated detection would require a headless browser test.** Out of scope for now; manual check before planned upgrades is acceptable given a single user.
 
 ---
 
@@ -201,10 +207,10 @@ From building `scripts/bootstrap_test_budget.ts` and the bridge against a fresh 
 
 ### Test modes
 
-| Mode    | Server | Use case                                                | API init                                                                    |
-| ------- | ------ | ------------------------------------------------------- | --------------------------------------------------------------------------- |
-| Offline | No     | Fast unit tests: dedup, batching, circuit breaker       | `api.init({ dataDir })` + `api.loadBudget(id)` with template SQLite         |
-| Online  | Yes    | Integration tests: full import path, sync, balance      | `api.init({ serverURL, password, dataDir })` + `api.downloadBudget(groupId)` |
+| Mode    | Server | Use case                                           | API init                                                                     |
+| ------- | ------ | -------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Offline | No     | Fast unit tests: dedup, batching, circuit breaker  | `api.init({ dataDir })` + `api.loadBudget(id)` with template SQLite          |
+| Online  | Yes    | Integration tests: full import path, sync, balance | `api.init({ serverURL, password, dataDir })` + `api.downloadBudget(groupId)` |
 
 ---
 
