@@ -7,7 +7,7 @@ A new `--format actual` option that imports transactions straight into a self-ho
 - **Now**: Build `ActualBudgetImporter` (writers/actual_budget_importer.py) — see Python integration in open work.
 - **Pinned**: `@actual-app/api@26.4.0`. Version-skew strategy: log on connect, never abort. **Caveat (manually confirmed 2026-05-02): `client-ahead` skew breaks the older web client** — see "Version-skew tolerance findings" below. `server-ahead` not yet assessed.
 - **Done**: API choice, version-skew policy, test infra (devcontainer + bootstrap + compat rigs), TS smoke test, **JS-API bridge end-to-end** (TS bridge + Python wrapper + 6-test pytest smoke suite).
-- **Carrying**: pytest fixtures (per-test budgets) and an offline template-budget for unit tests; verify `npm install` runs in the devcontainer's `postCreateCommand.sh`. Assess whether `server-ahead` skew (newer server, older API/web client) breaks the web client; same manual procedure as `client-ahead`.
+- **Carrying**: pytest fixtures (per-test budgets) and an offline template-budget for unit tests; verify `npm install` runs in the devcontainer's `postCreateCommand.sh`. Execute `server-ahead` assessment (V_OLD API importing into V_NEW server post-migration) — methodology defined below; warm-cache and cold-cache variants both pending.
 
 ---
 
@@ -163,8 +163,41 @@ We tried to extend `test_staggered_upgrade.sh` with an automated `browser_compat
 - **`client-ahead` skew breaks the older web client (manually confirmed).** Run `actual-up` (server pinned to 25.3.1) → `npm run bootstrap` → `uv run pytest tests/test_actual_api_smoke.py`. The 26.4.0 API migrates the SQLite schema forward; opening `http://localhost:5006` in a browser then shows "Please update Actual!" and refuses to load the budget.
 - **The older API does not detect the same breakage.** After the 26.4.0 API touched the budget, opening it with the 25.3.1 API (fresh data dir → `downloadBudget` → `getAccounts` → `getTransactions` → `getAccountBalance` → `getCategories` → `sync`) succeeds without error. Mirroring the smoke test surface in p2 did trigger the migration but the V_OLD API still opened the result cleanly. So **"old API can open" is not a valid proxy for "old browser can open"** — the API tolerates schema versions the web client refuses.
 - **Implication for the staggered test.** API↔API tests cannot prove web-client compatibility; the only reliable signal is loading the actual web bundle (e.g. headless Playwright against the live server). The `browser_compat_check` direction was abandoned.
-- **`server-ahead` skew (newer server, older API/client) not yet assessed.** Same manual procedure: stand up the newer server, run the older-API smoke test, open the older browser. To do when there's bandwidth.
+- **`server-ahead` skew not yet assessed.** Methodology in the next subsection.
 - **Proper automated detection would require a headless browser test.** Out of scope for now; manual check before planned upgrades is acceptable given a single user.
+
+### Server-ahead assessment methodology
+
+Realistic scenario: server upgrade (DB migrated on startup) → V_OLD API runs next import → user opens the V_NEW web bundle to verify. "Older browser" is moot — the server serves its own bundle, so post-upgrade the browser is V_NEW.
+
+Test two cache variants, which exercise distinct code paths:
+
+- **Warm cache** (run first, realistic): retain the pre-migration `ACTUAL_DATA_DIR` from the V_OLD baseline; V_OLD API's `sync()` applies deltas across the migration boundary. Unique failure mode: **silent divergence** — V_OLD API may drop fields it doesn't recognise from deltas, leaving the local mirror inconsistent with the server. Only visible by comparing API readback against the browser.
+- **Cold cache** (recovery baseline): wipe `ACTUAL_DATA_DIR`, force `downloadBudget` to refetch. Decode-only path.
+
+Setup (extends `test_staggered_upgrade.sh` server-ahead phase):
+
+1. V_OLD baseline — start `actual-server:$V_OLD` on a persistent named volume, bootstrap with V_OLD API, seed a handful of transactions so migration has prior data.
+2. Stop V_OLD container, start `actual-server:$V_NEW` on the same volume; wait healthy; confirm V_NEW via `GET /info`.
+3. With V_OLD API pinned, run phase 3 twice — warm first, then cold.
+
+Phase 3, fixed input set with stable `imported_id`s:
+
+1. (Warm) `sync()` — does the cross-migration delta apply without error?
+2. (Cold) `downloadBudget(syncId)` — does V_OLD API decode the migrated budget?
+3. `importTransactions`; capture `{ added, updated, errors }`.
+4. `sync()`.
+5. `getTransactions` — assert count/amount/date/payee/`imported_id`/account match input bit-for-bit. Field drift surfaces here.
+6. `getAccountBalance` — assert equals `sum(input amounts)`.
+7. Re-import the same batch — assert zero new rows (dedup survives the migration).
+
+Browser cross-check (manual, private window for a fresh bundle): page loads without "Please update Actual!"; imported transactions visible with correct fields; UI balance matches API readback from step 6; sidebar and monthly views render. This is what catches warm-cache divergence.
+
+Outcomes:
+
+- Both pass → V_OLD API fully compatible with V_NEW server. Log the pair in the tested-range note alongside the existing client-ahead entry.
+- Warm fails, cold passes → documented mitigation: wipe `ACTUAL_DATA_DIR` after a server upgrade before the next import.
+- Cold fails too → V_OLD API cannot talk to V_NEW server; bump the API in lockstep with the server.
 
 ---
 
