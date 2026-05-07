@@ -5,9 +5,9 @@ A new `--format actual` option that imports transactions straight into a self-ho
 ## Status
 
 - **Now**: Build `ActualBudgetImporter` (writers/actual_budget_importer.py) — see Python integration in open work.
-- **Pinned**: `@actual-app/api@26.4.0`. Version-skew strategy: log on connect, never abort. **Caveat (manually confirmed 2026-05-02): `client-ahead` skew breaks the older web client** — see "Version-skew tolerance findings" below. `server-ahead` not yet assessed.
+- **Pinned**: `@actual-app/api@26.4.0`. Version-skew strategy: log on connect, never abort. **Caveat (manually confirmed 2026-05-02): `client-ahead` skew breaks the older web client** — see "Version-skew tolerance findings" below. `server-ahead` assessed 2026-05-07: clean (V_OLD=25.3.1 API ↔ V_NEW=26.4.0 server, warm + cold cache, browser confirmed).
 - **Done**: API choice, version-skew policy, test infra (devcontainer + bootstrap + compat rigs), TS smoke test, **JS-API bridge end-to-end** (TS bridge + Python wrapper + 6-test pytest smoke suite).
-- **Carrying**: pytest fixtures (per-test budgets) and an offline template-budget for unit tests; verify `npm install` runs in the devcontainer's `postCreateCommand.sh`. Execute `server-ahead` assessment (V_OLD API importing into V_NEW server post-migration) — methodology defined below; warm-cache and cold-cache variants both pending.
+- **Carrying**: pytest fixtures (per-test budgets) and an offline template-budget for unit tests; verify `npm install` runs in the devcontainer's `postCreateCommand.sh`.
 
 ---
 
@@ -154,7 +154,7 @@ Decision:
 2. **Log-only runtime check.** On import startup, fetch `/info` and log `{ server, api }`. Do not abort — the conservative-automation workflow values surfaceable diagnostics over hard failures, and the staggered test shows wide skew is fine in practice. If runtime breakage ever appears, the log gives the version pair to reproduce against.
 3. **Re-validate before any planned upgrade**: `V_OLD=<current> V_NEW=<target> ./scripts/test_staggered_upgrade.sh` exercises a real budget across the boundary.
 
-Tested compatible range: `@actual-app/api` 25.3.1 ↔ 26.4.0 against `actualbudget/actual-server` 25.3.1 ↔ 26.4.0, both directions, fresh-slate and staggered-volume.
+Tested compatible range: `@actual-app/api` 25.3.1 ↔ 26.4.0 against `actualbudget/actual-server` 25.3.1 ↔ 26.4.0, both directions, fresh-slate and staggered-volume. `server-ahead` direction additionally validated 2026-05-07 via `test_server_ahead_assessment.sh` with bit-for-bit readback + browser cross-check (warm + cold cache).
 
 ### Version-skew tolerance findings (2026-05-02)
 
@@ -163,7 +163,7 @@ We tried to extend `test_staggered_upgrade.sh` with an automated `browser_compat
 - **`client-ahead` skew breaks the older web client (manually confirmed).** Run `actual-up` (server pinned to 25.3.1) → `npm run bootstrap` → `uv run pytest tests/test_actual_api_smoke.py`. The 26.4.0 API migrates the SQLite schema forward; opening `http://localhost:5006` in a browser then shows "Please update Actual!" and refuses to load the budget.
 - **The older API does not detect the same breakage.** After the 26.4.0 API touched the budget, opening it with the 25.3.1 API (fresh data dir → `downloadBudget` → `getAccounts` → `getTransactions` → `getAccountBalance` → `getCategories` → `sync`) succeeds without error. Mirroring the smoke test surface in p2 did trigger the migration but the V_OLD API still opened the result cleanly. So **"old API can open" is not a valid proxy for "old browser can open"** — the API tolerates schema versions the web client refuses.
 - **Implication for the staggered test.** API↔API tests cannot prove web-client compatibility; the only reliable signal is loading the actual web bundle (e.g. headless Playwright against the live server). The `browser_compat_check` direction was abandoned.
-- **`server-ahead` skew not yet assessed.** Methodology in the next subsection.
+- **`server-ahead` skew assessed 2026-05-07: clean.** V_OLD=25.3.1 API ↔ V_NEW=26.4.0 server (post-migration). All three phases passed (baseline / warm-cache / cold-cache); bit-for-bit readback, idempotent re-import, balance match, browser cross-check (V_NEW SPA, 9 tx visible, balance 709558¢) all green. Implementation note: `loadBudget` requires offline-mode init (no `serverURL`), so the warm path uses `downloadBudget` against a retained `ACTUAL_DATA_DIR` — the cache distinction lives in dataDir state, not API call sequence. Methodology subsection below preserved for future re-validation.
 - **Proper automated detection would require a headless browser test.** Out of scope for now; manual check before planned upgrades is acceptable given a single user.
 
 ### Server-ahead assessment methodology
@@ -198,6 +198,11 @@ Outcomes:
 - Both pass → V_OLD API fully compatible with V_NEW server. Log the pair in the tested-range note alongside the existing client-ahead entry.
 - Warm fails, cold passes → documented mitigation: wipe `ACTUAL_DATA_DIR` after a server upgrade before the next import.
 - Cold fails too → V_OLD API cannot talk to V_NEW server; bump the API in lockstep with the server.
+
+Harness:
+
+- `scripts/server_ahead_phase.ts` — single phase, `PHASE_MODE=baseline|warm|cold`. Fixed input set; bit-for-bit readback, idempotency, balance assertion. Reuses `api-loader.ts` for V_OLD pinning.
+- `scripts/test_server_ahead_assessment.sh` — orchestrator. `V_OLD`/`V_NEW` env vars (default 25.3.1/26.4.0). Runs container `actual-server-skewtest` on volume `actual-budget-transformer-skewtest-data` with port 5006 published; leaves V_NEW server up at end for the manual browser check; `teardown` arg cleans up.
 
 ---
 
