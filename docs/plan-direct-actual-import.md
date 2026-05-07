@@ -141,6 +141,10 @@ Three options were considered: reimplement the sync protocol (ruled out — undo
 
 ### Version-skew policy: pin + log, never abort
 
+> **Pending review (2026-05-07):** flip the policy — abort on `api > server` and on any unknown-version case. See "Proposed: flip version-skew policy to abort on api > server" subsection below.
+
+
+
 The Actual server is upgraded independently of `@actual-app/api`. Findings:
 
 - Server exposes `GET /info` (unauthenticated): `{ build: { name, description, version } }`. Implemented in `packages/sync-server/src/app.ts` of `actualbudget/actual`. The compiled API calls it internally as `get-server-version` but doesn't surface it on the public API — we hit it ourselves with plain `fetch` (the same pattern as the existing `/account/needs-bootstrap` call in `bootstrap_test_budget.ts`).
@@ -165,6 +169,60 @@ We tried to extend `test_staggered_upgrade.sh` with an automated `browser_compat
 - **Implication for the staggered test.** API↔API tests cannot prove web-client compatibility; the only reliable signal is loading the actual web bundle (e.g. headless Playwright against the live server). The `browser_compat_check` direction was abandoned.
 - **`server-ahead` skew assessed 2026-05-07: clean.** V_OLD=25.3.1 API ↔ V_NEW=26.4.0 server (post-migration). All three phases passed (baseline / warm-cache / cold-cache); bit-for-bit readback, idempotent re-import, balance match, browser cross-check (V_NEW SPA, 9 tx visible, balance 709558¢) all green. Implementation note: `loadBudget` requires offline-mode init (no `serverURL`), so the warm path uses `downloadBudget` against a retained `ACTUAL_DATA_DIR` — the cache distinction lives in dataDir state, not API call sequence. Methodology subsection below preserved for future re-validation.
 - **Proper automated detection would require a headless browser test.** Out of scope for now; manual check before planned upgrades is acceptable given a single user.
+
+### Proposed: flip version-skew policy to abort on api > server
+
+**Status:** drafted 2026-05-07, awaiting review. Not yet implemented.
+
+**Why revisit:** the original "log-only, never abort" decision rested on `test_staggered_upgrade.sh` showing wide skew was fine in practice. That rig only round-trips the API↔API surface; it cannot detect web-client breakage. Two findings since narrow the safe direction:
+
+- **2026-05-02** — `client-ahead` (newer API + older server) breaks the server's bundled web client. The newer API migrates the SQLite schema forward; the older web client then refuses to load the budget ("Please update Actual!"). Data is not corrupted — the migration is well-formed — but the only review UI is unusable until the server is upgraded.
+- **2026-05-07** — `server-ahead` (newer server + older API) is clean. `test_server_ahead_assessment.sh` validated baseline/warm/cold across V_OLD=25.3.1 API ↔ V_NEW=26.4.0 server with bit-for-bit readback, idempotency, balance, and browser cross-check.
+
+So API may lag the server, but the reverse breaks the UI. Conservative-automation principles argue for abort.
+
+**Proposed new policy:**
+
+1. **Pin** stays as-is (`@actual-app/api` in `dependencies`).
+2. **Abort on `api > server`** at bridge `cmdOpen` time, with a message that explains the actual failure mode (newer API would migrate schema → older server's bundled web client refuses → recovery is server upgrade, not data loss).
+3. **Abort on any unknown-version case** — `/info` unreachable, version field missing, version unparseable, or our own pinned version unset. Per user direction (2026-05-07): if we can't assess the skew, we don't proceed.
+4. **Proceed (log-only) on `api ≤ server`.**
+5. **Re-validate before any planned API or server upgrade**: `V_OLD=<current> V_NEW=<target> ./scripts/test_staggered_upgrade.sh` plus `./scripts/test_server_ahead_assessment.sh`.
+
+**Implementation sketch:**
+
+- Source for our API version: hardcoded literal in the bridge.
+
+  ```ts
+  // kept in sync with package.json's @actual-app/api dep. Bundle-safe — a
+  // literal, no fs/JSON read at runtime. Update on every dep bump.
+  const PINNED_API_VERSION = '26.4.0';
+  ```
+
+  Rationale: `package.json` may not be reachable from a bundled production build, so a runtime read is fragile. A literal is unambiguous. Resolution at runtime: `process.env.ACTUAL_API_VERSION` (test pin via `api-loader.ts`) → `PINNED_API_VERSION` → abort.
+
+- Drift mitigation between `PINNED_API_VERSION` and `package.json` (pick one or none):
+  - Release-checklist note: "bumping `@actual-app/api` → update `PINNED_API_VERSION` in `actual_api_bridge.ts` and re-run skew rigs."
+  - Pre-commit / CI grep that fails on mismatch (~10 lines of bash).
+
+- In `src/actual_budget_transformer/bridge/actual_api_bridge.ts`, after the existing `probeServerVersion(serverURL)` call in `cmdOpen`:
+  1. Resolve API version (`ACTUAL_API_VERSION` env > `PINNED_API_VERSION`). Missing → abort.
+  2. Server version from `/info` (already fetched). Missing → abort.
+  3. Semver compare on `[major, minor, patch]`. Unparseable on either side → abort.
+  4. `api > server` → abort with the schema-migration / web-client explanation, naming the minimum server version that would lift the block (`>= ${apiVersion}`).
+  5. `api ≤ server` → existing log line, proceed.
+
+- `staggered_phase.ts` and `server_ahead_phase.ts` use `api-loader.ts` directly (not the bridge), so the abort doesn't fire during those test rigs. The smoke test (`test_actual_api_smoke.py`) does go through the bridge — fine, because in the dev devcontainer the server is pinned to 25.3.1 and the default API is 26.4.0, so the smoke test would trip the abort. **This means the smoke test will fail until either (a) the dev server pin is bumped to ≥ 26.4.0 or (b) the smoke test is run with `ACTUAL_API_VERSION=25.3.1` to match the server.** Decide which before merging.
+
+**Out of scope for the initial change:**
+
+- Pytest integration test that stands up V_OLD server with V_NEW API and asserts `BridgeError` with the version-skew message. Worth adding alongside the broader `tests/test_actual_importer_integration.py` work.
+
+**Files to touch when implementing:**
+
+- `src/actual_budget_transformer/bridge/actual_api_bridge.ts` — add `PINNED_API_VERSION`, helpers, and the gate in `cmdOpen`.
+- This plan section — promote from "Proposed" to "Decided", remove the pending-review banner on the original `Version-skew policy` subsection, update the `2.` bullet there to describe the new behavior, and bump the tested-range note if needed.
+- (Optional) `.devcontainer/docker-compose.yml` server pin and/or `package.json` to align dev-server with API version, so the smoke test still passes.
 
 ### Server-ahead assessment methodology
 
