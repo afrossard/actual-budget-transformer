@@ -41,12 +41,58 @@ console.info = toStderr('info');
 console.warn = toStderr('warn');
 console.error = toStderr('error');
 
-const pin = process.env.ACTUAL_API_VERSION;
-const apiPackage = pin
-  ? `@actual-app/api-${pin.replaceAll('.', '-')}`
-  : '@actual-app/api';
+// Kept in sync with package.json's @actual-app/api dep. Bundle-safe — a
+// literal, no fs/JSON read at runtime. Update on every dep bump.
+const PINNED_API_VERSION = '26.4.0';
 
 type ActualApi = typeof import('@actual-app/api');
+
+type Semver = [number, number, number];
+
+function parseSemver(v: string): Semver | null {
+  const m = /^(\d+)\.(\d+)\.(\d+)/.exec(v);
+  if (!m) return null;
+  return [Number(m[1]), Number(m[2]), Number(m[3])];
+}
+
+function cmpSemver(a: Semver, b: Semver): number {
+  for (let i = 0; i < 3; i++) {
+    if (a[i] !== b[i]) return a[i] - b[i];
+  }
+  return 0;
+}
+
+// ADR-007: abort if @actual-app/api is newer than the server, or if either
+// version cannot be assessed. Newer API migrates the budget schema forward;
+// the older server's bundled web client then refuses to load it. Recovery is
+// a server upgrade — data is not lost.
+function assertVersionCompatible(serverVersion: string | null): string {
+  const apiVersion = process.env.ACTUAL_API_VERSION || PINNED_API_VERSION;
+  if (!apiVersion) {
+    throw new Error(
+      'aborting: API version unset (PINNED_API_VERSION missing and ACTUAL_API_VERSION not set). Cannot assess version skew.',
+    );
+  }
+  if (!serverVersion) {
+    throw new Error(
+      'aborting: could not determine server version from /info. Cannot assess version skew.',
+    );
+  }
+  const apiSv = parseSemver(apiVersion);
+  if (!apiSv) throw new Error(`aborting: cannot parse API version '${apiVersion}'`);
+  const srvSv = parseSemver(serverVersion);
+  if (!srvSv)
+    throw new Error(`aborting: cannot parse server version '${serverVersion}'`);
+  if (cmpSemver(apiSv, srvSv) > 0) {
+    throw new Error(
+      `aborting: @actual-app/api ${apiVersion} is newer than server ${serverVersion}. ` +
+        `The newer API would migrate the budget schema forward; the older server's bundled web client would then refuse to load it ("Please update Actual!"). ` +
+        `Upgrade the server to >= ${apiVersion}. Data is not lost. ` +
+        `See docs/archive/adr-007-version-skew-policy.md.`,
+    );
+  }
+  return apiVersion;
+}
 
 interface Budget {
   name: string;
@@ -104,11 +150,14 @@ async function cmdOpen(params: Record<string, unknown>): Promise<unknown> {
   const dataDir = asString(params.data_dir, 'data_dir');
   const budgetName = asString(params.budget_name, 'budget_name');
 
-  api = (await import(apiPackage)) as ActualApi;
-  await api.init({ serverURL, password, dataDir });
-
+  // Gate before touching any state (api.init / downloadBudget would migrate the
+  // schema and break the older server's bundled web client). See ADR-007.
   const serverVersion = await probeServerVersion(serverURL);
-  log(`api=${apiPackage} server=${serverVersion ?? 'unknown'}`);
+  const apiVersion = assertVersionCompatible(serverVersion);
+  log(`api=${apiVersion} server=${serverVersion}`);
+
+  api = (await import('@actual-app/api')) as ActualApi;
+  await api.init({ serverURL, password, dataDir });
 
   const budgets = (await api.getBudgets()) as Budget[];
   const budget = budgets.find((b) => b.name === budgetName);
@@ -121,7 +170,7 @@ async function cmdOpen(params: Record<string, unknown>): Promise<unknown> {
 
   return {
     server_version: serverVersion,
-    api_package: apiPackage,
+    api_version: apiVersion,
     budget: budget.name,
   };
 }

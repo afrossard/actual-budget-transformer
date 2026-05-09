@@ -114,7 +114,7 @@ The devcontainer uses Docker Compose (`.devcontainer/docker-compose.yml`). Only 
 
 ```bash
 actual-up       # start Actual Budget test server (profile: actual)
-actual-down     # stop it
+actual-down     # stop AND remove the container — fresh tmpfs on next up
 claude-up       # start Claude Code container (profile: claude)
 claude-down     # stop it
 ```

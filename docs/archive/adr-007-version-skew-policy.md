@@ -1,7 +1,6 @@
 # ADR-007: Version-skew policy — abort on `api > server`
 
-**Status:** Accepted
-**Date:** 2026-05-07 (supersedes the original log-only policy from 2026-04)
+**Status:** Accepted, implemented 2026-05-09 (supersedes the original log-only policy from 2026-04)
 
 ## Context
 
@@ -54,16 +53,12 @@ API may lag the server, but the reverse breaks the UI. Conservative-automation p
   4. `api > server` → abort with the schema-migration / web-client explanation, naming the minimum server version that would lift the block (`>= ${apiVersion}`).
   5. `api ≤ server` → existing log line, proceed.
 
-- The smoke test (`test_actual_api_smoke.py`) goes through the bridge. In the dev devcontainer the server is pinned to 25.3.1 and the API is 26.4.0, so the smoke test will trip the abort. **The smoke test will fail until either (a) the dev server pin is bumped to ≥ 26.4.0 or (b) the smoke test is run with `ACTUAL_API_VERSION=25.3.1` to match the server.** Decide which before merging.
+## Implementation (2026-05-09)
 
-### Out of scope for the initial change
-
-- Pytest integration test that stands up V_OLD server with V_NEW API and asserts `BridgeError` with the version-skew message. Worth adding alongside the broader `tests/test_actual_importer_integration.py` work.
+- `src/actual_budget_transformer/bridge/actual_api_bridge.ts` — `PINNED_API_VERSION = '26.4.0'`, `parseSemver`/`cmpSemver` helpers, `assertVersionCompatible` called from `cmdOpen` after `probeServerVersion` and before any state-touching operation (`api.init` / `downloadBudget`). Removed the now-meaningless package-aliasing indirection; bridge always imports `'@actual-app/api'`. `ACTUAL_API_VERSION` env var still works as a test override (overrides the compare value only).
+- `.devcontainer/docker-compose.yml` — Actual server pin bumped from 25.3.1 → 26.4.0 to align with the pinned API.
+- `tests/test_actual_api_version_gate.py` — three pytest cases driven via the env override (`api > server` → abort, `api < server` → proceeds, unparseable → abort).
 
 ## Consequences
-
-- Files to touch when implementing:
-  - `src/actual_budget_transformer/bridge/actual_api_bridge.ts` — add `PINNED_API_VERSION`, helpers, and the gate in `cmdOpen`.
-  - (Optional) `.devcontainer/docker-compose.yml` server pin and/or `package.json` to align dev-server with API version, so the smoke test still passes.
 
 - Tested compatible range to date: `@actual-app/api` 25.3.1 ↔ 26.4.0 against `actualbudget/actual-server` 25.3.1 ↔ 26.4.0, both directions, fresh-slate and staggered-volume. `server-ahead` direction additionally validated 2026-05-07 with bit-for-bit readback + browser cross-check (warm + cold cache).
