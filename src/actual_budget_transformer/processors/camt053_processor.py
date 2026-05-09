@@ -52,7 +52,7 @@ class Camt053Processor(BaseProcessor):
     def process(self, file_path) -> ProcessingResult:
         """Parse a CAMT.053 file and return a normalised ProcessingResult."""
         logger.debug("Processing CAMT.053 file: %s", file_path)
-        iban, entries = parse_camt053(file_path)
+        iban, entries, balances = parse_camt053(file_path)
 
         if entries:
             rows = []
@@ -80,5 +80,7 @@ class Camt053Processor(BaseProcessor):
         logger.debug("Using output prefix: %s", output_prefix)
 
         return ProcessingResult(
-            data=df, output_prefix=output_prefix, metadata={"account_id": iban}
+            data=df,
+            output_prefix=output_prefix,
+            metadata={"account_id": iban, "balances": balances},
         )

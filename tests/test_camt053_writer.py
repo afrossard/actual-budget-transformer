@@ -28,7 +28,8 @@ def _roundtrip(xml_str):
         f.write(xml_str)
         tmp = f.name
     try:
-        return parse_camt053(tmp)
+        iban, entries, _ = parse_camt053(tmp)
+        return iban, entries
     finally:
         os.unlink(tmp)
 

@@ -48,7 +48,7 @@ def test_camt053_output_is_valid(tmp_path):
     xml_path = str(xml_files[0])
     assert Camt053Processor.can_process(xml_path)
 
-    iban, entries = parse_camt053(xml_path)
+    iban, entries, _ = parse_camt053(xml_path)
     assert iban == "CH9DDDC4D8456C5AFFACD"
     assert len(entries) == 1
 
@@ -61,7 +61,7 @@ def test_camt053_output_from_csv_input(tmp_path):
 
     for xml_path in xml_files:
         assert Camt053Processor.can_process(str(xml_path))
-        _, entries = parse_camt053(str(xml_path))
+        _, entries, _ = parse_camt053(str(xml_path))
         assert len(entries) > 0
 
 
@@ -69,7 +69,7 @@ def test_camt053_output_preserves_reference(tmp_path):
     """AcctSvcrRef round-trips through write and re-parse."""
     process_single_file(SINGLE_DEBIT, str(tmp_path), "camt053")
     xml_files = list(tmp_path.glob("*.xml"))
-    _, entries = parse_camt053(str(xml_files[0]))
+    _, entries, _ = parse_camt053(str(xml_files[0]))
     assert entries[0]["reference"] != ""
 
 
@@ -131,7 +131,7 @@ def test_camt053_writer_dedup_same_data_twice(tmp_path):
     writer.save_monthly(df, str(tmp_path), "test")
     writer.save_monthly(df, str(tmp_path), "test")
 
-    _, entries = parse_camt053(str(tmp_path / "202501_test.xml"))
+    _, entries, _ = parse_camt053(str(tmp_path / "202501_test.xml"))
     assert len(entries) == 1
 
 
@@ -164,7 +164,7 @@ def test_camt053_writer_dedup_merges_new(tmp_path):
     writer.save_monthly(df1, str(tmp_path), "test")
     writer.save_monthly(df2, str(tmp_path), "test")
 
-    _, entries = parse_camt053(str(tmp_path / "202501_test.xml"))
+    _, entries, _ = parse_camt053(str(tmp_path / "202501_test.xml"))
     assert len(entries) == 2
 
 

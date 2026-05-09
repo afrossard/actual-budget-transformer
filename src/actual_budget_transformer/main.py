@@ -6,9 +6,14 @@ import sys
 
 import pandas as pd
 
+from actual_budget_transformer.actual_api import BridgeError
 from actual_budget_transformer.config import load_config
 from actual_budget_transformer.factory import get_processor_for_file
 from actual_budget_transformer.logging_config import logger
+from actual_budget_transformer.writers.actual_budget_importer import (
+    ActualBudgetImporter,
+    BalanceCheckpoint,
+)
 from actual_budget_transformer.writers.camt053_writer import Camt053Writer
 from actual_budget_transformer.writers.csv_writer import CsvWriter
 
@@ -24,15 +29,32 @@ def _get_writers(output_format: str, metadata: dict) -> list:
     return writers
 
 
+def _checkpoints_from_metadata(metadata: dict) -> list[BalanceCheckpoint]:
+    """Lift CAMT.053 closing balances from processor metadata."""
+    checkpoints: list[BalanceCheckpoint] = []
+    for b in metadata.get("balances") or []:
+        if b.get("type_code") != "CLBD":
+            continue
+        checkpoints.append(BalanceCheckpoint(date=b["date"], amount=b["amount"]))
+    return checkpoints
+
+
 def process_single_file(
     file_path: str,
     output_dir: str | None = None,
     output_format: str = "csv",
+    importer: ActualBudgetImporter | None = None,
 ) -> None:
-    """Process a single file and optionally save to output directory."""
+    """Process a single file and dispatch to writers or the live importer."""
     logger.info("Processing %s...", file_path)
     processor = get_processor_for_file(file_path)
     result = processor.process(file_path)
+
+    if importer is not None:
+        importer.import_transactions(
+            result, _checkpoints_from_metadata(result.metadata)
+        )
+        return
 
     if output_dir:
         for writer in _get_writers(output_format, result.metadata):
@@ -48,6 +70,7 @@ def process_directory(
     directory: str,
     output_dir: str | None = None,
     output_format: str = "csv",
+    importer: ActualBudgetImporter | None = None,
 ) -> None:
     """Process all files in a directory that can be handled by available processors."""
     files_processed = 0
@@ -58,7 +81,7 @@ def process_directory(
         for file in files:
             file_path = os.path.join(root, file)
             try:
-                process_single_file(file_path, output_dir, output_format)
+                process_single_file(file_path, output_dir, output_format, importer)
                 files_processed += 1
             except ValueError as e:
                 logger.warning("Skipping %s: %s", file_path, e)
@@ -105,9 +128,12 @@ def main():
     parser.add_argument(
         "--format",
         dest="output_format",
-        choices=["csv", "camt053", "both"],
+        choices=["csv", "camt053", "both", "actual"],
         default="csv",
-        help="Output format: csv (default), camt053, or both",
+        help=(
+            "Output format: csv (default), camt053, both, or actual "
+            "(direct import to Actual Budget)"
+        ),
     )
 
     args = parser.parse_args()
@@ -123,17 +149,31 @@ def main():
     if args.output_dir:
         os.makedirs(args.output_dir, exist_ok=True)
 
+    use_importer = args.output_format == "actual"
+
     try:
-        # Process input path
-        if os.path.isfile(args.file_path):
-            process_single_file(args.file_path, args.output_dir, args.output_format)
-        elif os.path.isdir(args.file_path):
-            process_directory(args.file_path, args.output_dir, args.output_format)
+        if use_importer:
+            with ActualBudgetImporter.from_config() as importer:
+                _dispatch(args.file_path, args.output_dir, args.output_format, importer)
         else:
-            logger.error("%s is not a valid file or directory", args.file_path)
-            sys.exit(1)
-    except (ValueError, OSError, pd.errors.EmptyDataError) as e:
+            _dispatch(args.file_path, args.output_dir, args.output_format, None)
+    except (ValueError, OSError, BridgeError, pd.errors.EmptyDataError) as e:
         logger.error("Processing failed: %s", e, exc_info=True)
+        sys.exit(1)
+
+
+def _dispatch(
+    file_path: str,
+    output_dir: str | None,
+    output_format: str,
+    importer: ActualBudgetImporter | None,
+) -> None:
+    if os.path.isfile(file_path):
+        process_single_file(file_path, output_dir, output_format, importer)
+    elif os.path.isdir(file_path):
+        process_directory(file_path, output_dir, output_format, importer)
+    else:
+        logger.error("%s is not a valid file or directory", file_path)
         sys.exit(1)
 
 

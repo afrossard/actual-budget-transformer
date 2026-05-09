@@ -18,6 +18,15 @@ class Camt053Entry(TypedDict):
     reference: str
 
 
+class Camt053Balance(TypedDict):
+    """Statement balance — typically OPBD (opening) or CLBD (closing)."""
+
+    type_code: str  # 'OPBD', 'CLBD', 'CLAV', etc.
+    date: datetime.date
+    amount: float  # signed: positive = credit-side balance
+    currency: str
+
+
 def _extract_payee_and_notes(ntry) -> tuple[str, str]:
     """Extract payee name and notes from a CAMT.053 entry's transaction details."""
     notes = ntry.addtl_ntry_inf or ""
@@ -39,15 +48,38 @@ def _extract_payee_and_notes(ntry) -> tuple[str, str]:
     return payee, notes
 
 
-def parse_camt053(file_path: str) -> tuple[str, list[Camt053Entry]]:
-    """Parse a CAMT.053 XML file and return the account IBAN and a list of entries.
+def _extract_balances(stmt) -> list[Camt053Balance]:
+    balances: list[Camt053Balance] = []
+    for bal in stmt.bal or []:
+        type_code = ""
+        if bal.tp and bal.tp.cd_or_prtry and bal.tp.cd_or_prtry.cd:
+            cd = bal.tp.cd_or_prtry.cd
+            # `Cd` may surface as a plain str or as an enum-like with `.value`
+            type_code = cd.value if hasattr(cd, "value") else str(cd)
+        if not bal.amt or bal.dt is None or bal.dt.dt is None:
+            continue
+        ind = bal.cdt_dbt_ind
+        ind_value = ind.value if hasattr(ind, "value") else str(ind) if ind else ""
+        sign = 1 if ind_value == "CRDT" else -1
+        balances.append(
+            Camt053Balance(
+                type_code=type_code,
+                date=bal.dt.dt.to_date(),
+                amount=sign * float(bal.amt.value),
+                currency=bal.amt.ccy or "",
+            )
+        )
+    return balances
 
-    Args:
-        file_path: Path to the CAMT.053 XML file.
+
+def parse_camt053(
+    file_path: str,
+) -> tuple[str, list[Camt053Entry], list[Camt053Balance]]:
+    """Parse a CAMT.053 XML file.
 
     Returns:
-        A tuple of (iban, entries) where each entry has keys:
-        date, amount, direction ('DBIT'/'CRDT'), payee, notes.
+        ``(iban, entries, balances)``. ``balances`` lists every ``<Bal>``
+        element in document order (OPBD, CLBD, CLAV, ...) with signed amounts.
 
     Raises:
         ValueError: If the file cannot be parsed as a CAMT.053 document.
@@ -83,4 +115,5 @@ def parse_camt053(file_path: str) -> tuple[str, list[Camt053Entry]]:
             )
         )
 
-    return iban, entries
+    balances = _extract_balances(stmt)
+    return iban, entries, balances
