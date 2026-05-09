@@ -5,8 +5,8 @@ Preconditions (skipped if not met):
   * `npm install` has populated node_modules (provides tsx + @actual-app/api)
   * `npm run bootstrap` has created "Test Budget" with "Test Checking"
 
-Mirrors the TS smoke test (tests/actual/import_roundtrip.test.ts) but drives
-the bridge through the Python wrapper, validating the JSON-over-stdio surface.
+Drives the bridge through the Python wrapper, validating the JSON-over-stdio
+surface end-to-end against a live server.
 """
 
 from __future__ import annotations
