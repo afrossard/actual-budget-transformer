@@ -6,20 +6,39 @@ A new `--format actual` option that imports transactions straight into a self-ho
 
 ## Status
 
-- **In place:** TS bridge with version-skew gate (ADR-007), Python wrapper, smoke + gate pytest suites, devcontainer Actual profile (server pinned to 26.4.0), bootstrap script. `ActualBudgetImporter` (ADR-002/005/006) wired through `--format actual`; offline unit tests passing.
+- **In place:** TS bridge with version-skew gate (ADR-007), Python wrapper, smoke + gate pytest suites, devcontainer Actual profile (server pinned to 26.4.0), bootstrap script (now also creates the `Review` group + `To Review` category). `ActualBudgetImporter` (ADR-002/005/006) wired through `--format actual`; offline unit tests + 6 live-server integration tests passing (smoke / idempotent re-run / suspicious + review category / circuit breaker / balance match / balance mismatch).
 - **Decided:** see `archive/adr-001` … `archive/adr-007`.
 
-## Next
+## Next: prod-readiness gaps
 
-Integration tests against the live container (none of these can run in the devcontainer — user-driven):
+The current suite validates the design we tested (offline logic + wiring against a synthetic budget). It does NOT validate two assumptions that matter most for a real budget — the `reconciled` field name, and the importer's behaviour on data prod accumulates over years. Run on a copy/subset before the real budget.
 
-- Direct-import smoke: feed an anonymized CAMT.053 fixture through `--format actual`; assert added/skipped counts and that closing balance matches the CAMT CLBD.
-- Re-run idempotency: same input twice → second run reports zero adds, no errors.
-- Bucket classification: pre-seed Actual with one tx that matches a CAMT entry by amount/date; expect that source row in the suspicious bucket with the review category, not in clean.
-- Circuit breaker: pre-seed > threshold collisions; assert account stops mid-import.
-- Balance-mismatch abort: synthesise a CAMT whose CLBD does not match (or remove a tx) and assert the importer aborts the account at the boundary.
+**Top risks** (in order):
 
-When integration tests are green, retire this plan to `archive/`.
+1. **Reconciliation filter unverified end-to-end.** ADR-002's keystone safety guarantee — "never touch reconciled tx" — is filtered on `t.get("reconciled")`. Actual's public docs document `cleared`, not `reconciled`; we picked the field name from internal type definitions. The bridge has no `update_transaction` command, so we can't mark a tx reconciled in the test budget to verify. On prod with years of reconciled history, a wrong/missing field name silently breaks the guarantee.
+2. **No dry-run mode.** First-time prod use is unrehearsed: classify → import → sync either commits or it doesn't. Add `--dry-run` that runs classification, logs `would import N clean / M suspicious / K skipped` per batch, and skips `importTransactions`/`sync`.
+3. **Real CAMT against the importer is untested.** The processor has been chewing on real CAMT for the CSV path for months, but the CLBD-extraction → `BalanceCheckpoint` → in-bridge balance verification is fresh. Live balance math against real history is the assertion that matters.
+
+**Medium risks**:
+
+4. **Transfers between accounts.** Actual links transfers as paired entries. The importer treats each side independently. If Actual already has the transfer and we import the bank's debit/credit copy, classification flags it suspicious — but the interaction with Actual's transfer-pair invariant is untested.
+5. **Manually-entered tx (no `imported_id`) with same amount/date.** Suspicious path imports a *new* tx with the review category alongside the manual one → user has two visually-duplicate rows to clean up. Not destructive but messy.
+6. **`imported_id` hash drift.** When `reference` is empty, hash = `(date, amount, payee, notes)`. Banks reformat descriptions between exports → same logical tx, different hash. Bucket classification still catches it via amount/date, but a re-export of an entire month could flip many tx into "suspicious" → trip the breaker → abort.
+
+**Low risks**:
+
+7. Bridge subprocess has no read timeout — a stalled sync hangs indefinitely (Ctrl-C works).
+8. Float→cents rounding in `BalanceCheckpoint.amount` could miss by 1 cent on degenerate decimals; bank-provided amounts make this unlikely.
+9. Multi-statement CAMT (`stmt[1+]`) is silently ignored — we only read `stmt[0]`.
+
+**Pre-prod checklist** (in order — earlier items unblock later ones):
+
+- [ ] Read-only probe against the prod budget: dump one tx with `bridge.get_transactions(...)` and confirm the `reconciled` key exists and is populated as expected. Settles risk #1.
+- [ ] Add `--dry-run` flag. Settles risk #2.
+- [ ] Run `--dry-run` on one month of the smallest account; eyeball the log.
+- [ ] Live-run that same month; verify in the Actual UI before scaling up.
+- [ ] Add a test fixture for the reconciled-tx skip path (requires extending the bridge with `update_transaction` to mark a seed tx reconciled).
+- [ ] Add a test fixture for transfers (write one side, observe how the linked counter-tx surfaces in `getTransactions`, decide on importer behaviour).
 
 ## Code in place
 
@@ -32,6 +51,7 @@ When integration tests are green, retire this plan to `archive/`.
 - `tests/test_actual_api_smoke.py` — bridge end-to-end smoke (6 cases)
 - `tests/test_actual_api_version_gate.py` — version-skew gate (3 cases)
 - `tests/test_actual_budget_importer.py` — offline unit tests (amounts, batches, classification, circuit breaker, config)
+- `tests/test_actual_budget_importer_integration.py` — live-server integration tests (6 cases)
 - `package.json`, `package-lock.json`, `tsconfig.json`
 
 ## Archive

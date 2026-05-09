@@ -47,6 +47,17 @@ interface Account {
   name: string;
 }
 
+interface CategoryGroup {
+  id: string;
+  name: string;
+}
+
+interface Category {
+  id: string;
+  name: string;
+  group_id: string;
+}
+
 async function bootstrap(dataDir: string): Promise<void> {
   const api = await import('@actual-app/api');
   // Step 1: Bootstrap server password if needed
@@ -102,6 +113,33 @@ async function bootstrap(dataDir: string): Promise<void> {
     } else {
       console.log(`Account already exists: ${name}`);
     }
+  }
+
+  // Step 4: Ensure the "Review" group + "To Review" category exist. Used by
+  // the direct-import bucket classification (ADR-006) to flag uncertain
+  // matches for human review.
+  const groups = (await api.getCategoryGroups()) as CategoryGroup[];
+  let reviewGroup = groups.find((g) => g.name === 'Review');
+  if (!reviewGroup) {
+    const id = await api.createCategoryGroup({ name: 'Review' });
+    reviewGroup = { id, name: 'Review' };
+    console.log(`Created category group: Review (${id})`);
+  } else {
+    console.log('Category group already exists: Review');
+  }
+
+  const cats = (await api.getCategories()) as Category[];
+  const haveReview = cats.some(
+    (c) => c.name === 'To Review' && c.group_id === reviewGroup!.id,
+  );
+  if (!haveReview) {
+    const id = await api.createCategory({
+      name: 'To Review',
+      group_id: reviewGroup.id,
+    });
+    console.log(`Created category: To Review (${id})`);
+  } else {
+    console.log('Category already exists: To Review');
   }
 
   await api.sync();
