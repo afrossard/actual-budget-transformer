@@ -4,11 +4,12 @@ Built 2026-04 → 2026-05. Detail lives in code; this file collects the gotchas 
 
 ## What's in place
 
-- **`src/actual_budget_transformer/bridge/actual_api_bridge.ts`** — JSON-over-stdio bridge. Commands: `open`, `get_accounts`, `get_transactions`, `import_transactions`, `get_account_balance`, `get_categories`, `sync`, `shutdown`. Stdout reserved for protocol JSON; `console.*` rerouted to stderr; server `/info` probed on `open` and logged with the api package name.
+- **`src/actual_budget_transformer/bridge/actual_api_bridge.ts`** — JSON-over-stdio bridge. Commands: `open`, `get_accounts`, `get_transactions`, `import_transactions`, `get_account_balance`, `get_categories`, `sync`, `shutdown`. Stdout reserved for protocol JSON; `console.*` rerouted to stderr; server `/info` probed on `open`, version-skew gated per ADR-007.
 - **`src/actual_budget_transformer/actual_api.py`** — `ActualBridge` context manager. Spawns the bridge via `node_modules/.bin/tsx`, drains stderr to the project logger, raises `BridgeError` on any non-ok response.
 - **`tests/test_actual_api_smoke.py`** — 6 pytest cases (accounts list, unknown-budget error, import round-trip, balance with/without cutoff, categories, idempotent sync). Module-level skip when the server is unreachable.
-- **Devcontainer Actual server profile** — `.devcontainer/docker-compose.yml`, profiled service pinned to `actualbudget/actual-server:25.3.1`, on the same network as the devcontainer. Started on demand via `actual-up` / `docker compose --profile actual up -d`. Node 22 in both containers; `postCreateCommand.sh` runs `npm install` alongside `uv sync`.
-- **Server bootstrap** — `scripts/bootstrap_test_budget.ts`, idempotent (downloads existing budget on re-run, only creates missing accounts). Creates "Test Budget" with Test Checking, Test Savings, Test Credit Card.
+- **`tests/test_actual_api_version_gate.py`** — 3 pytest cases for the ADR-007 gate (api>server abort, api<server proceed, unparseable abort), driven by the `ACTUAL_API_VERSION` env override.
+- **Devcontainer Actual server profile** — `.devcontainer/docker-compose.yml`, profiled service pinned to `actualbudget/actual-server:26.4.0` (matches the pinned API), on the same network as the devcontainer. Started on demand via `actual-up` / `docker compose --profile actual up -d`. `actual-down` removes the container so the next `actual-up` starts on a fresh tmpfs (cattle, not pets). Node 22 in both containers; `postCreateCommand.sh` runs `npm install` alongside `uv sync`.
+- **Server bootstrap** — `scripts/bootstrap_test_budget.ts`, idempotent. Wipes `ACTUAL_DATA_DIR` at startup before `api.init` because `@actual-app/api` keeps process-global state across `shutdown()` that defeats in-process recovery from a stale local cache. Creates "Test Budget" with Test Checking, Test Savings, Test Credit Card.
 
 Version-compat rigs and the TS smoke test were retired 2026-05-09 once skew assessment finished; ADR-007's bridge gate is the safety mechanism going forward. The retired files live in `docs/archive/scripts/` for reference.
 
@@ -24,6 +25,8 @@ From building `scripts/bootstrap_test_budget.ts` and the bridge against a fresh 
 6. **`importTransactions` requires `account` per tx in 26.x**. The bridge injects `accountId` into every tx automatically; callers should not bother setting it.
 7. **`@actual-app/api` writes `[Breadcrumb]` lines to `console.log`**. Anything using stdout as a protocol channel (the bridge) MUST monkey-patch `console.{log,info,warn,error}` to write to stderr before importing the API.
 8. **`getAccountBalance(id, cutoff?)`** takes a `Date`, not a string. The bridge converts an ISO date string from Python into a `Date` object before calling.
+9. **Process-global state.** `@actual-app/api` keeps in-process state (current budget reference, background syncs) that survives `shutdown()`. After `shutdown()` + wipe + `init()`, the module may still kick off a sync against the old budget ID and crash the script. Don't try in-process recovery from a stale local cache — wipe the data dir before `init()`, or spawn a fresh subprocess.
+10. **Error shape isn't stable across versions.** Server-`file-not-found` surfaced as `PostError` with `err.reason === 'file-not-found'` in 25.x; in 26.x it's wrapped as a bare `Error` with an empty/translated message. Don't pattern-match on error fields.
 
 ## Test modes
 

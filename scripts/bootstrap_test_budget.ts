@@ -20,6 +20,13 @@ if (!dataDir) {
   process.exit(1);
 }
 
+// Always start with a fresh local cache. @actual-app/api keeps process-global
+// state that survives shutdown(); recovering from a stale local cache mid-run
+// can leave the API referencing a budget the server no longer has, triggering
+// background syncs that crash the script. Wiping up-front is simpler than
+// in-process recovery, and the test budget is small enough that re-downloading
+// on every bootstrap is cheap.
+rmSync(dataDir, { recursive: true, force: true });
 mkdirSync(dataDir, { recursive: true });
 
 interface BootstrapResponse {
@@ -62,29 +69,16 @@ async function bootstrap(dataDir: string): Promise<void> {
     console.log('Server already bootstrapped.');
   }
 
-  // Step 2: Connect and create budget
+  // Step 2: Connect and create budget. Local cache was wiped at startup, so
+  // getBudgets() returns only what the server has.
   await api.init({ serverURL, password, dataDir });
 
   const budgets = (await api.getBudgets()) as Budget[];
   const existing = budgets.find((b) => b.name === 'Test Budget');
-  let needsCreate = !existing;
+  const needsCreate = !existing;
   if (existing) {
-    console.log('Test Budget already exists, downloading...');
-    try {
-      await api.downloadBudget(existing.groupId);
-    } catch (err) {
-      // Server was wiped (e.g. tmpfs /data, fresh container) but local cache
-      // still lists the budget. Reset the local data dir and recreate.
-      if ((err as { reason?: string }).reason !== 'file-not-found') throw err;
-      console.log(
-        'Server has no copy of Test Budget; resetting local cache and recreating.',
-      );
-      await api.shutdown();
-      rmSync(dataDir, { recursive: true, force: true });
-      mkdirSync(dataDir, { recursive: true });
-      await api.init({ serverURL, password, dataDir });
-      needsCreate = true;
-    }
+    console.log('Test Budget already exists on server, downloading...');
+    await api.downloadBudget(existing.groupId);
   }
   if (needsCreate) {
     console.log('Creating Test Budget...');

@@ -5,11 +5,14 @@ alias ll='ls -al'
 # same network as the dev container.
 alias dc='docker compose -f /workspaces/actual-budget-transformer/.devcontainer/docker-compose.yml'
 
-# Actual Budget test server.
+# Actual Budget test server. Cattle, not pets: actual-down removes the
+# container so the next actual-up creates a fresh one with an empty tmpfs.
+# `stop` would preserve the container (and its tmpfs), letting stale budget
+# state leak across "restarts".
 # Service named explicitly so compose doesn't also "up" the devcontainer
 # (which would recreate the container VS Code is attached to).
 alias actual-up='dc --profile actual up -d actual-server'
-alias actual-down='dc --profile actual stop actual-server'
+alias actual-down='dc --profile actual rm -sf actual-server'
 
 # Claude Code container
 alias claude-up='dc --profile claude up -d --build claude'

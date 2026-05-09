@@ -6,14 +6,12 @@ A new `--format actual` option that imports transactions straight into a self-ho
 
 ## Status
 
-- **In place:** TS bridge + Python wrapper + 6-test pytest smoke suite, devcontainer Actual profile, bootstrap script, version-compat rigs.
-- **Decided:** see `archive/adr-001` … `adr-007`. Most recent: ADR-007 flips version-skew policy to abort on `api > server` (not yet implemented in the bridge).
+- **In place:** TS bridge with version-skew gate (ADR-007), Python wrapper, smoke + gate pytest suites, devcontainer Actual profile (server pinned to 26.4.0), bootstrap script.
+- **Decided:** see `archive/adr-001` … `adr-007`.
 
 ## Next
 
-Implement ADR-007's version-skew gate in `src/actual_budget_transformer/bridge/actual_api_bridge.ts`. Add `PINNED_API_VERSION`, semver compare against the server's `/info` version (already fetched in `cmdOpen`), abort on `api > server` or any unknown-version case. Reconcile dev-env afterwards: either bump the devcontainer Actual server pin to ≥ the API version, or run the smoke test with `ACTUAL_API_VERSION=25.3.1`.
-
-After that, build `ActualBudgetImporter` in `src/actual_budget_transformer/writers/actual_budget_importer.py` (per ADR-002 / ADR-005 / ADR-006):
+Build `ActualBudgetImporter` in `src/actual_budget_transformer/writers/actual_budget_importer.py` (per ADR-002 / ADR-005 / ADR-006):
 
 - Context-managed; holds the bridge connection.
 - `import_transactions(result, balance_checkpoints)`:
@@ -26,9 +24,10 @@ Then unit tests (offline: amount conversion, batch boundaries, bucket classifica
 
 ## Code in place
 
-- `src/actual_budget_transformer/bridge/actual_api_bridge.ts` — bridge
+- `src/actual_budget_transformer/bridge/actual_api_bridge.ts` — bridge with version-skew gate
 - `src/actual_budget_transformer/actual_api.py` — Python wrapper
-- `tests/test_actual_api_smoke.py` — bridge end-to-end smoke
+- `tests/test_actual_api_smoke.py` — bridge end-to-end smoke (6 cases)
+- `tests/test_actual_api_version_gate.py` — version-skew gate (3 cases)
 - `package.json`, `package-lock.json`, `tsconfig.json`
 
 ## Archive
