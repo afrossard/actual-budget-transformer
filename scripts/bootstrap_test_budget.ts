@@ -10,7 +10,6 @@
  *   ACTUAL_PASSWORD    - server password (default: test-password)
  */
 import { mkdirSync, rmSync } from 'node:fs';
-import { loadApi, apiPackage } from './api-loader.ts';
 
 const serverURL = process.env.ACTUAL_SERVER_URL || 'http://actual-server:5006';
 const password = process.env.ACTUAL_PASSWORD || 'test-password';
@@ -42,8 +41,7 @@ interface Account {
 }
 
 async function bootstrap(dataDir: string): Promise<void> {
-  console.log(`Using API package: ${apiPackage}`);
-  const api = await loadApi();
+  const api = await import('@actual-app/api');
   // Step 1: Bootstrap server password if needed
   const needsBootstrap = await fetch(`${serverURL}/account/needs-bootstrap`);
   const { data } = (await needsBootstrap.json()) as BootstrapResponse;

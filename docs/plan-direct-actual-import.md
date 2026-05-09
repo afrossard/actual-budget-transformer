@@ -1,327 +1,47 @@
 # Plan: Direct Import into Actual Budget
 
-A new `--format actual` option that imports transactions straight into a self-hosted Actual Budget server, replacing the current manual CSV/XML import step. The automated path must be at least as safe as the manual workflow it replaces.
+## Intent
+
+A new `--format actual` option that imports transactions straight into a self-hosted Actual Budget server, replacing the manual CSV/XML import step. The automated path must be at least as safe as the manual workflow it replaces — see `archive/adr-002-conservative-automation-principles.md`.
 
 ## Status
 
-- **Now**: Build `ActualBudgetImporter` (writers/actual_budget_importer.py) — see Python integration in open work.
-- **Pinned**: `@actual-app/api@26.4.0`. Version-skew strategy: log on connect, never abort. **Caveat (manually confirmed 2026-05-02): `client-ahead` skew breaks the older web client** — see "Version-skew tolerance findings" below. `server-ahead` assessed 2026-05-07: clean (V_OLD=25.3.1 API ↔ V_NEW=26.4.0 server, warm + cold cache, browser confirmed).
-- **Done**: API choice, version-skew policy, test infra (devcontainer + bootstrap + compat rigs), TS smoke test, **JS-API bridge end-to-end** (TS bridge + Python wrapper + 6-test pytest smoke suite).
-- **Carrying**: pytest fixtures (per-test budgets) and an offline template-budget for unit tests; verify `npm install` runs in the devcontainer's `postCreateCommand.sh`.
+- **In place:** TS bridge + Python wrapper + 6-test pytest smoke suite, devcontainer Actual profile, bootstrap script, version-compat rigs.
+- **Decided:** see `archive/adr-001` … `adr-007`. Most recent: ADR-007 flips version-skew policy to abort on `api > server` (not yet implemented in the bridge).
 
----
+## Next
 
-## Open work
+Implement ADR-007's version-skew gate in `src/actual_budget_transformer/bridge/actual_api_bridge.ts`. Add `PINNED_API_VERSION`, semver compare against the server's `/info` version (already fetched in `cmdOpen`), abort on `api > server` or any unknown-version case. Reconcile dev-env afterwards: either bump the devcontainer Actual server pin to ≥ the API version, or run the smoke test with `ACTUAL_API_VERSION=25.3.1`.
 
-### Python integration
+After that, build `ActualBudgetImporter` in `src/actual_budget_transformer/writers/actual_budget_importer.py` (per ADR-002 / ADR-005 / ADR-006):
 
-- **`get_actual_budget_config()` in `config.py`** — reads `actual_budget` YAML section with env-var overrides for `url`, `password`, `file`.
-- **`ActualBudgetImporter` in `writers/actual_budget_importer.py`** — context-managed, holds the bridge connection. Method `import_transactions(result, balance_checkpoints)`:
-  1. Resolve account name from `output_prefix`; fail clearly with available accounts list if missing.
+- Context-managed; holds the bridge connection.
+- `import_transactions(result, balance_checkpoints)`:
+  1. Resolve account name from `output_prefix`; fail with the available list if missing.
   2. Compute batch boundaries — month-end merged with CAMT balance-checkpoint dates.
   3. Per batch: filter by reconciliation boundary → query existing tx → bucket-classify (skip/suspicious/clean) → check circuit breaker → import clean → import suspicious with review category → balance check at boundary if checkpoint present → log summary.
-- **`main.py` wiring** — add `"actual"` to `--format`; when chosen, build the importer, run it as a context manager around single-file/directory processing, print summary at end. Skip the writer path entirely.
-- **`config.template.yml`** — add commented `actual_budget` block.
+- Wire into `main.py` (`"actual"` in `--format`, context-managed around single-file/directory processing) and add an `actual_budget` block to `config.template.yml`.
 
-### Tests
+Then unit tests (offline: amount conversion, batch boundaries, bucket classification, circuit breaker, config) and integration tests against the container. Order may change.
 
-Unit (no server):
+## Code in place
 
-- Amount conversion (debit → negative cents, credit → positive, NaN).
-- Batch-boundary merge (month-end + CAMT checkpoint).
-- Bucket classification.
-- Circuit breaker (threshold, per-account isolation).
-- Config loading with env-var overrides.
-
-Integration (Actual container):
-
-- Account resolution + account-not-found error.
-- Import → read back.
-- Re-import → all skipped by `imported_id`.
-- Pre-existing manual entries → suspicious flagged with review category.
-- Circuit breaker trips → account aborted, others continue.
-- Balance mismatch against CAMT checkpoint → import stops.
-- Resume after partial import.
-- Server-version compatibility (already partially covered by `test_version_matrix.sh` / `test_staggered_upgrade.sh`).
-
-**Known gap (discovered 2026-04-27, characterised 2026-05-02):** `test_staggered_upgrade.sh` only verifies API↔API round-trips. It cannot detect web-browser breakage caused by API↔server skew. See "Version-skew tolerance findings" below for what we tried and why an automated check inside the staggered rig isn't viable. Browser compatibility currently has to be verified manually after a version bump.
-
-### Docs
-
-Update `CLAUDE.md` architecture section and `config.template.yml` for the new feature, including how to run integration tests.
-
-### Outstanding test infra
-
-- Pytest fixtures: skip if server unreachable, seed transactions, teardown.
-- Offline template budget for unit tests (`api.init({ dataDir }) + api.loadBudget(id)` against a pre-built SQLite template — no server, no sync).
-
----
-
-## Architecture
-
-### Conservative-automation principles
-
-The user's manual workflow is deliberate: one month at a time, check the reconciliation boundary, manually review duplicates. Actual's built-in dedup (`importTransactions`) is not fully reliable — particularly for transactions without a bank reference. The automated import must never create a mess that's harder to clean up than doing it by hand:
-
-- Skip transactions that are already reconciled (locked).
-- Flag uncertain matches for async human review rather than guessing.
-- Stop early if too much uncertainty (circuit breaker).
-- Process in monthly batches for manageable review and clear resume points.
-- Log everything — imported, flagged, skipped, where it stopped.
-
-### Design decisions
-
-1. **Standalone importer, not a writer subclass.** `BaseWriter.save_monthly()` is file-oriented; direct import has different logic. `ActualBudgetImporter` is its own class with a small branch in `main.py`.
-2. **Account matching.** Reuse existing `account_names` as Actual account names. Validate the target account before importing; fail with the available list if missing.
-3. **Checkpoint-based batching with inline balance verification.** Batches end at the first of: end of calendar month or next CAMT.053 statement balance checkpoint. After each commit, compare Actual's account balance at the boundary against the CAMT balance; on mismatch, stop this account so the user can fix the small recent gap before resuming. No CAMT data → pure monthly batching with no inline check. CSV files have balance fields but they've been empty in practice — support if populated, don't depend on them.
-4. **Reconciliation boundary.** Query the account's last reconciled date; skip everything before it (locked and verified).
-5. **Three-bucket classification** (needs review) for transactions on/after the reconciliation date — Skip / Suspicious / Clean. See bucket pseudocode below.
-6. **Conservative duplicate detection** (needs review). Without a reference we cannot reliably pair source rows to existing rows; if any existing tx matches on amount within ±1 day and the source rows lack a reference, the entire group goes to review. Count info is logged so the human can resolve fast (e.g. "5 source tx of 12.50 around Jan 15, 2 already exist — flagging all 5"). Only matching `imported_id` allows confident skip.
-7. **Per-account circuit breaker.** If suspicious count in a monthly batch exceeds the configured threshold, abort that account's batch (don't import the clean ones either — keep batches atomic). Continue with other accounts.
-8. **Resume.** Re-running is safe: already-imported tx skipped by `imported_id`; monthly batching ensures only unprocessed months retry; circuit-breaker stops avoid partial-import tangles.
-9. **CLI.** Add `"actual"` to `--format` choices. `--output` is optional/ignored when chosen.
-10. **Config.** New `actual_budget` YAML section. Env vars override sensitive values.
-11. **Connection lifecycle.** Single `Actual` connection per CLI invocation via context manager; reused across files in directory mode.
-
-### Bucket classification (conservative)
-
-```
-For each source transaction in the batch:
-  if transaction has imported_id AND that imported_id exists in Actual → skip
-  else:
-    existing = Actual transactions matching same amount within ±1 day
-    if len(existing) == 0 → clean (import normally)
-    else → suspicious (flag entire amount/date group for review)
-      Log: "N source tx of {amount} around {date}, M already in Actual — flagging all N for review"
-```
-
-### Bridge architecture
-
-A TypeScript script exposes the JS API as a JSON-over-stdio interface; a Python subprocess sends commands and reads responses. Business logic (batching, classification, circuit breaker) stays in Python; only the Actual protocol handling is delegated.
-
-### JS API surface used
-
-| Need                        | Method                                      | Notes                                                                                                              |
-| --------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| Import transactions         | `importTransactions(accountId, txs, opts?)` | Returns `{ added, updated, errors }`. `imported_id` exact-match dedup + fuzzy fallback. We use `imported_id` only. |
-| Query existing transactions | `getTransactions(accountId, start, end)`    | Full tx objects: `imported_id`, `cleared`, `amount`, `date`, `notes`, `category`.                                  |
-| List accounts               | `getAccounts()`                             | `id`, `name`, `offbudget`, `closed`, `balance_current`. (No `type` field in 26.x — see version-skew log.)          |
-| Account balance at date     | `getAccountBalance(id, cutoff?)`            | Integer cents at optional cutoff; enables CAMT-checkpoint verification.                                            |
-| Assign category             | `category` field on tx objects              | Pass UUID; resolve via `getCategories()` or `getIDByName({ type: 'category', string })`.                           |
-| Flexible queries            | `runQuery(query)`                           | ActualQL fallback.                                                                                                 |
-| Lookup by name              | `getIDByName({ type, string })`             | Resolve account/payee/category name → UUID.                                                                        |
-
-**Lifecycle**: `init({ serverURL, password, dataDir })` → `downloadBudget(syncId)` (the `groupId` field, not `cloudFileId`) → operations → `sync()` → `shutdown()`.
-**Amounts**: integer cents. `$120.30 = 12030`. Helpers: `utils.amountToInteger`, `utils.integerToAmount`.
-**Encryption**: pass password to `downloadBudget()`; transparent.
-**`importTransactions` dedup details**: (1) exact `imported_id` updates; (2) without it, fuzzy on amount + date + payee; (3) duplicate `imported_id`s within the same call are NOT deduped against each other; (4) different `imported_id`s never fuzzy-merge.
-
-### Config draft (needs review)
-
-```yaml
-# Direct import into Actual Budget (--format actual)
-# Env var overrides: ACTUAL_BUDGET_URL, ACTUAL_BUDGET_PASSWORD, ACTUAL_BUDGET_FILE
-actual_budget:
-  url: 'http://localhost:5006'
-  password: '' # prefer ACTUAL_BUDGET_PASSWORD env var
-  file: 'My Budget'
-  review_category: 'To Review'
-  suspicious_threshold: 5
-```
-
-Reviewer comment: may need a `sync_id` and an encryption key.
-
----
-
-## Decisions log
-
-### Use the official JS API, not `actualpy`
-
-Three options were considered: reimplement the sync protocol (ruled out — undocumented CRDT/binary/libsodium machinery), `actualpy` (rejected — reimplements the sync protocol in Python and writes directly to the SQLite schema, so a server-side schema or protocol change can silently corrupt the user's real budget; integration tests catch breakage after the fact), and the official JS API (selected — maintained by the Actual team alongside the server; schema changes handled internally; if it breaks it breaks cleanly). Trade-off: a Node runtime dependency and subprocess overhead — bounded engineering cost vs. unbounded data-loss risk from a stale third-party reimplementation.
-
-### Version-skew policy: pin + log, never abort
-
-> **Pending review (2026-05-07):** flip the policy — abort on `api > server` and on any unknown-version case. See "Proposed: flip version-skew policy to abort on api > server" subsection below.
-
-
-
-The Actual server is upgraded independently of `@actual-app/api`. Findings:
-
-- Server exposes `GET /info` (unauthenticated): `{ build: { name, description, version } }`. Implemented in `packages/sync-server/src/app.ts` of `actualbudget/actual`. The compiled API calls it internally as `get-server-version` but doesn't surface it on the public API — we hit it ourselves with plain `fetch` (the same pattern as the existing `/account/needs-bootstrap` call in `bootstrap_test_budget.ts`).
-- No documented compatibility matrix. Releases are calver and roughly monthly; the 25 → 26 bump is calver, not semver, with no implied break. Sampled release notes (25.4.0, 26.1.0, 26.4.0) flag no sync-protocol changes; sync routes (`/sync`, `/upload-user-file`, `/download-user-file`, …) are stable.
-- Empirical: `scripts/test_version_matrix.sh` (fresh-slate `{25.3.1, 26.4.0}²` = 4 cells, all pass) and `scripts/test_staggered_upgrade.sh` (single persistent budget across server-ahead and client-ahead transitions, both pass) cover a 13-month, 13-release gap without breakage.
-- Observed breaks were JS-API type-shape changes — `APIAccountEntity` dropped `type`, `ImportTransactionEntity` now requires `account` per tx — caught by `tsc` at build time, not runtime sync corruption. `@actual-app/core` ships raw `.ts` source that fails strict tsc, so type checking has to scope to our own files: `tsc --noEmit 2>&1 | grep -E "^(scripts|tests|src)/"`.
-
-Decision:
-
-1. **Pin** `@actual-app/api` in `dependencies` (currently 26.4.0). Version-matrix aliases stay in `devDependencies` so production installs don't pull duplicates.
-2. **Log-only runtime check.** On import startup, fetch `/info` and log `{ server, api }`. Do not abort — the conservative-automation workflow values surfaceable diagnostics over hard failures, and the staggered test shows wide skew is fine in practice. If runtime breakage ever appears, the log gives the version pair to reproduce against.
-3. **Re-validate before any planned upgrade**: `V_OLD=<current> V_NEW=<target> ./scripts/test_staggered_upgrade.sh` exercises a real budget across the boundary.
-
-Tested compatible range: `@actual-app/api` 25.3.1 ↔ 26.4.0 against `actualbudget/actual-server` 25.3.1 ↔ 26.4.0, both directions, fresh-slate and staggered-volume. `server-ahead` direction additionally validated 2026-05-07 via `test_server_ahead_assessment.sh` with bit-for-bit readback + browser cross-check (warm + cold cache).
-
-### Version-skew tolerance findings (2026-05-02)
-
-We tried to extend `test_staggered_upgrade.sh` with an automated `browser_compat_check` step and learned why it can't work.
-
-- **`client-ahead` skew breaks the older web client (manually confirmed).** Run `actual-up` (server pinned to 25.3.1) → `npm run bootstrap` → `uv run pytest tests/test_actual_api_smoke.py`. The 26.4.0 API migrates the SQLite schema forward; opening `http://localhost:5006` in a browser then shows "Please update Actual!" and refuses to load the budget.
-- **The older API does not detect the same breakage.** After the 26.4.0 API touched the budget, opening it with the 25.3.1 API (fresh data dir → `downloadBudget` → `getAccounts` → `getTransactions` → `getAccountBalance` → `getCategories` → `sync`) succeeds without error. Mirroring the smoke test surface in p2 did trigger the migration but the V_OLD API still opened the result cleanly. So **"old API can open" is not a valid proxy for "old browser can open"** — the API tolerates schema versions the web client refuses.
-- **Implication for the staggered test.** API↔API tests cannot prove web-client compatibility; the only reliable signal is loading the actual web bundle (e.g. headless Playwright against the live server). The `browser_compat_check` direction was abandoned.
-- **`server-ahead` skew assessed 2026-05-07: clean.** V_OLD=25.3.1 API ↔ V_NEW=26.4.0 server (post-migration). All three phases passed (baseline / warm-cache / cold-cache); bit-for-bit readback, idempotent re-import, balance match, browser cross-check (V_NEW SPA, 9 tx visible, balance 709558¢) all green. Implementation note: `loadBudget` requires offline-mode init (no `serverURL`), so the warm path uses `downloadBudget` against a retained `ACTUAL_DATA_DIR` — the cache distinction lives in dataDir state, not API call sequence. Methodology subsection below preserved for future re-validation.
-- **Proper automated detection would require a headless browser test.** Out of scope for now; manual check before planned upgrades is acceptable given a single user.
-
-### Proposed: flip version-skew policy to abort on api > server
-
-**Status:** drafted 2026-05-07, awaiting review. Not yet implemented.
-
-**Why revisit:** the original "log-only, never abort" decision rested on `test_staggered_upgrade.sh` showing wide skew was fine in practice. That rig only round-trips the API↔API surface; it cannot detect web-client breakage. Two findings since narrow the safe direction:
-
-- **2026-05-02** — `client-ahead` (newer API + older server) breaks the server's bundled web client. The newer API migrates the SQLite schema forward; the older web client then refuses to load the budget ("Please update Actual!"). Data is not corrupted — the migration is well-formed — but the only review UI is unusable until the server is upgraded.
-- **2026-05-07** — `server-ahead` (newer server + older API) is clean. `test_server_ahead_assessment.sh` validated baseline/warm/cold across V_OLD=25.3.1 API ↔ V_NEW=26.4.0 server with bit-for-bit readback, idempotency, balance, and browser cross-check.
-
-So API may lag the server, but the reverse breaks the UI. Conservative-automation principles argue for abort.
-
-**Proposed new policy:**
-
-1. **Pin** stays as-is (`@actual-app/api` in `dependencies`).
-2. **Abort on `api > server`** at bridge `cmdOpen` time, with a message that explains the actual failure mode (newer API would migrate schema → older server's bundled web client refuses → recovery is server upgrade, not data loss).
-3. **Abort on any unknown-version case** — `/info` unreachable, version field missing, version unparseable, or our own pinned version unset. Per user direction (2026-05-07): if we can't assess the skew, we don't proceed.
-4. **Proceed (log-only) on `api ≤ server`.**
-5. **Re-validate before any planned API or server upgrade**: `V_OLD=<current> V_NEW=<target> ./scripts/test_staggered_upgrade.sh` plus `./scripts/test_server_ahead_assessment.sh`.
-
-**Implementation sketch:**
-
-- Source for our API version: hardcoded literal in the bridge.
-
-  ```ts
-  // kept in sync with package.json's @actual-app/api dep. Bundle-safe — a
-  // literal, no fs/JSON read at runtime. Update on every dep bump.
-  const PINNED_API_VERSION = '26.4.0';
-  ```
-
-  Rationale: `package.json` may not be reachable from a bundled production build, so a runtime read is fragile. A literal is unambiguous. Resolution at runtime: `process.env.ACTUAL_API_VERSION` (test pin via `api-loader.ts`) → `PINNED_API_VERSION` → abort.
-
-- Drift mitigation between `PINNED_API_VERSION` and `package.json` (pick one or none):
-  - Release-checklist note: "bumping `@actual-app/api` → update `PINNED_API_VERSION` in `actual_api_bridge.ts` and re-run skew rigs."
-  - Pre-commit / CI grep that fails on mismatch (~10 lines of bash).
-
-- In `src/actual_budget_transformer/bridge/actual_api_bridge.ts`, after the existing `probeServerVersion(serverURL)` call in `cmdOpen`:
-  1. Resolve API version (`ACTUAL_API_VERSION` env > `PINNED_API_VERSION`). Missing → abort.
-  2. Server version from `/info` (already fetched). Missing → abort.
-  3. Semver compare on `[major, minor, patch]`. Unparseable on either side → abort.
-  4. `api > server` → abort with the schema-migration / web-client explanation, naming the minimum server version that would lift the block (`>= ${apiVersion}`).
-  5. `api ≤ server` → existing log line, proceed.
-
-- `staggered_phase.ts` and `server_ahead_phase.ts` use `api-loader.ts` directly (not the bridge), so the abort doesn't fire during those test rigs. The smoke test (`test_actual_api_smoke.py`) does go through the bridge — fine, because in the dev devcontainer the server is pinned to 25.3.1 and the default API is 26.4.0, so the smoke test would trip the abort. **This means the smoke test will fail until either (a) the dev server pin is bumped to ≥ 26.4.0 or (b) the smoke test is run with `ACTUAL_API_VERSION=25.3.1` to match the server.** Decide which before merging.
-
-**Out of scope for the initial change:**
-
-- Pytest integration test that stands up V_OLD server with V_NEW API and asserts `BridgeError` with the version-skew message. Worth adding alongside the broader `tests/test_actual_importer_integration.py` work.
-
-**Files to touch when implementing:**
-
-- `src/actual_budget_transformer/bridge/actual_api_bridge.ts` — add `PINNED_API_VERSION`, helpers, and the gate in `cmdOpen`.
-- This plan section — promote from "Proposed" to "Decided", remove the pending-review banner on the original `Version-skew policy` subsection, update the `2.` bullet there to describe the new behavior, and bump the tested-range note if needed.
-- (Optional) `.devcontainer/docker-compose.yml` server pin and/or `package.json` to align dev-server with API version, so the smoke test still passes.
-
-### Server-ahead assessment methodology
-
-Realistic scenario: server upgrade (DB migrated on startup) → V_OLD API runs next import → user opens the V_NEW web bundle to verify. "Older browser" is moot — the server serves its own bundle, so post-upgrade the browser is V_NEW.
-
-Test two cache variants, which exercise distinct code paths:
-
-- **Warm cache** (run first, realistic): retain the pre-migration `ACTUAL_DATA_DIR` from the V_OLD baseline; V_OLD API's `sync()` applies deltas across the migration boundary. Unique failure mode: **silent divergence** — V_OLD API may drop fields it doesn't recognise from deltas, leaving the local mirror inconsistent with the server. Only visible by comparing API readback against the browser.
-- **Cold cache** (recovery baseline): wipe `ACTUAL_DATA_DIR`, force `downloadBudget` to refetch. Decode-only path.
-
-Setup (extends `test_staggered_upgrade.sh` server-ahead phase):
-
-1. V_OLD baseline — start `actual-server:$V_OLD` on a persistent named volume, bootstrap with V_OLD API, seed a handful of transactions so migration has prior data.
-2. Stop V_OLD container, start `actual-server:$V_NEW` on the same volume; wait healthy; confirm V_NEW via `GET /info`.
-3. With V_OLD API pinned, run phase 3 twice — warm first, then cold.
-
-Phase 3, fixed input set with stable `imported_id`s:
-
-1. (Warm) `sync()` — does the cross-migration delta apply without error?
-2. (Cold) `downloadBudget(syncId)` — does V_OLD API decode the migrated budget?
-3. `importTransactions`; capture `{ added, updated, errors }`.
-4. `sync()`.
-5. `getTransactions` — assert count/amount/date/payee/`imported_id`/account match input bit-for-bit. Field drift surfaces here.
-6. `getAccountBalance` — assert equals `sum(input amounts)`.
-7. Re-import the same batch — assert zero new rows (dedup survives the migration).
-
-Browser cross-check (manual, private window for a fresh bundle): page loads without "Please update Actual!"; imported transactions visible with correct fields; UI balance matches API readback from step 6; sidebar and monthly views render. This is what catches warm-cache divergence.
-
-Outcomes:
-
-- Both pass → V_OLD API fully compatible with V_NEW server. Log the pair in the tested-range note alongside the existing client-ahead entry.
-- Warm fails, cold passes → documented mitigation: wipe `ACTUAL_DATA_DIR` after a server upgrade before the next import.
-- Cold fails too → V_OLD API cannot talk to V_NEW server; bump the API in lockstep with the server.
-
-Harness:
-
-- `scripts/server_ahead_phase.ts` — single phase, `PHASE_MODE=baseline|warm|cold`. Fixed input set; bit-for-bit readback, idempotency, balance assertion. Reuses `api-loader.ts` for V_OLD pinning.
-- `scripts/test_server_ahead_assessment.sh` — orchestrator. `V_OLD`/`V_NEW` env vars (default 25.3.1/26.4.0). Runs container `actual-server-skewtest` on volume `actual-budget-transformer-skewtest-data` with port 5006 published; leaves V_NEW server up at end for the manual browser check; `teardown` arg cleans up.
-
----
-
-## Reference
-
-### Verification checklist
-
-1. `uv sync && npm install` — deps install cleanly.
-2. `docker compose --profile actual up -d` — Actual server healthy.
-3. `uv run pytest tests/test_actual_importer_unit.py` — unit tests pass without server.
-4. `uv run pytest tests/test_actual_importer_integration.py` — integration tests pass against the container.
-5. Bump Actual image tag → re-run integration tests → confirm compatibility.
-6. Manual smoke: import real files against the test container, review in Actual UI.
-
-### Critical files
-
-- `src/actual_budget_transformer/bridge/actual_api_bridge.ts` (in place — bridge)
-- `src/actual_budget_transformer/actual_api.py` (in place — Python wrapper around the bridge subprocess)
-- `tests/test_actual_api_smoke.py` (in place — bridge end-to-end smoke)
-- `src/actual_budget_transformer/writers/actual_budget_importer.py` (new — batching, dedup, circuit breaker)
-- `src/actual_budget_transformer/main.py` (modify)
-- `src/actual_budget_transformer/config.py` (modify)
-- `config.template.yml` (modify)
-- `tests/test_actual_importer_unit.py` (new)
-- `tests/test_actual_importer_integration.py` (new)
-- `package.json`, `package-lock.json`, `tsconfig.json` (in place)
-
-### Bootstrap-script gotchas (for future reference)
-
-From building `scripts/bootstrap_test_budget.ts` and the bridge against a fresh server:
-
-1. **Password setup**: `POST /account/bootstrap` with `{"password": "..."}`; check first via `GET /account/needs-bootstrap`.
-2. **Budget creation**: `api.runImport(name, callback)` is the public entry point. **Requires `ACTUAL_DATA_DIR`** — the internal `exportDatabase` reads `process.env.ACTUAL_DATA_DIR` directly (not the `dataDir` passed to `init()`), so without it the upload step silently fails.
-3. **Budget download**: `api.downloadBudget(syncId)` uses the **`groupId`** field from `getBudgets()`, not `cloudFileId`.
-4. **Offline mode**: `api.init({ dataDir })` (no `serverURL`) loads a pre-built SQLite template — useful for fast unit tests of business logic with no server, no sync.
-5. **Account creation**: `api.createAccount({ name }, initialBalance)` then `api.sync()`. (`type` was removed from `APIAccountEntity` in 26.x.)
-6. **`importTransactions` requires `account` per tx in 26.x**. The bridge injects `accountId` into every tx automatically; callers should not bother setting it.
-7. **`@actual-app/api` writes `[Breadcrumb]` lines to `console.log`**. Anything using stdout as a protocol channel (the bridge) MUST monkey-patch `console.{log,info,warn,error}` to write to stderr before importing the API.
-8. **`getAccountBalance(id, cutoff?)`** takes a `Date`, not a string. The bridge converts an ISO date string from Python into a `Date` object before calling.
-
-### Test modes
-
-| Mode    | Server | Use case                                           | API init                                                                     |
-| ------- | ------ | -------------------------------------------------- | ---------------------------------------------------------------------------- |
-| Offline | No     | Fast unit tests: dedup, batching, circuit breaker  | `api.init({ dataDir })` + `api.loadBudget(id)` with template SQLite          |
-| Online  | Yes    | Integration tests: full import path, sync, balance | `api.init({ serverURL, password, dataDir })` + `api.downloadBudget(groupId)` |
-
----
+- `src/actual_budget_transformer/bridge/actual_api_bridge.ts` — bridge
+- `src/actual_budget_transformer/actual_api.py` — Python wrapper
+- `tests/test_actual_api_smoke.py` — bridge end-to-end smoke
+- `package.json`, `package-lock.json`, `tsconfig.json`
 
 ## Archive
 
-Done implementation work. Detail lives in code; this is just an index.
+Decisions and past test findings live in `archive/`:
 
-- **JS-API bridge (TS + Python wrapper)**:
-  - `src/actual_budget_transformer/bridge/actual_api_bridge.ts` — JSON-over-stdio bridge. Commands: `open`, `get_accounts`, `get_transactions`, `import_transactions`, `get_account_balance`, `get_categories`, `sync`, `shutdown`. Stdout reserved for protocol JSON; `console.*` rerouted to stderr; server `/info` probed on `open` and logged with the api package name.
-  - `src/actual_budget_transformer/actual_api.py` — `ActualBridge` context manager. Spawns the bridge via `node_modules/.bin/tsx`, drains stderr to the project logger, raises `BridgeError` on any non-ok response.
-  - `tests/test_actual_api_smoke.py` — 6 pytest cases (accounts list, unknown-budget error, import round-trip, balance with/without cutoff, categories, idempotent sync). Module-level skip when the server is unreachable.
-
-- **TS smoke test** — `tests/actual/import_roundtrip.test.ts`, run via `npm run test:actual`. Idempotent (`Date.now()`-tagged `imported_id`s); transactions accumulate in the test budget — teardown deferred.
-- **Devcontainer Actual server profile** — `.devcontainer/docker-compose.yml`, profiled service pinned to `actualbudget/actual-server:25.3.1`, on the same network as the devcontainer. Started on demand via `actual-up` / `docker compose --profile actual up -d`. Node 22 in both containers; `postCreateCommand.sh` runs `npm install` alongside `uv sync`.
-- **Server bootstrap** — `scripts/bootstrap_test_budget.ts`, idempotent (downloads existing budget on re-run, only creates missing accounts). Creates "Test Budget" with Test Checking, Test Savings, Test Credit Card.
-- **Version-compat rigs**:
-  - `scripts/test_version_matrix.sh` — fresh-slate `(client, server)` matrix; clean tmpfs server volume + clean `ACTUAL_DATA_DIR` per cell.
-  - `scripts/test_staggered_upgrade.sh` — single persistent budget volume across server image swaps; server-ahead and client-ahead scenarios, three phases each. Bypasses the compose `tmpfs:/data` by running the server with `docker run` and a docker named volume on the compose-managed network.
+- [ADR-001 — JS API over actualpy](archive/adr-001-jsapi-over-actualpy.md)
+- [ADR-002 — Conservative-automation principles](archive/adr-002-conservative-automation-principles.md)
+- [ADR-003 — Standalone importer (not writer subclass)](archive/adr-003-standalone-importer-not-writer.md)
+- [ADR-004 — Bridge architecture](archive/adr-004-bridge-architecture.md)
+- [ADR-005 — Checkpoint-based batching with balance verification](archive/adr-005-checkpoint-batching.md)
+- [ADR-006 — Bucket classification + dedup](archive/adr-006-bucket-classification-and-dedup.md)
+- [ADR-007 — Version-skew policy (abort on `api > server`)](archive/adr-007-version-skew-policy.md)
+- [2026-05-02 — Client-ahead skew finding](archive/2026-05-02-client-ahead-skew-finding.md)
+- [2026-05-07 — Server-ahead assessment](archive/2026-05-07-server-ahead-assessment.md)
+- [Bridge implementation notes (gotchas, test modes)](archive/bridge-implementation-notes.md)
