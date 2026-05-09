@@ -182,7 +182,7 @@ class Camt053Writer(BaseWriter):
         return ".xml"
 
     def read_existing(self, path: str) -> pd.DataFrame:
-        _, entries = parse_camt053(path)
+        _, entries, _ = parse_camt053(path)
         if not entries:
             from actual_budget_transformer.processors.base_processor import (
                 ProcessingResult,

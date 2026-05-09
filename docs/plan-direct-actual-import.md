@@ -6,28 +6,32 @@ A new `--format actual` option that imports transactions straight into a self-ho
 
 ## Status
 
-- **In place:** TS bridge with version-skew gate (ADR-007), Python wrapper, smoke + gate pytest suites, devcontainer Actual profile (server pinned to 26.4.0), bootstrap script.
-- **Decided:** see `archive/adr-001` … `adr-007`.
+- **In place:** TS bridge with version-skew gate (ADR-007), Python wrapper, smoke + gate pytest suites, devcontainer Actual profile (server pinned to 26.4.0), bootstrap script. `ActualBudgetImporter` (ADR-002/005/006) wired through `--format actual`; offline unit tests passing.
+- **Decided:** see `archive/adr-001` … `archive/adr-007`.
 
 ## Next
 
-Build `ActualBudgetImporter` in `src/actual_budget_transformer/writers/actual_budget_importer.py` (per ADR-002 / ADR-005 / ADR-006):
+Integration tests against the live container (none of these can run in the devcontainer — user-driven):
 
-- Context-managed; holds the bridge connection.
-- `import_transactions(result, balance_checkpoints)`:
-  1. Resolve account name from `output_prefix`; fail with the available list if missing.
-  2. Compute batch boundaries — month-end merged with CAMT balance-checkpoint dates.
-  3. Per batch: filter by reconciliation boundary → query existing tx → bucket-classify (skip/suspicious/clean) → check circuit breaker → import clean → import suspicious with review category → balance check at boundary if checkpoint present → log summary.
-- Wire into `main.py` (`"actual"` in `--format`, context-managed around single-file/directory processing) and add an `actual_budget` block to `config.template.yml`.
+- Direct-import smoke: feed an anonymized CAMT.053 fixture through `--format actual`; assert added/skipped counts and that closing balance matches the CAMT CLBD.
+- Re-run idempotency: same input twice → second run reports zero adds, no errors.
+- Bucket classification: pre-seed Actual with one tx that matches a CAMT entry by amount/date; expect that source row in the suspicious bucket with the review category, not in clean.
+- Circuit breaker: pre-seed > threshold collisions; assert account stops mid-import.
+- Balance-mismatch abort: synthesise a CAMT whose CLBD does not match (or remove a tx) and assert the importer aborts the account at the boundary.
 
-Then unit tests (offline: amount conversion, batch boundaries, bucket classification, circuit breaker, config) and integration tests against the container. Order may change.
+When integration tests are green, retire this plan to `archive/`.
 
 ## Code in place
 
 - `src/actual_budget_transformer/bridge/actual_api_bridge.ts` — bridge with version-skew gate
 - `src/actual_budget_transformer/actual_api.py` — Python wrapper
+- `src/actual_budget_transformer/writers/actual_budget_importer.py` — direct importer (ADR-002/005/006)
+- `src/actual_budget_transformer/processors/camt053_parser.py` — now also returns balance entries (OPBD/CLBD/CLAV) for checkpoint batching
+- `src/actual_budget_transformer/main.py` — `--format actual` enters the importer once per CLI invocation, lifts CAMT CLBD into checkpoints
+- `config.template.yml` — `actual_budget:` block + env-var overrides
 - `tests/test_actual_api_smoke.py` — bridge end-to-end smoke (6 cases)
 - `tests/test_actual_api_version_gate.py` — version-skew gate (3 cases)
+- `tests/test_actual_budget_importer.py` — offline unit tests (amounts, batches, classification, circuit breaker, config)
 - `package.json`, `package-lock.json`, `tsconfig.json`
 
 ## Archive

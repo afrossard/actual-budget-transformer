@@ -89,6 +89,28 @@ processors:
   # CAMT.053 Processor settings
   camt053: {}
 
+# Direct import to a self-hosted Actual Budget server (used with `--format actual`).
+# Account names in your Actual budget MUST match the values in `account_names`
+# above (or, equivalently, the `output_prefix` each processor produces).
+#
+# Sensitive values can be sourced from environment variables instead of this
+# file (preferred for shared / committed configs):
+#   ACTUAL_BUDGET_URL       overrides server_url
+#   ACTUAL_BUDGET_PASSWORD  overrides password
+#   ACTUAL_BUDGET_FILE      overrides budget_name
+actual_budget:
+  server_url: "http://actual-server:5006"
+  password: "" # set via ACTUAL_BUDGET_PASSWORD
+  budget_name: "" # the budget's name in the UI (e.g. "Personal")
+  # Local SQLite cache. Optional — a fresh temp dir is used per run if unset.
+  # data_dir: "/var/lib/actual-budget-transformer/data"
+  # Category assigned to source rows that look like duplicates of existing
+  # transactions (ADR-006). Must already exist in the budget.
+  review_category: "To Review"
+  # Per-batch ceiling on suspicious tx (ADR-002). Above this, the whole
+  # account is stopped so the user can resolve the small recent slice.
+  suspicious_threshold: 5
+
 # Global settings
 output:
   date_format: "%Y%m" # Format for date in output filenames
