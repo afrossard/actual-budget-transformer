@@ -15,7 +15,7 @@ The current suite validates the design we tested (offline logic + wiring against
 
 **Top risks** (in order):
 
-1. **Reconciliation filter unverified end-to-end.** ADR-002's keystone safety guarantee — "never touch reconciled tx" — is filtered on `t.get("reconciled")`. Actual's public docs document `cleared`, not `reconciled`; we picked the field name from internal type definitions. The bridge has no `update_transaction` command, so we can't mark a tx reconciled in the test budget to verify. On prod with years of reconciled history, a wrong/missing field name silently breaks the guarantee.
+1. **Reconciliation filter unverified end-to-end.** ADR-002's keystone safety guarantee — "never touch reconciled tx" — is filtered on `t.get("reconciled")`. Field name confirmed by typedef inspection: `@actual-app/core/src/types/models/transaction.ts:25` declares `TransactionEntity.reconciled?: boolean` (distinct from `cleared` on line 24). Still unverified end-to-end: whether `getTransactions()` actually surfaces the field at runtime, and the actual skip behavior on a reconciled tx. `updateTransaction(id, fields)` exists in the public API (`@actual-app/api/@types/index.d.ts:171`), so the bridge can be extended to mark a tx reconciled programmatically — no UI dance.
 2. **No dry-run mode.** First-time prod use is unrehearsed: classify → import → sync either commits or it doesn't. Add `--dry-run` that runs classification, logs `would import N clean / M suspicious / K skipped` per batch, and skips `importTransactions`/`sync`.
 3. **Real CAMT against the importer is untested.** The processor has been chewing on real CAMT for the CSV path for months, but the CLBD-extraction → `BalanceCheckpoint` → in-bridge balance verification is fresh. Live balance math against real history is the assertion that matters.
 
@@ -33,11 +33,10 @@ The current suite validates the design we tested (offline logic + wiring against
 
 **Pre-prod checklist** (in order — earlier items unblock later ones):
 
-- [ ] Read-only probe against the prod budget: dump one tx with `bridge.get_transactions(...)` and confirm the `reconciled` key exists and is populated as expected. Settles risk #1.
+- [ ] Add `update_transaction` to the bridge (TS command + Python wrapper) and write an automated integration test for the reconciled-skip path: import a tx → mark it reconciled via the bridge → assert `getTransactions()` returns `reconciled` truthy (runtime field-name confirmation) → re-import a source tx dated ≤ reconciled date → assert it is filtered out. Settles risk #1 and gives a regression guard in one shot.
 - [ ] Add `--dry-run` flag. Settles risk #2.
 - [ ] Run `--dry-run` on one month of the smallest account; eyeball the log.
 - [ ] Live-run that same month; verify in the Actual UI before scaling up.
-- [ ] Add a test fixture for the reconciled-tx skip path (requires extending the bridge with `update_transaction` to mark a seed tx reconciled).
 - [ ] Add a test fixture for transfers (write one side, observe how the linked counter-tx surfaces in `getTransactions`, decide on importer behaviour).
 
 ## Code in place
