@@ -25,6 +25,11 @@ The current suite validates the design we tested (offline logic + wiring against
 5. **Manually-entered tx (no `imported_id`) with same amount/date.** Suspicious path imports a *new* tx with the review category alongside the manual one → user has two visually-duplicate rows to clean up. Not destructive but messy.
 6. **`imported_id` hash drift.** When `reference` is empty, hash = `(date, amount, payee, notes)`. Banks reformat descriptions between exports → same logical tx, different hash. Bucket classification still catches it via amount/date, but a re-export of an entire month could flip many tx into "suspicious" → trip the breaker → abort.
 
+   **Open — needs real-data spike before deciding.** Unknown whether this bites in practice: how often is `reference` actually empty across our CAMT/UBS exports, and does `notes` actually drift between two real exports of the same month? Investigate before choosing a fix.
+   - **Measure:** across the real export corpus, what fraction of tx have an empty `reference`? For those, re-export an already-imported month and diff the computed hashes — count how many drift.
+   - **If drift is rare/zero:** leave the hash alone; close this out.
+   - **If drift is common:** do *not* narrow the hash to `(date, amount)` — that trades visible friction for silent data loss via collisions (two distinct same-day/same-amount tx → second silently skipped). Prefer solving at the report layer: split suspicious into "matches an already-imported tx" (benign drift) vs "matches a manual/unknown tx" (genuine), so a breaker trip on re-export is diagnosable. Plus operational guidance: workflow is monthly-forward, don't re-export an imported month. See discussion in this grill session.
+
 **Low risks**:
 
 7. Bridge subprocess has no read timeout — a stalled sync hangs indefinitely (Ctrl-C works).

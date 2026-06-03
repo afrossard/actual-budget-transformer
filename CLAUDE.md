@@ -177,3 +177,19 @@ python scripts/anonymize_ubs_csv.py /path/to/real/account.csv tests/data/ubs_val
 | ruff               | Linter & formatter (dev only)             |
 | @actual-app/api    | Official Actual Budget JS API (Node.js)   |
 | tsx                | TypeScript execution for bridge scripts   |
+
+---
+
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked in this repo's GitHub Issues (`afrossard/actual-budget-transformer`) via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default label vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context layout (one `CONTEXT.md` at the repo root; new ADRs in `docs/adr/`, original seven in `docs/archive/`). See `docs/agents/domain.md`.
