@@ -29,9 +29,9 @@ COMPOSE_FILE="$PROJECT_DIR/.devcontainer/docker-compose.yml"
 
 DEFAULT_PAIRS=(
   "25.3.1:25.3.1"   # baseline
-  "25.3.1:26.4.0"   # client older than server
-  "26.4.0:25.3.1"   # client newer than server
-  "26.4.0:26.4.0"   # both at latest
+  "25.3.1:26.5.2"   # client older than server
+  "26.5.2:25.3.1"   # client newer than server
+  "26.5.2:26.5.2"   # both at latest
 )
 
 if [ "$#" -gt 0 ]; then
