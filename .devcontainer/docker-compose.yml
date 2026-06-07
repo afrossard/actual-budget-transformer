@@ -5,6 +5,7 @@ services:
     build:
       context: .
       dockerfile: Containerfile
+      target: devcontainer
     volumes:
       - ${LOCAL_WORKSPACE_FOLDER:-..}:/workspaces/actual-budget-transformer:cached
     environment:
@@ -16,8 +17,9 @@ services:
     profiles: ["claude"]
     container_name: claude-code
     build:
-      context: claude
+      context: .
       dockerfile: Containerfile
+      target: claude
     volumes:
       - ${LOCAL_WORKSPACE_FOLDER:-..}:/workspaces/actual-budget-transformer:cached
       - claude-auth:/home/vscode/.claude
