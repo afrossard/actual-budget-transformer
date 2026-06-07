@@ -15,7 +15,7 @@
   },
   "license": "ISC",
   "dependencies": {
-    "@actual-app/api": "26.4.0"
+    "@actual-app/api": "26.5.2"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",

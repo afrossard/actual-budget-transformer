@@ -2,8 +2,8 @@ FROM mcr.microsoft.com/devcontainers/python:3-trixie
 
 # Install Node.js
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
-    && rm -rf /var/lib/apt/lists/*
+  && apt-get install -y --no-install-recommends nodejs \
+  && rm -rf /var/lib/apt/lists/*
 
 # Install Homebrew
 USER vscode
@@ -37,5 +37,5 @@ RUN sudo chsh -s /bin/zsh vscode
 RUN sudo apt-get update && sudo apt-get install --no-install-recommends --yes vim rsync
 
 # Install UV
-COPY --from=ghcr.io/astral-sh/uv:0.11.3 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.11.19 /uv /uvx /bin/
 

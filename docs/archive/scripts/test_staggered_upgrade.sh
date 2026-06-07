@@ -38,7 +38,7 @@ CONTAINER="actual-server-staggered"
 VOLUME="actual-budget-transformer-staggered-data"
 
 V_OLD="${V_OLD:-25.3.1}"
-V_NEW="${V_NEW:-26.4.0}"
+V_NEW="${V_NEW:-26.5.2}"
 
 server_up() {
   local image_tag="$1"

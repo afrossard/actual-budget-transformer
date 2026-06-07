@@ -37,7 +37,7 @@ CONTAINER="actual-server-skewtest"
 VOLUME="actual-budget-transformer-skewtest-data"
 
 V_OLD="${V_OLD:-25.3.1}"
-V_NEW="${V_NEW:-26.4.0}"
+V_NEW="${V_NEW:-26.5.2}"
 
 server_up() {
   local image_tag="$1"
