@@ -13,9 +13,15 @@ A new `--format actual` option that imports transactions straight into a self-ho
 
 The current suite validates the design we tested (offline logic + wiring against a synthetic budget). It does NOT validate two assumptions that matter most for a real budget — the `reconciled` field name, and the importer's behaviour on data prod accumulates over years. Run on a copy/subset before the real budget.
 
+> **Doc/code drift to clear (found 2026-06-07).** ADR-0001's report-as-return-value design (importer returns a structured run report; `--dry-run` and live share one path) is **decided but unbuilt** — `import_transactions(...)` still returns `None` and communicates only via the logger. This gates checklist item 2: `--dry-run` is "produce the report, don't commit", so the report refactor is its prerequisite. Sequencing: checklist item 1 (reconciled-skip) is independent of the report and lands first; the report refactor must precede `--dry-run`.
+>
+> **The report's named deliverables** (per the *Run report* definition in `CONTEXT.md` — "bank data the tool chose not to import is surfaced here, never silently dropped"): per-account imported/skipped counts, **pre-boundary orphans**, **ignored extra CAMT statements**, balance mismatches, and account stops. Two of these are *silent drops today* and the report is what closes them — see the reconciliation filter (risk #1, below) and multi-statement CAMT (risk #9). Until the report lands, both remain logger-only gaps, not the intended behaviour.
+
 **Top risks** (in order):
 
 1. **Reconciliation filter unverified end-to-end.** ADR-002's keystone safety guarantee — "never touch reconciled tx" — is filtered on `t.get("reconciled")`. Field name confirmed by typedef inspection: `@actual-app/core/src/types/models/transaction.ts:25` declares `TransactionEntity.reconciled?: boolean` (distinct from `cleared` on line 24). Still unverified end-to-end: whether `getTransactions()` actually surfaces the field at runtime, and the actual skip behavior on a reconciled tx. `updateTransaction(id, fields)` exists in the public API (`@actual-app/api/@types/index.d.ts:171`), so the bridge can be extended to mark a tx reconciled programmatically — no UI dance.
+
+   **Silent-drop gap.** The filter (`actual_budget_importer.py:332`) drops on/before-boundary tx with only a `logger.info` count; it never checks whether a dropped tx is absent from Actual — i.e. it does not detect **pre-boundary orphans** (`CONTEXT.md`). Per the *Pre-boundary orphan* definition these "must be surfaced … rather than silently dropped." The report closes this; until then it's a logger-only gap.
 2. **No dry-run mode.** First-time prod use is unrehearsed: classify → import → sync either commits or it doesn't. Add `--dry-run` that runs classification, logs `would import N clean / M suspicious / K skipped` per batch, and skips `importTransactions`/`sync`.
 3. **Real CAMT against the importer is untested.** The processor has been chewing on real CAMT for the CSV path for months, but the CLBD-extraction → `BalanceCheckpoint` → in-bridge balance verification is fresh. Live balance math against real history is the assertion that matters.
 
@@ -34,11 +40,12 @@ The current suite validates the design we tested (offline logic + wiring against
 
 7. Bridge subprocess has no read timeout — a stalled sync hangs indefinitely (Ctrl-C works).
 8. Float→cents rounding in `BalanceCheckpoint.amount` could miss by 1 cent on degenerate decimals; bank-provided amounts make this unlikely.
-9. Multi-statement CAMT (`stmt[1+]`) is silently ignored — we only read `stmt[0]`.
+9. Multi-statement CAMT (`stmt[1+]`) is ignored — we only read `stmt[0]`. **Currently silent; the report closes this** by surfacing ignored extra statements as a warning section (`CONTEXT.md`, *Run report*). Logger-only until then.
 
 **Pre-prod checklist** (in order — earlier items unblock later ones):
 
-- [ ] Add `update_transaction` to the bridge (TS command + Python wrapper) and write an automated integration test for the reconciled-skip path: import a tx → mark it reconciled via the bridge → assert `getTransactions()` returns `reconciled` truthy (runtime field-name confirmation) → re-import a source tx dated ≤ reconciled date → assert it is filtered out. Settles risk #1 and gives a regression guard in one shot.
+- [ ] Add `update_transaction` to the bridge (generic `{id, fields}` TS command + Python wrapper `update_transaction(tx_id, fields)`) and write an automated integration test for the reconciled-skip path. **Settled design (2026-06-07):** runs on "Test Savings" with deep-past dates to stay reset-free — the reconciliation boundary is account-global persistent server state and cannot be `run_tag`-scoped, so it must sit *below* every other test's date range (convention: real test dates ≥ 2030, deep-past reserved for reconciliation-boundary tests; documented in the integration test docstring). Seed a tx at `2020-06-30`, mark it reconciled via the bridge, then three assertions: **(A)** `getTransactions()` surfaces it with `reconciled` truthy (runtime field-name confirmation); **(B)** a source tx dated `2020-06-15` (≤ boundary) is filtered out; **(C)** a source tx dated `2020-07-15` (> boundary) is imported (control — proves the filter isn't dropping everything). Settles risk #1 and gives a regression guard in one shot.
+- [ ] **Report refactor (ADR-0001).** Make `import_transactions` return a structured run report instead of returning `None`. Named deliverables (per `CONTEXT.md` *Run report*): per-account imported/skipped counts; **pre-boundary orphans** (closes the risk #1 silent-drop gap — detect filtered tx absent from Actual); **ignored extra CAMT statements** (closes risk #9); balance mismatches; account stops. Warning sections render only when non-empty. Prerequisite for `--dry-run`.
 - [ ] Add `--dry-run` flag. Settles risk #2.
 - [ ] Run `--dry-run` on one month of the smallest account; eyeball the log.
 - [ ] Live-run that same month; verify in the Actual UI before scaling up.
