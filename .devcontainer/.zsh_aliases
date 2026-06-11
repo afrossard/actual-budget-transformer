@@ -17,5 +17,8 @@ alias actual-down='dc --profile actual rm -sf actual-server'
 # Claude Code container
 alias claude-up='dc --profile claude up -d --build claude'
 alias claude-down='dc --profile claude stop claude'
-alias claude-run='docker exec -it claude-code bash -lc claude'
-alias claude-shell='docker exec -it claude-code bash'
+# Use zsh (the vscode default shell) for consistency with the devcontainer.
+# zsh sources /etc/zsh/zshenv on every invocation, so brew is on PATH even for
+# the non-interactive, non-login subshells Claude Code's tools spawn.
+alias claude-run='docker exec -it claude-code zsh -lc claude'
+alias claude-shell='docker exec -it claude-code zsh'

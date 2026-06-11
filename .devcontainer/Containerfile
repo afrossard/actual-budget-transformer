@@ -37,6 +37,13 @@ EOF
 
 ENV PATH="/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:${PATH}"
 
+# Make Homebrew available to *every* zsh invocation, not just interactive ones.
+# ~/.zshrc (above) is sourced only by interactive shells, so non-interactive,
+# non-login shells (tools, CI, scripts) never picked up brew on their PATH.
+# /etc/zsh/zshenv is sourced on all zsh invocations, so brew belongs here too.
+RUN printf '\n# Homebrew env (all zsh invocations)\neval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"\n' \
+  | sudo tee -a /etc/zsh/zshenv > /dev/null
+
 # Default packages
 RUN brew install \
   zsh-completions \
@@ -46,6 +53,12 @@ RUN brew install \
 
 # Configure Starship prompt with pure preset
 RUN mkdir -p ~/.config && starship preset pure-preset -o ~/.config/starship.toml
+
+# Pre-create the gh config dir as vscode so the gh-config named volume inherits
+# vscode ownership on first mount (Docker copies the image dir's ownership into
+# a fresh volume). Without this the volume mounts root-owned and `gh auth login`
+# fails with "permission denied" writing hosts.yml.
+RUN mkdir -p ~/.config/gh
 
 # Set zsh as default shell
 RUN sudo chsh -s /bin/zsh vscode
