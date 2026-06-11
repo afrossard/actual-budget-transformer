@@ -8,6 +8,8 @@ services:
       target: devcontainer
     volumes:
       - ${LOCAL_WORKSPACE_FOLDER:-..}:/workspaces/actual-budget-transformer:cached
+      # Persist GitHub CLI auth across rebuilds (shared with the claude container).
+      - gh-config:/home/vscode/.config/gh
     environment:
       - UV_LINK_MODE=copy
       - ACTUAL_SERVER_URL=http://actual-server:5006
@@ -23,6 +25,8 @@ services:
     volumes:
       - ${LOCAL_WORKSPACE_FOLDER:-..}:/workspaces/actual-budget-transformer:cached
       - claude-auth:/home/vscode/.claude
+      # Persist GitHub CLI auth across rebuilds (shared with the devcontainer).
+      - gh-config:/home/vscode/.config/gh
     working_dir: /workspaces/actual-budget-transformer
     environment:
       - UV_LINK_MODE=copy
@@ -48,3 +52,4 @@ services:
 
 volumes:
   claude-auth:
+  gh-config:
