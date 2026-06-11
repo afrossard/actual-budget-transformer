@@ -16,8 +16,8 @@ Desktop.ini
 node_modules/
 dist/
 
-# Claude Code
-.claude/
+# Claude Code — keep skills & shared settings, ignore local overrides
+.claude/settings.local.json
 
 # Project ignores
 tmp
