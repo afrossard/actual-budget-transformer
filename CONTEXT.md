@@ -20,10 +20,6 @@ _Avoid_: dedup key, hash, fingerprint
 The date through which an account is considered locked and verified. Defined as the date of the newest reconciled transaction in Actual (`max` over transactions where `reconciled` is truthy) — Actual has no native "last reconciled date" field, so the importer synthesizes it. Source transactions dated on or before the boundary are never imported.
 _Avoid_: last reconciled date, reconcile cutoff, lock date
 
-**Pre-boundary orphan**:
-A source transaction dated on or before the reconciliation boundary whose imported ID is *not* already present in Actual — i.e. something the bank has that Actual is missing inside the locked range. Not imported (the boundary is sacrosanct), but must be surfaced to the human rather than silently dropped.
-_Avoid_: dropped tx, skipped straggler
-
 **Bucket**:
 The classification outcome assigned to each source transaction on or after the reconciliation boundary. Exactly one of three:
 - **Clean** — no matching transaction in Actual; imported normally.
@@ -51,5 +47,5 @@ An Actual transaction that the bank's copy matches only by amount and date (with
 _Avoid_: collision, near-match, fuzzy duplicate
 
 **Run report**:
-The structured result the importer returns for a whole run and renders to the human at the end: per-account imported/skipped counts, plus every case where the importer declined to act on bank data — pre-boundary orphans, ignored extra CAMT statements, balance mismatches, and account stops. The governing rule: bank data the tool chose not to import is surfaced here, never silently dropped. The importer's primary return value — a live import is "produce the report, then commit"; a dry run is "produce the report, don't commit." Warning sections appear only when non-empty.
+The structured result the importer returns for a whole run and renders to the human at the end: per-account imported/skipped counts, plus every case where the importer declined to act on bank data — ignored extra CAMT statements, balance mismatches, and account stops. The governing rule: bank data the tool chose not to import is surfaced here, never silently dropped. (Note: transactions dropped by the reconciliation filter are *not* surfaced individually — the locked range is the human's attested source of truth, and a real omission inside it surfaces during manual reconciliation, not as a per-tx warning.) The importer's primary return value — a live import is "produce the report, then commit"; a dry run is "produce the report, don't commit." Warning sections appear only when non-empty.
 _Avoid_: summary, log, output
