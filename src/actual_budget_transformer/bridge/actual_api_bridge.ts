@@ -21,6 +21,8 @@
  *   get_account_balance  - {account_id, cutoff_date?} (ISO date string).
  *                          Returns integer cents.
  *   get_categories       - all categories on the loaded budget.
+ *   update_transaction   - {id, fields}. Patches an existing transaction via
+ *                          updateTransaction(id, fields) — e.g. set `reconciled`.
  *   sync                 - flush pending changes to the server.
  *   shutdown             - api.shutdown() and exit.
  */
@@ -236,6 +238,17 @@ async function cmdGetCategories(): Promise<unknown> {
   return await requireApi().getCategories();
 }
 
+async function cmdUpdateTransaction(p: Record<string, unknown>): Promise<unknown> {
+  const id = asString(p.id, 'id');
+  const fields = p.fields;
+  if (typeof fields !== 'object' || fields === null || Array.isArray(fields)) {
+    throw new Error("'fields' must be an object");
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await requireApi().updateTransaction(id, fields as any);
+  return { ok: true };
+}
+
 async function cmdSync(): Promise<unknown> {
   await requireApi().sync();
   return { ok: true };
@@ -263,6 +276,8 @@ async function dispatch(req: Request): Promise<unknown> {
       return cmdGetAccountBalance(req.params ?? {});
     case 'get_categories':
       return cmdGetCategories();
+    case 'update_transaction':
+      return cmdUpdateTransaction(req.params ?? {});
     case 'sync':
       return cmdSync();
     case 'shutdown':

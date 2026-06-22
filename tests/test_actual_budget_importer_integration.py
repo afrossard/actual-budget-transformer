@@ -7,6 +7,12 @@ imported transactions stay in the test budget between runs; if you want a
 clean slate run ``actual-down && actual-up && npm run bootstrap`` (the
 container's tmpfs gets wiped on down).
 
+Date convention: regular tests use dates ``>= 2030``. Deep-past dates (2020)
+are reserved for reconciliation-boundary tests — the reconciliation boundary
+is account-global persistent server state that cannot be ``run_tag``-scoped,
+so it must sit *below* every other test's date range. See
+``test_reconciled_boundary_filters_on_or_before``.
+
 Preconditions:
   * `actual-up` (server reachable at ACTUAL_SERVER_URL)
   * `npm run bootstrap` (creates the budget, the three test accounts, and the
@@ -251,6 +257,98 @@ def test_rerun_is_idempotent(
     mine = _scoped(fetched, run_tag)
     assert len(mine) == 1, f"expected idempotent re-run, found {len(mine)}"
     assert mine[0]["amount"] == -750
+
+
+def test_reconciled_boundary_filters_on_or_before(
+    assert_bridge: ActualBridge,
+    account_ids: dict[str, str],
+    run_tag: str,
+) -> None:
+    """The "skip reconciled" keystone, proven end-to-end (ADR-002).
+
+    A reconciled transaction defines the account's reconciliation boundary;
+    source transactions on/before it are filtered out, later ones import.
+
+    Deep-past date convention: the reconciliation boundary is account-global
+    persistent server state and *cannot* be ``run_tag``-scoped, so this test
+    uses 2020 dates that sit below every other test's range (regular tests use
+    ``>= 2030``). Each re-run leaves another reconciled 2020-06-30 tx behind,
+    but they all share that date so the boundary never moves.
+    """
+    account_id = account_ids["Test Savings"]
+    seed_id = f"recon-seed-{run_tag}"
+    before_id = f"recon-before-{run_tag}"
+    after_id = f"recon-after-{run_tag}"
+
+    # Per-run-unique amount so the post-boundary tx classifies clean on every
+    # re-run (a fixed amount would look suspicious against earlier runs' import
+    # at the same date, dragging in the review-category dependency).
+    after_debit = (1000 + int(run_tag.split("-")[1]) % 90000) / 100.0
+
+    # Seed a transaction at the boundary date and mark it reconciled via the
+    # new bridge command (no UI dance).
+    _seed_tx(
+        assert_bridge,
+        account_id,
+        [
+            {
+                "date": "2020-06-30",
+                "amount": -5000,
+                "imported_id": seed_id,
+                "payee_name": "Reconciled boundary seed",
+            }
+        ],
+    )
+    seeded = _fetch_tx(assert_bridge, account_id, "2020-06-30", "2020-06-30")
+    seed_tx = next(t for t in seeded if t.get("imported_id") == seed_id)
+    assert_bridge.update_transaction(seed_tx["id"], {"reconciled": True})
+    assert_bridge.sync()
+
+    # Assertion A: getTransactions surfaces `reconciled` truthy at runtime —
+    # the boundary computation rests on a real field, not an assumption.
+    reread = _fetch_tx(assert_bridge, account_id, "2020-06-30", "2020-06-30")
+    seed_after = next(t for t in reread if t.get("imported_id") == seed_id)
+    assert seed_after.get("reconciled"), (
+        "getTransactions must surface `reconciled` as truthy "
+        f"(got {seed_after.get('reconciled')!r})"
+    )
+
+    # Import two source tx straddling the boundary in one run.
+    with _make_importer() as imp:
+        imp.import_transactions(
+            _result(
+                [
+                    {
+                        "date": "2020-06-15",
+                        "payee": "Before boundary",
+                        "debit": 12.50,
+                        "reference": before_id,
+                    },
+                    {
+                        "date": "2020-07-15",
+                        "payee": "After boundary",
+                        "debit": after_debit,
+                        "reference": after_id,
+                    },
+                ],
+                "Test Savings",
+            )
+        )
+
+    fetched = _fetch_tx(assert_bridge, account_id, "2020-06-01", "2020-07-31")
+    by_id = {t.get("imported_id"): t for t in fetched}
+
+    # Assertion B: on/before the boundary is filtered out (reconciled range
+    # never disturbed).
+    assert before_id not in by_id, (
+        "source tx dated 2020-06-15 (<= reconciled boundary 2020-06-30) "
+        "must be filtered out"
+    )
+    # Assertion C: after the boundary still imports — the filter isn't silently
+    # dropping everything.
+    assert after_id in by_id, (
+        "source tx dated 2020-07-15 (> boundary) must import"
+    )
 
 
 def test_suspicious_match_assigns_review_category(
