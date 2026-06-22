@@ -132,6 +132,14 @@ class ActualBridge:
             )
         return result
 
+    def update_transaction(self, tx_id: str, fields: dict[str, Any]) -> None:
+        """Patch an existing transaction (e.g. ``{"reconciled": True}``).
+
+        Backed by the public ``updateTransaction(id, fields)`` API. The write
+        is local until the next ``sync()``.
+        """
+        self.send("update_transaction", id=tx_id, fields=fields)
+
     def sync(self) -> None:
         self.send("sync")
 
