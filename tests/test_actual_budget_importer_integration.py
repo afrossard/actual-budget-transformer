@@ -259,6 +259,88 @@ def test_rerun_is_idempotent(
     assert mine[0]["amount"] == -750
 
 
+def test_transfer_both_legs_clean_import_as_independent_plain_tx(
+    importer: ActualBudgetImporter,
+    assert_bridge: ActualBridge,
+    account_ids: dict[str, str],
+    run_tag: str,
+) -> None:
+    """Both legs of a transfer arriving clean in one run import as two
+    independent plain transactions — never auto-linked.
+
+    Auto-pairing two legs across accounts by amount/±1-day is a guess,
+    forbidden by conservative automation (ADR-002: flag, don't guess); Actual's
+    native auto-link is unreliable, so the human links in the UI. No linking
+    logic exists in the importer — this pins that so it can't silently regress.
+    """
+    checking_id = account_ids["Test Checking"]
+    savings_id = account_ids["Test Savings"]
+
+    # Per-run-unique magnitude so both legs classify clean on every re-run (a
+    # fixed amount would look suspicious against an earlier run at the same
+    # date). Same magnitude on both legs is the transfer shape.
+    amount = (1000 + int(run_tag.split("-")[1]) % 90000) / 100.0
+    cents = int(round(amount * 100))
+    debit_id = f"{run_tag}-out"
+    credit_id = f"{run_tag}-in"
+
+    # One run, two files: the debit leaves Checking on 2034-08-10 and the
+    # matching credit lands in Savings the next day — exactly the amount/±1-day
+    # coincidence an over-eager importer might wrongly auto-pair.
+    importer.import_transactions(
+        _result(
+            [
+                {
+                    "date": "2034-08-10",
+                    "payee": "To Savings",
+                    "debit": amount,
+                    "reference": debit_id,
+                }
+            ],
+            "Test Checking",
+        )
+    )
+    importer.import_transactions(
+        _result(
+            [
+                {
+                    "date": "2034-08-11",
+                    "payee": "From Checking",
+                    "credit": amount,
+                    "reference": credit_id,
+                }
+            ],
+            "Test Savings",
+        )
+    )
+
+    out = _scoped(
+        _fetch_tx(assert_bridge, checking_id, "2034-08-01", "2034-08-31"), run_tag
+    )
+    inn = _scoped(
+        _fetch_tx(assert_bridge, savings_id, "2034-08-01", "2034-08-31"), run_tag
+    )
+
+    # Both legs landed → no circuit-breaker trip (a trip aborts the batch
+    # atomically, importing nothing for the account — ADR-002).
+    assert len(out) == 1, f"debit leg missing — found {len(out)}"
+    assert len(inn) == 1, f"credit leg missing — found {len(inn)}"
+    debit_leg, credit_leg = out[0], inn[0]
+
+    # Two independent plain transactions: correct signed amounts, both clean
+    # (clean import assigns no category; a suspicious leg would carry the
+    # review category).
+    assert debit_leg["amount"] == -cents
+    assert credit_leg["amount"] == cents
+    assert debit_leg.get("category") is None, "debit leg should be clean, not flagged"
+    assert credit_leg.get("category") is None, "credit leg should be clean, not flagged"
+
+    # No transfer link: Actual exposes a paired leg via ``transfer_id``. The
+    # importer never links, so both must stand alone.
+    assert not debit_leg.get("transfer_id"), "debit leg must not be transfer-linked"
+    assert not credit_leg.get("transfer_id"), "credit leg must not be transfer-linked"
+
+
 def test_reconciled_boundary_filters_on_or_before(
     assert_bridge: ActualBridge,
     account_ids: dict[str, str],
