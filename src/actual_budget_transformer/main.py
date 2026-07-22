@@ -138,9 +138,13 @@ def main():
 
     args = parser.parse_args()
 
-    # Set logging level based on verbosity
+    # Set logging level based on verbosity. The level must be lowered on both
+    # the logger and its handlers, otherwise handlers pinned at INFO would
+    # filter out DEBUG records even when the logger accepts them.
     if args.verbose:
         logger.setLevel(logging.DEBUG)
+        for handler in logger.handlers:
+            handler.setLevel(logging.DEBUG)
 
     # Load configuration from file if provided. This will cache it for other modules.
     load_config(args.config_path)
