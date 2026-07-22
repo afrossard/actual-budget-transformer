@@ -1,4 +1,4 @@
-# CLAUDE.md — Contributor Guide for LLMs
+# AGENTS.md — Contributor Guide for LLMs
 
 > **Note for LLMs:** This file is the persistent memory for this project. Running in a devcontainer means any memory written outside the repo will not survive a restart. Always persist valuable context (decisions, progress, conventions) here — not in `~/.claude/`. See `CHANGELOG.md` for release history.
 
@@ -21,6 +21,7 @@ CLI tool that transforms bank statement files into CSV files compatible with [Ac
 ### Processor pattern
 
 Each input format is handled by a **processor** — a class that:
+
 1. Declares whether it can handle a given file (`can_process`)
 2. Parses the file and returns a normalised `ProcessingResult`
 
@@ -51,6 +52,7 @@ scripts/
 ### Output contract
 
 Every processor must return a `ProcessingResult` with:
+
 - `data`: a `pandas.DataFrame` with exactly these columns: `transaction_date`, `payee`, `notes`, `debit`, `credit`, `reference`
 - `output_prefix`: a string used as the suffix of output filenames (e.g. `ubs_personal` → `202501_ubs_personal.csv`)
 
@@ -74,6 +76,7 @@ Every processor must return a `ProcessingResult` with:
 ### Config access
 
 Use helpers from `config.py`:
+
 ```python
 from actual_budget_transformer.config import get_processor_config, get_account_name
 
@@ -90,6 +93,7 @@ config = get_processor_config("my_format")   # reads processors.my_format from Y
 - `output.date_format` — strftime format used in output filenames (default `%Y%m`)
 
 Config is loaded once and cached. The path is resolved in order:
+
 1. `-c` CLI argument
 2. `ACTUAL_BUDGET_TRANSFORMER_CONFIG` environment variable
 
@@ -104,6 +108,7 @@ uv run pytest    # run tests
 ```
 
 Convenience script (clears output, then processes `tmp/input_files/` → `tmp/output_files/`):
+
 ```bash
 bash process_transactions.sh
 ```
@@ -168,15 +173,15 @@ python scripts/anonymize_ubs_csv.py /path/to/real/account.csv tests/data/ubs_val
 
 ## Dependencies
 
-| Package            | Role                                      |
-|--------------------|-------------------------------------------|
-| pandas             | DataFrame parsing & merging               |
-| pyyaml             | Config file loading                       |
-| pyiso20022         | CAMT.053 typed dataclasses (via xsdata)   |
-| pytest             | Test runner (dev only)                    |
-| ruff               | Linter & formatter (dev only)             |
-| @actual-app/api    | Official Actual Budget JS API (Node.js)   |
-| tsx                | TypeScript execution for bridge scripts   |
+| Package         | Role                                    |
+| --------------- | --------------------------------------- |
+| pandas          | DataFrame parsing & merging             |
+| pyyaml          | Config file loading                     |
+| pyiso20022      | CAMT.053 typed dataclasses (via xsdata) |
+| pytest          | Test runner (dev only)                  |
+| ruff            | Linter & formatter (dev only)           |
+| @actual-app/api | Official Actual Budget JS API (Node.js) |
+| tsx             | TypeScript execution for bridge scripts |
 
 ---
 
