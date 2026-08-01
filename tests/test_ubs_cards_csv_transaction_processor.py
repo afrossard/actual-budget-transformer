@@ -16,6 +16,10 @@ VALID_UNMAPPED = os.path.join(DATA_DIR, "ubs_cards_2.csv")
 VALID_WITH_PENDING = os.path.join(DATA_DIR, "ubs_cards_pending.csv")
 VALID_WITH_DUPES = os.path.join(DATA_DIR, "ubs_cards_dupes.csv")
 CSV_NO_SEP = os.path.join(DATA_DIR, "ubs_valid.csv")
+# First data row has a blank "Numéro de carte" (e.g. a credit/summary row)
+FIRST_ROW_MISSING_CARD_NUMBER = os.path.join(
+    DATA_DIR, "ubs_cards_first_row_missing_card_number.csv"
+)
 
 
 def test_can_process_valid_file():
@@ -150,6 +154,29 @@ def test_process_no_pending_rows_keeps_all():
     result = UBSCardsCSVTransactionProcessor().process(VALID_MAPPED)
     # ubs_cards_1.csv has 3 booked + 2 footer = 5 data rows; 3 booked kept
     assert len(result.data) == 3
+
+
+def test_process_uses_card_number_when_first_row_is_blank():
+    """The card number is read from the first row that actually has one."""
+    result = UBSCardsCSVTransactionProcessor().process(FIRST_ROW_MISSING_CARD_NUMBER)
+    # 9659086893219337559 is mapped to "test_card" in test_config.yml
+    assert result.output_prefix == "test_card"
+    assert result.metadata["account_id"] == "9659086893219337559"
+
+
+def test_process_raises_when_no_row_has_card_number(tmp_path):
+    f = tmp_path / "no_card_number.csv"
+    f.write_text(
+        "sep=;\n"
+        "Numéro de compte;Numéro de carte;Titulaire de compte/carte;"
+        "Date d'achat;Texte comptable;Secteur;Montant;Monnaie originale;"
+        "Cours;Monnaie;Débit;Crédit;Ecriture\n"
+        "ANON-ACCT-9C509B35;;ANON-88738581;06.01.2020;MERCHANT-A5BC10A8;;"
+        "50;CHF;;CHF;;50;27.02.2026\n",
+        encoding="iso-8859-1",
+    )
+    with pytest.raises(ValueError):
+        UBSCardsCSVTransactionProcessor().process(str(f))
 
 
 def test_can_process_returns_false_for_wrong_encoding(tmp_path):
