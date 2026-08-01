@@ -76,8 +76,13 @@ class UBSCardsCSVTransactionProcessor(BaseProcessor):
             df["Date d'achat"], format=date_format, errors="coerce"
         )
 
-        # Get the card number before filtering (first data row always has it)
-        card_number = df["Numéro de carte"].iloc[0]
+        # Get the card number before filtering. Not every row carries it (e.g.
+        # some summary/credit rows leave it blank), so use the first non-null
+        # value rather than assuming the first data row always has it.
+        card_numbers = df["Numéro de carte"].dropna()
+        if card_numbers.empty:
+            raise ValueError(f"No card number found in {file_path}")
+        card_number = card_numbers.iloc[0]
         account_name = get_account_name(card_number)
 
         # Filter out pending transactions (no Débit or Crédit) and
