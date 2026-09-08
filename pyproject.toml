@@ -3,7 +3,7 @@ name = "actual_budget_transformer"
 version = "0.1.1"
 requires-python = "==3.14.*"
 dependencies = [
-    "pandas (>=2.2.3,<3.0.0)",
+    "pandas (>=3.0.5,<3.1.0)",
     "pyiso20022>=1.6.2",
     "pyyaml (>=6.0.2,<7.0.0)",
     "xsdata[lxml]>=26.2",
