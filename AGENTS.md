@@ -107,6 +107,11 @@ npm install      # install Node.js dependencies (@actual-app/api)
 uv run pytest    # run tests
 ```
 
+**Always reach Python through `uv`.**
+There is no `python` or `python3` on `PATH` in this devcontainer, and `.venv/` does not exist until `uv sync` has run, so a bare `python3 script.py` fails with `command not found`.
+Use `uv run python …` inside the project, or `uv run --no-project python …` for a throwaway script that needs no project dependencies (it fetches a standalone interpreter).
+`perl`, `awk` and `sed` are available if a one-off text edit is easier that way.
+
 Convenience script (clears output, then processes `tmp/input_files/` → `tmp/output_files/`):
 
 ```bash
@@ -136,7 +141,7 @@ os.environ["ACTUAL_BUDGET_TRANSFORMER_CONFIG"] = os.path.join(DATA_DIR, "test_co
 
 ### Anonymizing test data
 
-> **Security rule — mandatory for public repos:** The salt must be high-entropy (generate with `python -c "import secrets; print(secrets.token_hex(32))"`), kept private, and never committed. Without a strong secret salt, hashes are reversible by brute-force: Swiss IBANs, card numbers, and account numbers are finite enumerable sets, so an attacker who knows the algorithm (it's in the repo) can recover the original value.
+> **Security rule — mandatory for public repos:** The salt must be high-entropy (generate with `uv run python -c "import secrets; print(secrets.token_hex(32))"`), kept private, and never committed. Without a strong secret salt, hashes are reversible by brute-force: Swiss IBANs, card numbers, and account numbers are finite enumerable sets, so an attacker who knows the algorithm (it's in the repo) can recover the original value.
 >
 > **Never pass the salt as a CLI argument** — it would appear in shell history and process listings. Set it via the environment variable instead (see below).
 >
@@ -153,20 +158,20 @@ read -s ANONYMIZE_SALT && export ANONYMIZE_SALT
 
 ```bash
 for f in /path/to/real/exports/*.xml; do
-    python scripts/anonymize_camt.py "$f" tests/data/
+    uv run python scripts/anonymize_camt.py "$f" tests/data/
 done
 ```
 
 **UBS cards CSV** (`scripts/anonymize_ubs_cards.py`) — replaces account number, card number, cardholder name, merchant names, and sector. Footer/summary lines are preserved as-is.
 
 ```bash
-python scripts/anonymize_ubs_cards.py /path/to/real/cards.csv tests/data/ubs_cards_anon_1.csv
+uv run python scripts/anonymize_ubs_cards.py /path/to/real/cards.csv tests/data/ubs_cards_anon_1.csv
 ```
 
 **UBS account CSV** (`scripts/anonymize_ubs_csv.py`) — replaces account number, IBAN, transaction reference, and description fields.
 
 ```bash
-python scripts/anonymize_ubs_csv.py /path/to/real/account.csv tests/data/ubs_valid.csv
+uv run python scripts/anonymize_ubs_csv.py /path/to/real/account.csv tests/data/ubs_valid.csv
 ```
 
 ---
