@@ -10,7 +10,12 @@ Installed into a scratch directory outside the repo and driven with `node ./node
 The published package ships only a bundled `dist/cli.js`, so the TypeScript sources were read from the upstream tag `v26.9.0` (`gh api repos/actualbudget/actual/contents/packages/cli/src/... ?ref=v26.9.0`) and cross-checked against the bundle.
 Bundled `@actual-app/api` internals were read from `node_modules/@actual-app/api/dist/index.js` and the shipped `@types/`.
 
-No Actual server was contacted: docker is unavailable in this devcontainer, so every command that needs a live server fails at the connection step by design.
+No Actual server was contacted, so every command that needs a live server fails at the connection step by design.
+
+> **Correction (same day, after this file was written).** The stated reason for that was wrong: the research was told docker is unavailable, and it is not.
+> Docker works in this environment (daemon 29.8.1, compose v2.40.3) and the `actual-server` compose service was brought up and verified healthy on `http://localhost:5006` reporting sync-server 26.5.2.
+> What does not work outside the devcontainer is the `actual-up` alias, because `dc` hardcodes a `/workspaces/...` path — see the Devcontainer section of `AGENTS.md` for the direct compose command.
+> Every finding below stands as graded, but each **UNKNOWN** is answerable here rather than blocked, and should be treated as *not yet done* rather than *not possible*.
 Findings are graded:
 
 - **VERIFIED** — executed here, or read directly in the shipped source / upstream source at `v26.9.0`.
