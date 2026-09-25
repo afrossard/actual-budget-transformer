@@ -8,7 +8,9 @@
 
 ## Working style
 
-- **Don't mark plan/checklist items "done" until validated.** Writing the code is not the same as confirming it works. For changes that need a human to run something I can't (docker, the staggered/matrix scripts, Actual UI), wait for the user to report results before editing the plan's status. Pre-marking creates false signal that's worse than the unfinished state. Reason: I can't run docker in this devcontainer (see auto-memory), so the user is the only one who can confirm staggered/integration test outcomes.
+- **Don't mark plan/checklist items "done" until validated.** Writing the code is not the same as confirming it works. Wait for the user to report results before editing a plan's status for anything only they can run. Pre-marking creates false signal that's worse than the unfinished state.
+- **Know which things actually need the human.** Docker availability depends on where the session runs, so check it rather than assuming: an agent session may run outside the devcontainer (`ls /.dockerenv`, `docker info`), in which case docker works but `actual-up`/`actual-down` do **not**, because the `dc` alias hardcodes `/workspaces/actual-budget-transformer`. Bring the test server up directly instead (see Devcontainer below).
+  The real human-only boundary is **the user's own data and budget**, not docker: downloading statements from UBS e-banking, anything touching the real Actual budget, and verifying results in the Actual UI. A disposable test server is not a substitute for any of those.
 
 ## Project purpose
 
@@ -128,6 +130,19 @@ actual-down     # stop AND remove the container — fresh tmpfs on next up
 claude-up       # start Claude Code container (profile: claude)
 claude-down     # stop it
 ```
+
+Those aliases live in `.devcontainer/.zsh_aliases` and only work **inside** the devcontainer, because `dc` hardcodes the `/workspaces/...` compose path.
+Outside it, drive compose directly from the repo root — the `actual-server` service is standalone (no `depends_on`, no build, no workspace volume), so it comes up on its own:
+
+```bash
+docker compose -f .devcontainer/docker-compose.yml --profile actual up -d actual-server
+curl -s http://localhost:5006/info      # verified healthy, reports the sync-server version
+docker compose -f .devcontainer/docker-compose.yml --profile actual rm -sf actual-server
+```
+
+Reach it at `http://localhost:5006` from outside the devcontainer, not `http://actual-server:5006` (that name only resolves on the compose network).
+`/data` is a tmpfs, so removing the container always yields a clean budget on the next start.
+Note the default pin is `actualbudget/actual-server:26.5.2` while `@actual-app/cli` pins its own bundled api — so a CLI newer than the server reproduces exactly the client-ahead skew ADR-007 is about, which makes this a useful place to test that gate rather than reason about it.
 
 ---
 
