@@ -4,6 +4,9 @@
   "private": true,
   "description": "CLI tool that transforms bank statements into Actual Budget imports",
   "type": "module",
+  "engines": {
+    "node": ">=22.18.0"
+  },
   "scripts": {
     "import": "node src/cli.ts",
     "typecheck": "tsc --noEmit",
@@ -18,7 +21,7 @@
   },
   "license": "ISC",
   "dependencies": {
-    "@actual-app/api": "26.5.2",
+    "@actual-app/api": "26.9.0",
     "csv-parse": "^7.0.3",
     "yaml": "^2.9.1"
   },

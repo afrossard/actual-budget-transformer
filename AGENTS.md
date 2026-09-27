@@ -41,7 +41,21 @@ npm test                                 # node:test; integration tests skip if 
 ACTUAL_BUDGET_PASSWORD=… npm run import -- -c config.yml statement.csv
 ```
 
-There is **no build step**. `tsconfig.json` is `noEmit`, and Node 24 strips types natively, so `node src/cli.ts` runs the source directly — `tsx` is only still here for the Python bridge.
+There is **no build step**. `tsconfig.json` is `noEmit` and Node strips types natively, so `node src/cli.ts` runs the source directly — `tsx` is only still here for the Python bridge.
+
+### Versions: follow Actual
+
+Three pins move together, and they all follow whatever Actual is on. When upgrading:
+
+| Ours | Set it to | Currently |
+| --- | --- | --- |
+| `@actual-app/api` in `package.json` | the server version you run, **exactly** — no caret. A range could pull a newer api and create the one skew ADR-007 aborts on | `26.9.0` |
+| `actualbudget/actual-server` in `.devcontainer/docker-compose.yml` and `.github/workflows/test.yaml` | the same version, so the characterization tests check the behaviour you actually run | `26.9.0` |
+| `.nvmrc` | Actual's own `.nvmrc` for that release (`actualbudget/actual` at tag `vX.Y.Z`). CI reads this file, so it is the single place to change | `24.18.1` |
+
+`engines.node` is `>=22.18.0`, which is both Actual's own floor and the Node release where type stripping stopped needing a flag — so it is the real floor for `node src/cli.ts`, not a guess.
+
+**After any bump, re-run the characterization tests against the new server.** That is what they are for: they turned a 26.5.2 → 26.9.0 bump from a hope into a checked fact (all five passed unchanged).
 
 ### Module layout
 
@@ -225,7 +239,7 @@ docker compose -f .devcontainer/docker-compose.yml --profile actual rm -sf actua
 
 Reach it at `http://localhost:5006` from outside the devcontainer, not `http://actual-server:5006` (that name only resolves on the compose network).
 `/data` is a tmpfs, so removing the container always yields a clean budget on the next start.
-Note the default pin is `actualbudget/actual-server:26.5.2` while `@actual-app/cli` pins its own bundled api — so a CLI newer than the server reproduces exactly the client-ahead skew ADR-007 is about, which makes this a useful place to test that gate rather than reason about it.
+Note the default pin is `actualbudget/actual-server:26.9.0` while `@actual-app/cli` pins its own bundled api — so a CLI newer than the server reproduces exactly the client-ahead skew ADR-007 is about, which makes this a useful place to test that gate rather than reason about it.
 
 ---
 
