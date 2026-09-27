@@ -62,6 +62,24 @@ A transaction split across two categories, then the bank re-sends it under the s
 Actual does propagate to children, but only `cleared` and `date`, and only when those changed.
 Since `updateDates` is hard-coded `false` for the public `importTransactions`, that leaves `cleared` as the only propagating field.
 
+### `probe_reconciled.cjs` and `probe_patch.cjs` - the reconciled guard is ours
+
+A pending-style transaction (no imported ID) reconciled, then the booked version arriving with a **new date and a new amount**.
+
+- `importTransactions` returned `added=1`: it created a second transaction rather than touching the reconciled one.
+  The source reads `if (match.reconciled) { … continue; }` (`dist/index.js:111607`).
+  Nothing linked the two - no imported ID to match, and both our +/-1 day check and Actual's fuzzy layer require an equal amount, which had changed.
+  So importing pending card rows trades a missing transaction for a duplicate one unless identity is solved (#48).
+- `updateTransaction` has **no reconciled guard**.
+  Patching `date` and `amount` on a reconciled transaction succeeded, and the `reconciled` flag stayed true.
+  `probe_patch.cjs` isolates this against a non-reconciled row to show the behaviour is the same either way.
+
+ADR-002's keystone rule - never touch a reconciled transaction - is therefore **this tool's own guard**, not something Actual enforces on the write path.
+
+One unexplained detail: in `probe_reconciled.cjs` the patch call also raised `Cannot read properties of undefined (reading 'slice')` *after* applying the change.
+`probe_patch.cjs` does not reproduce it, so it is incidental rather than a refusal.
+Not chased further; noted so nobody reads it as a rejection.
+
 ## Still open
 
 What to do when the bank's amount differs from a split parent's amount.
