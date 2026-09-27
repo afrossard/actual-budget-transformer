@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { classify, type ActualTransaction } from '../../src/classify.ts';
-import { availableActions, correctionTargets } from '../../src/review.ts';
+import { availableActions, correctionTargets, warnings } from '../../src/review.ts';
 import { explain, tapeLine } from '../../src/tape.ts';
 import type { SourceTransaction } from '../../src/sources/types.ts';
 
@@ -157,4 +157,41 @@ test('the Tape marks a split and a reconciled match, because both change what a 
     null,
   );
   assert.match(tapeLine(1, row!), /split reconciled/);
+});
+
+test('a row just after the boundary that matches a reconciled transaction is warned about', () => {
+  // The boundary is the newest reconciled date, so a candidate one day earlier
+  // can be exactly that transaction: the row is Suspicious, not Locked, and
+  // correcting it would still reach into an attested range.
+  const [row] = classify(
+    [src({ date: '2020-07-01' })],
+    [actual({ date: '2020-06-30', reconciled: true, id: 'attested' })],
+    '2020-06-30',
+  );
+  assert.equal(row!.state, 'suspicious');
+  const said = warnings(row!, '2020-06-30');
+  assert.equal(said.length, 1);
+  assert.match(said[0]!, /1 of the transaction\(s\) this could correct is reconciled/);
+  assert.match(said[0]!, /Actual will not stop that patch/);
+});
+
+test('a Locked row is warned about even with nothing to correct', () => {
+  const [row] = classify([src({ date: '2020-06-15' })], [], '2020-06-30');
+  const said = warnings(row!, '2020-06-30');
+  assert.equal(said.length, 1);
+  assert.match(said[0]!, /inside the reconciled range \(boundary 2020-06-30\)/);
+});
+
+test('a Locked row matching the reconciled transaction is warned about twice', () => {
+  const [row] = classify(
+    [src({ date: '2020-06-30' })],
+    [actual({ date: '2020-06-30', reconciled: true })],
+    '2020-06-30',
+  );
+  assert.equal(warnings(row!, '2020-06-30').length, 2);
+});
+
+test('an ordinary row is warned about not at all', () => {
+  const [row] = classify([src()], [actual()], null);
+  assert.deepEqual(warnings(row!, null), []);
 });

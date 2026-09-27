@@ -69,6 +69,7 @@ src/
 | --- | --- | --- |
 | Never `importTransactions` | `actual-gateway.ts`, guarded by a test in `tests/ts/write-path.test.ts` | It carries Actual's own matcher (same amount, ±7 days, any row with no imported ID). Two matchers over one decision caused every surprise in #38. |
 | Nothing is written without a confirmation for that row | `review.ts` | Including inside the reconciled range: `updateTransaction` patches a reconciled transaction without complaint and leaves `reconciled` true, so the guard is ours. Proven in `review.integration.test.ts`, both directions. |
+| A reconciled target is warned about even when the row is not Locked | `review.ts` `warnings()` | The boundary is the newest reconciled date, so a row one day *after* it can still match that transaction. Such a row is Suspicious, not Locked, and correcting it would reach into an attested range on the strength of one evidence line. |
 | A correction never writes the amount | `actual-gateway.ts` `correct()` | A split's parts must still sum to their parent. Where the bank and Actual disagree on an amount, nothing is applied and the difference is reported (#49 owns what to do instead). |
 | Classify once per batch | `import-run.ts` | Re-reading Actual between prompts makes each confirmation flag the next transaction — #50's noise, manufactured. |
 | A decline is a decision | `review.ts`, `tape.ts` | Skip and Locked rows are prompted and show what they matched. Bank data never goes out on a log line. |
