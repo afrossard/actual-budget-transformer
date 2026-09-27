@@ -18,7 +18,88 @@ CLI tool that transforms bank statement files into CSV files compatible with [Ac
 
 ---
 
+## Two codebases, for now
+
+The project is moving to **one TypeScript codebase calling `@actual-app/api` in process** (#41).
+Until the TypeScript CLI reaches parity on both UBS CSV inputs, both live side by side, and neither is a permanent state:
+
+- **`src/*.ts`** — the TypeScript import CLI: read a statement, propose, confirm, write. This is where new work goes.
+- **`src/actual_budget_transformer/`** — the Python package: the file-output paths (CSV, CAMT.053) and the JSON-over-stdio bridge to `@actual-app/api`. It keeps working and is deleted in one commit once parity is reached.
+
+See "The TypeScript import CLI" below for the new codebase, and everything from "Processor pattern" onwards for the Python one.
+
+---
+
+## The TypeScript import CLI
+
+One account at a time: read a bank statement file, read Actual, classify once, prompt on every row, write only what the human confirms.
+
+```bash
+npm ci                                   # once
+npm run typecheck                        # tsc --noEmit
+npm test                                 # node:test; integration tests skip if no server
+ACTUAL_BUDGET_PASSWORD=… npm run import -- -c config.yml statement.csv
+```
+
+There is **no build step**. `tsconfig.json` is `noEmit`, and Node 24 strips types natively, so `node src/cli.ts` runs the source directly — `tsx` is only still here for the Python bridge.
+
+### Module layout
+
+```
+src/
+├── cli.ts             # argument parsing and wiring
+├── import-run.ts      # one run: parse, read Actual, classify once, review
+├── config.ts          # the user's config.yml (account_names + actual_budget only)
+├── classify.ts        # THE CLASSIFIER SEAM — pure, no server, no I/O
+├── actual-gateway.ts  # THE GATEWAY SEAM — the only module touching @actual-app/api
+├── actual-version.ts  # ADR-007 version-skew gate
+├── review.ts          # the review loop: four actions, one confirmation per row
+├── tape.ts            # the Tape's rendering, and how evidence is worded
+├── io.ts              # terminal input (single keystroke on a TTY, lines otherwise)
+├── imported-id.ts     # minting, and the forced-copy scheme
+├── money.ts           # integer cents; the debit/credit sign convention
+└── sources/           # one parser per statement format, plus the registry
+```
+
+**The two seams are pre-agreed and closed.** The classifier takes source transactions plus Actual transactions and returns four states; most tests live there. The gateway is integration-tested against a real server. The review loop is tested through the gateway rather than given a seam of its own. Do not add a third.
+
+### Rules the code enforces, and why
+
+| Rule | Where | Why |
+| --- | --- | --- |
+| Never `importTransactions` | `actual-gateway.ts`, guarded by a test in `tests/ts/write-path.test.ts` | It carries Actual's own matcher (same amount, ±7 days, any row with no imported ID). Two matchers over one decision caused every surprise in #38. |
+| Nothing is written without a confirmation for that row | `review.ts` | Including inside the reconciled range: `updateTransaction` patches a reconciled transaction without complaint and leaves `reconciled` true, so the guard is ours. Proven in `review.integration.test.ts`, both directions. |
+| A correction never writes the amount | `actual-gateway.ts` `correct()` | A split's parts must still sum to their parent. Where the bank and Actual disagree on an amount, nothing is applied and the difference is reported (#49 owns what to do instead). |
+| Classify once per batch | `import-run.ts` | Re-reading Actual between prompts makes each confirmation flag the next transaction — #50's noise, manufactured. |
+| A decline is a decision | `review.ts`, `tape.ts` | Skip and Locked rows are prompted and show what they matched. Bank data never goes out on a log line. |
+
+### Testing it
+
+Unit tests need nothing. Integration tests need the disposable server and **skip themselves with an explanatory message** when it is unreachable:
+
+```bash
+docker compose -f .devcontainer/docker-compose.yml --profile actual up -d actual-server
+ACTUAL_SERVER_URL=http://localhost:5006 npm run bootstrap
+ACTUAL_SERVER_URL=http://localhost:5006 npm test
+```
+
+- **Never mock `@actual-app/api`.** These tests exist because Actual's real behaviour is surprising; a mock would encode our assumptions instead of checking them.
+- **`tests/ts/actual-api.characterization.test.ts`** holds the five probes from `prototype/38-interactive-import`, turned into assertions. They are the guard that an api version bump cannot quietly invalidate the write path (ADR-007). If one fails, the write path's design needs re-reading, not the test.
+- **Each integration run creates its own account.** The reconciliation boundary is account-global server state, so owning the account is what lets this suite skip the date partitioning the Python suite needed, and leaves the Python suite's accounts alone. Test accounts are named `TS <label> <tag>`; `actual-down` + `actual-up` + `npm run bootstrap` clears the debris.
+
+### Choices, so they are not re-litigated
+
+- **Test runner: `node:test`.** Zero dependencies, and Node 24 runs `.ts` files directly. Native type stripping forbids `enum` and parameter properties — use unions and an explicit constructor body.
+- **CSV parsing: `csv-parse`.** The node-csv project's parser, the standard for Node rather than merely a popular one. Verified against the real fixtures: it handles the quoted field with an embedded semicolon, the ragged column counts, and `latin1`. Hand-rolling was rejected after testing the alternative, not before.
+- **YAML: `yaml`.** Reads the same `config.yml` the Python path uses.
+- **Only two config blocks are read**, `account_names` and `actual_budget`. Column names, encodings, date formats and the reference columns are facts about the export format, so they are constants in the parsers, not settings.
+- **Minted imported IDs are prefixed `abt1-`**, where `1` versions the scheme, so a change to how IDs are derived is visible rather than silent. They are not byte-compatible with the Python path's hashes, which is fine: nothing has ever been written to the real budget (#32 is still open).
+
+---
+
 ## Architecture
+
+> Everything from here down describes the **Python** package.
 
 ### Processor pattern
 

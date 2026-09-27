@@ -1,0 +1,13 @@
+﻿Numéro de compte:;0123 A1234567.8;
+IBAN:;CH42 0012 0123 A123 4567 8;
+Du:;2031-03-01;
+Au:;2031-03-31;
+Solde initial:;1000.00;
+Solde final:;7345.00;
+Évaluation en:;CHF;
+Nombre de transactions dans cette période:;3;
+
+Date de transaction;Heure de transaction;Date de comptabilisation;Date de valeur;Monnaie;Débit;Crédit;Sous-montant;Solde;N° de transaction;Description1;Description2;Description3;Notes de bas de page;
+2031-03-05;;2031-03-05;2031-03-05;CHF;-5.00;;;995.00;;"FRAIS DE TENUE DE COMPTE";;;;
+2031-03-10;;2031-03-10;2031-03-10;CHF;-150.00;;;845.00;99887766554433;"PAIEMENT CARTE";;"Motif: courses";;
+2031-03-25;;2031-03-25;2031-03-25;CHF;;6500.00;;7345.00;11223344556677;"SALAIRE";;"Salaire mars";;

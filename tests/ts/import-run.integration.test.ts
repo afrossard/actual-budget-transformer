@@ -1,0 +1,158 @@
+/**
+ * Both CSV inputs, end to end against a real Actual server: parse the file the
+ * bank actually produces, classify against Actual, walk the Tape, write what is
+ * confirmed - and then prove a second run of the same file writes nothing.
+ */
+import { after, before, describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { fileURLToPath } from 'node:url';
+import type { Config } from '../../src/config.ts';
+import { createScriptedIo } from '../../src/io.ts';
+import { runImport } from '../../src/import-run.ts';
+import {
+  createRunAccount,
+  openSession,
+  serverReachable,
+  skipReason,
+  type Session,
+} from './actual-fixture.ts';
+
+const DATA = fileURLToPath(new URL('../data/', import.meta.url));
+const skip = skipReason(await serverReachable());
+
+describe('integration: a whole run from a statement file', { skip }, () => {
+  let session: Session;
+
+  before(async () => {
+    session = await openSession();
+  });
+
+  after(async () => {
+    await session?.close();
+  });
+
+  /** A fresh account, plus a config that points the file's identifier at it. */
+  async function arrange(
+    label: string,
+    accountKey: string,
+  ): Promise<{ config: Config; accountId: string }> {
+    const account = await createRunAccount(session, label);
+    return {
+      accountId: account.id,
+      config: {
+        accountNames: { [accountKey]: account.name },
+        actual: {
+          serverUrl: '',
+          password: '',
+          budgetName: '',
+          dataDir: null,
+        },
+      },
+    };
+  }
+
+  async function run(
+    config: Config,
+    path: string,
+    answer: (index: number) => string,
+    count: number,
+  ) {
+    const io = createScriptedIo(Array.from({ length: count }, (_, i) => answer(i)));
+    const result = await runImport({ path, config, gateway: session.gateway, io });
+    return { result, io };
+  }
+
+  it('imports a UBS account CSV, then writes nothing on a second run', async () => {
+    const { config, accountId } = await arrange('account-csv', 'CH4200120123A12345678');
+    const path = DATA + 'ubs_valid.csv';
+
+    const first = await run(config, path, () => 'i', 1);
+    assert.equal(first.result.outcomes.length, 1);
+    assert.equal(first.result.outcomes[0]!.wrote, 'added');
+
+    const stored = await session.gateway.getTransactions(
+      accountId,
+      '2022-01-01',
+      '2024-12-31',
+    );
+    assert.equal(stored.length, 1);
+    assert.equal(stored[0]!.date, '2023-01-13');
+    assert.equal(stored[0]!.amount, -18665, 'the debit stayed an outflow');
+    assert.equal(stored[0]!.imported_id, '1234563AB9269773');
+
+    const second = await run(config, path, () => 'l', 1);
+    assert.equal(second.result.outcomes[0]!.row.state, 'skip');
+    assert.equal(second.result.outcomes[0]!.wrote, 'nothing');
+    assert.equal(
+      (await session.gateway.getTransactions(accountId, '2022-01-01', '2024-12-31'))
+        .length,
+      1,
+    );
+  });
+
+  it('imports a UBS cards CSV, then writes nothing on a second run', async () => {
+    const { config, accountId } = await arrange('cards-csv', '9659086893219337559');
+    const path = DATA + 'ubs_cards_1.csv';
+
+    const first = await run(config, path, () => 'i', 3);
+    assert.deepEqual(
+      first.result.outcomes.map((o) => o.wrote),
+      ['added', 'added', 'added'],
+    );
+
+    const stored = await session.gateway.getTransactions(
+      accountId,
+      '2019-12-01',
+      '2020-03-31',
+    );
+    assert.deepEqual(
+      stored.map((t) => t.amount).sort((a, b) => a - b),
+      [-4100, -2800, 5000].sort((a, b) => a - b),
+    );
+    assert.equal(
+      stored.every((t) => t.imported_id?.startsWith('abt1-')),
+      true,
+      'every card imported ID is minted and says so',
+    );
+
+    const second = await run(config, path, () => 'l', 3);
+    assert.deepEqual(
+      second.result.outcomes.map((o) => o.row.state),
+      ['skip', 'skip', 'skip'],
+    );
+    assert.equal(
+      second.result.outcomes.every((o) => o.wrote === 'nothing'),
+      true,
+    );
+    assert.equal(
+      (await session.gateway.getTransactions(accountId, '2019-12-01', '2020-03-31'))
+        .length,
+      3,
+    );
+  });
+
+  it('says on the Tape which rows the file held but the parser did not read', async () => {
+    const { config } = await arrange('cards-pending', '9659086893219337559');
+    const { io } = await run(config, DATA + 'ubs_cards_pending.csv', () => 'l', 3);
+    const transcript = io.transcript.join('\n');
+    assert.match(transcript, /row\(s\) in the file were not read as transactions/);
+    assert.match(transcript, /pending \(not booked yet\)/);
+  });
+
+  it('names the account the file asks for when the budget has no such account', async () => {
+    const config: Config = {
+      accountNames: { CH4200120123A12345678: 'No Such Account' },
+      actual: { serverUrl: '', password: '', budgetName: '', dataDir: null },
+    };
+    await assert.rejects(
+      () =>
+        runImport({
+          path: DATA + 'ubs_valid.csv',
+          config,
+          gateway: session.gateway,
+          io: createScriptedIo([]),
+        }),
+      /account "No Such Account" not found in budget/,
+    );
+  });
+});
