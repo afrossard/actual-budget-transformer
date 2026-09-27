@@ -7,13 +7,20 @@
  */
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { classify, tally, type ActualTransaction } from '../../src/classify.ts';
+import {
+  classify,
+  reconciliationBoundary,
+  tally,
+  type ActualTransaction,
+} from '../../src/classify.ts';
 import { createScriptedIo } from '../../src/io.ts';
-import { review } from '../../src/review.ts';
+import { correctionTargets, review } from '../../src/review.ts';
+import type { SourceTransaction } from '../../src/sources/types.ts';
 import {
   createRunAccount,
   openSession,
   seedScenario,
+  runTag,
   serverReachable,
   skipReason,
   type Scenario,
@@ -43,12 +50,8 @@ describe('integration: the review loop', { skip }, () => {
   }> {
     const account = await createRunAccount(session, label);
     const scenario = await seedScenario(session, account.id);
-    const boundary = await session.gateway.reconciliationBoundary(account.id);
-    const existing = await session.gateway.getTransactions(
-      account.id,
-      '2030-01-01',
-      '2032-12-31',
-    );
+    const existing = await session.gateway.getAccountHistory(account.id);
+    const boundary = reconciliationBoundary(existing);
     return {
       accountId: account.id,
       accountName: account.name,
@@ -386,6 +389,110 @@ describe('integration: the review loop', { skip }, () => {
       '2032-12-31',
     );
     assert.equal(after.length, existing.length);
+  });
+
+  it('importing then correcting the same payee does not create a second payee', async () => {
+    // `add` passes `payee_name` and Actual resolves or creates the payee
+    // server-side, so a payee list cached before that write goes stale. A
+    // correction on the same payee later in the run would then fail to find it
+    // and create a duplicate, linking the corrected transaction to the twin.
+    //
+    // The payee has to be one the budget has never seen, or it is already in the
+    // cache and the staleness cannot show: payees are budget-global and outlive
+    // both the run and the account.
+    const account = await createRunAccount(session, 'payee-cache');
+    const payee = `CAFE ${runTag()}`;
+    const importedId = `${runTag()}-payee-cache`;
+
+    await session.api.addTransactions(account.id, [
+      { date: '2031-05-10', amount: -500, payee_name: 'Typed By Hand' },
+    ]);
+    await session.api.sync();
+
+    // Reading the history is what loads the cache, before either write.
+    const existing = await session.gateway.getAccountHistory(account.id);
+    const source: SourceTransaction[] = [
+      {
+        date: '2031-05-01',
+        amountCents: -777,
+        payee,
+        notes: '',
+        importedId: `${importedId}-a`,
+        importedIdOrigin: 'bank-reference',
+        sourceLine: 1,
+      },
+      {
+        date: '2031-05-10',
+        amountCents: -500,
+        payee,
+        notes: '',
+        importedId: `${importedId}-b`,
+        importedIdOrigin: 'bank-reference',
+        sourceLine: 2,
+      },
+    ];
+    const rows = classify(source, existing, null);
+    assert.deepEqual(
+      rows.map((r) => r.state),
+      ['clean', 'suspicious'],
+    );
+
+    const result = await review({
+      gateway: session.gateway,
+      accountId: account.id,
+      accountName: account.name,
+      rows,
+      existing,
+      boundary: null,
+      io: createScriptedIo(['i', 'c']),
+    });
+    assert.deepEqual(
+      result.outcomes.map((o) => o.wrote),
+      ['added', 'corrected'],
+    );
+
+    // Actual title-cases the payee names it creates, so compare case-insensitively.
+    const named = (await session.api.getPayees()).filter(
+      (p) => p.name.toLowerCase() === payee.toLowerCase(),
+    );
+    assert.equal(named.length, 1, `duplicate payees: ${JSON.stringify(named)}`);
+
+    const corrected = (await session.gateway.getAccountHistory(account.id)).find(
+      (t) => t.imported_id === `${importedId}-b`,
+    )!;
+    assert.equal(corrected.payee, named[0]!.id, 'linked to the one payee, not a twin');
+  });
+
+  it('cancelling the which-one prompt writes nothing', async () => {
+    const { accountId, accountName, scenario, existing, boundary } =
+      await arrange('cancel-choice');
+    // Two equal-amount neighbours within a day of one source row.
+    await session.api.addTransactions(accountId, [
+      { date: '2031-03-19', amount: -1990, payee_name: 'Pharmacy A' },
+      { date: '2031-03-21', amount: -1990, payee_name: 'Pharmacy B' },
+    ]);
+    await session.api.sync();
+    const history = await session.gateway.getAccountHistory(accountId);
+    const rows = classify(scenario.source, history, boundary);
+    const twin = rows.find((r) => r.source.payee === 'PHARMACIE CENTRALE')!;
+    assert.ok(correctionTargets(twin).length > 1);
+
+    const io = createScriptedIo(['c', 'q']);
+    const result = await review({
+      gateway: session.gateway,
+      accountId,
+      accountName,
+      rows: [twin],
+      existing: history,
+      boundary,
+      io,
+    });
+
+    assert.equal(result.outcomes[0]!.wrote, 'nothing');
+    assert.equal(result.stopped, false, 'cancelling the choice does not stop the run');
+    assert.ok(io.transcript.some((line) => line.includes('cancelled')));
+    const after = await session.gateway.getAccountHistory(accountId);
+    assert.equal(after.length, history.length);
   });
 
   it('shows the detail on request without writing anything', async () => {

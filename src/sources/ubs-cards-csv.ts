@@ -11,7 +11,7 @@
  */
 import { cell, readRows } from './delimited.ts';
 import { mintFromParts } from '../imported-id.ts';
-import { signedAmountCents } from '../money.ts';
+import { readAmount } from '../money.ts';
 import type { DroppedRow, ParsedStatement, SourceTransaction } from './types.ts';
 
 export const FORMAT = 'ubs-cards-csv';
@@ -132,9 +132,13 @@ export function parse(path: string): ParsedStatement {
 
     // Pending purchases have neither a debit nor a credit: the converted
     // amount is not final yet. Out of scope for now (#47, #48).
-    const amountCents = signedAmountCents(cell(row, COL.debit), cell(row, COL.credit));
-    if (amountCents === null) {
-      dropped.push({ sourceLine, reason: 'pending (not booked yet)', raw });
+    const amount = readAmount(cell(row, COL.debit), cell(row, COL.credit));
+    if ('problem' in amount || 'empty' in amount) {
+      dropped.push({
+        sourceLine,
+        reason: 'problem' in amount ? amount.problem : 'pending (not booked yet)',
+        raw,
+      });
       continue;
     }
 
@@ -150,7 +154,7 @@ export function parse(path: string): ParsedStatement {
 
     transactions.push({
       date,
-      amountCents,
+      amountCents: amount.cents,
       payee: identity.payee,
       notes: cell(row, COL.sector),
       importedId: mintImportedId(identity, occurrence),

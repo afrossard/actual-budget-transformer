@@ -61,9 +61,22 @@ export function installedApiVersion(): string | null {
   return null;
 }
 
+/**
+ * `/info` under the server's own base path.
+ *
+ * A root-relative URL would throw the base path away - `new URL('/info',
+ * 'https://host/actual/')` is `https://host/info` - which 404s for a server
+ * behind a subpath reverse proxy. The probe would then report an unknown version
+ * and the run would abort, although `@actual-app/api` works against that same
+ * URL perfectly well.
+ */
+export function infoUrl(serverUrl: string): URL {
+  return new URL('info', serverUrl.endsWith('/') ? serverUrl : `${serverUrl}/`);
+}
+
 export async function probeServerVersion(serverUrl: string): Promise<string | null> {
   try {
-    const response = await fetch(new URL('/info', serverUrl), {
+    const response = await fetch(infoUrl(serverUrl), {
       signal: AbortSignal.timeout(10_000),
     });
     if (!response.ok) return null;

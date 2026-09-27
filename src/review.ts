@@ -69,6 +69,16 @@ export function correctionTargets(row: ClassifiedRow): ActualTransaction[] {
 }
 
 /**
+ * How many candidates a correction can still be pointed at.
+ *
+ * The prompt takes a single keystroke, so `10` cannot be typed. Rather than
+ * silently showing nine of eleven candidates, `correct` is withheld above this
+ * and the row says why - a row with that many equal-amount neighbours on one day
+ * is not one to resolve from a one-line prompt anyway.
+ */
+export const MAX_CORRECTION_CHOICES = 9;
+
+/**
  * Which actions this row offers.
  *
  * `import` is withheld only where it cannot mean anything: a Skip's imported ID
@@ -78,7 +88,8 @@ export function correctionTargets(row: ClassifiedRow): ActualTransaction[] {
 export function availableActions(row: ClassifiedRow): Action[] {
   const actions: Action[] = [];
   if (row.state !== 'skip') actions.push('import');
-  if (correctionTargets(row).length > 0) actions.push('correct');
+  const targets = correctionTargets(row).length;
+  if (targets > 0 && targets <= MAX_CORRECTION_CHOICES) actions.push('correct');
   actions.push('leave');
   if (row.state === 'skip') actions.push('force');
   return actions;
@@ -216,11 +227,21 @@ async function apply(args: {
   const targets = correctionTargets(row);
   let target = targets[0]!;
   if (targets.length > 1) {
-    const allowed = targets.map((_, i) => String(i + 1));
+    const choices = targets.map((_, i) => String(i + 1));
     for (const [i, candidate] of targets.entries()) {
       io.write(`    ${i + 1}) ${describe(candidate)}`);
     }
-    const choice = await io.ask(`    which one? [${allowed.join('/')}] > `, allowed);
+    // `q` backs out of the choice, not out of the run: on a terminal this prompt
+    // reads a single raw keystroke, so without a way out a change of mind here
+    // would be a loop that Ctrl-C cannot break either.
+    const choice = await io.ask(
+      `    which one? [${choices.join('/')}, q to cancel] > `,
+      [...choices, 'q'],
+    );
+    if (choice === 'q') {
+      io.write('    cancelled. Nothing written.');
+      return { row, action: 'leave', wrote: 'nothing' };
+    }
     target = targets[Number(choice) - 1]!;
   }
 
@@ -267,12 +288,20 @@ export function warnings(row: ClassifiedRow, boundary: string | null): string[] 
         'Anything written here changes a range you have already attested to.',
     );
   }
-  const reconciled = correctionTargets(row).filter((t) => t.reconciled);
+  const targets = correctionTargets(row);
+  const reconciled = targets.filter((t) => t.reconciled);
   if (reconciled.length > 0) {
     lines.push(
       `${reconciled.length} of the transaction(s) this could correct ` +
         `${reconciled.length === 1 ? 'is' : 'are'} reconciled: ` +
         `${reconciled.map(describe).join('; ')}. Actual will not stop that patch.`,
+    );
+  }
+  if (targets.length > MAX_CORRECTION_CHOICES) {
+    lines.push(
+      `${targets.length} transactions here could be the same one, which is too ` +
+        'many to choose between at a prompt. Correcting is not offered; leave the ' +
+        'row and resolve it in Actual.',
     );
   }
   return lines;

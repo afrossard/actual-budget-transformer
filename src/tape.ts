@@ -70,6 +70,22 @@ export function explain(reasons: readonly Evidence[]): string[] {
   });
 }
 
+/**
+ * The Tape's column widths, single-sourced.
+ *
+ * The header is built from these rather than written out, because a header whose
+ * labels sit a column off the fields they name is the kind of thing that stays
+ * wrong for a long time.
+ */
+const WIDTH = {
+  index: 3,
+  date: 10,
+  /** Right-aligned, so `formatCents`'s own width has to match. */
+  amount: 10,
+  state: 10,
+  payee: 32,
+} as const;
+
 /** The Tape's own line for one classified row. */
 export function tapeLine(
   index: number,
@@ -77,16 +93,23 @@ export function tapeLine(
   style: TapeStyle = { colour: false },
 ): string {
   const { source, state } = row;
-  const head =
-    `${String(index).padStart(3)} ` +
-    `${source.date} ` +
-    `${formatCents(source.amountCents)} ` +
-    `${paint(state.padEnd(10), STYLE[state], style)} ` +
-    source.payee.slice(0, 32).padEnd(32);
+  const head = [
+    String(index).padStart(WIDTH.index),
+    source.date.padEnd(WIDTH.date),
+    formatCents(source.amountCents, WIDTH.amount),
+    paint(state.padEnd(WIDTH.state), STYLE[state], style),
+    source.payee.slice(0, WIDTH.payee).padEnd(WIDTH.payee),
+  ].join(' ');
   const why = explain(row.reasons);
   if (why.length === 0) return head.trimEnd();
   return `${head} ${paint(`-> ${why.join(' | ')}`, DIM, style)}`;
 }
 
-export const TAPE_HEADER =
-  '  # date          amount  state      payee                            why';
+export const TAPE_HEADER = [
+  '#'.padStart(WIDTH.index),
+  'date'.padEnd(WIDTH.date),
+  'amount'.padStart(WIDTH.amount),
+  'state'.padEnd(WIDTH.state),
+  'payee'.padEnd(WIDTH.payee),
+  'why',
+].join(' ');

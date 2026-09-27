@@ -1,6 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classify, type ActualTransaction } from '../../src/classify.ts';
+import {
+  classify,
+  reconciliationBoundary,
+  type ActualTransaction,
+} from '../../src/classify.ts';
 import type { SourceTransaction } from '../../src/sources/types.ts';
 
 let line = 0;
@@ -198,5 +202,43 @@ test('a different transaction on the same day is still a blind duplicate of a Sk
   assert.deepEqual(
     reason?.kind === 'same-amount-within-one-day' && reason.candidates.map((c) => c.id),
     ['stored-y'],
+  );
+});
+
+test('an imported ID is recognised however far the transaction has been moved', () => {
+  // The cards parser dates a purchase by `Date d'achat` while the bank books it
+  // weeks later, so someone re-dating it in Actual to its booking date puts it a
+  // long way from where this tool wrote it. Matching by ID must not care.
+  const moved = actual({ date: '2031-06-30', imported_id: 'T-FAR', id: 'moved' });
+  const [row] = classify(
+    [src({ date: '2031-03-10', importedId: 'T-FAR' })],
+    [moved],
+    null,
+  );
+  assert.equal(row!.state, 'skip');
+});
+
+test('reconciliationBoundary takes the newest reconciled date, ignoring the rest', () => {
+  assert.equal(
+    reconciliationBoundary([
+      actual({ date: '2020-06-15', reconciled: true }),
+      actual({ date: '2020-06-30', reconciled: true }),
+      actual({ date: '2031-03-10', reconciled: false }),
+    ]),
+    '2020-06-30',
+  );
+});
+
+test('reconciliationBoundary is null when the account has never been reconciled', () => {
+  assert.equal(reconciliationBoundary([]), null);
+  assert.equal(reconciliationBoundary([actual({ reconciled: false })]), null);
+});
+
+test('reconciliationBoundary finds a reconciled transaction dated in the future', () => {
+  // Actual allows future dates, and a boundary read only up to today would come
+  // back lower than it is - which silently unlocks an attested range.
+  assert.equal(
+    reconciliationBoundary([actual({ date: '2099-12-31', reconciled: true })]),
+    '2099-12-31',
   );
 });

@@ -153,3 +153,20 @@ test('parseStatement names the file it could not read', () => {
     /no parser recognises/,
   );
 });
+
+test('an unreadable amount is reported with its line, and the rest of the file still parses', () => {
+  // Aborting the file would name neither the file nor the line the reader has to
+  // go and look at, and one odd row is no reason to abandon the others.
+  const statement = accountCsv.parse(DATA + 'ubs_account_bad_amount.csv');
+  assert.deepEqual(
+    statement.transactions.map((t) => [t.payee, t.amountCents]),
+    [['READABLE ROW', -6000]],
+  );
+  assert.deepEqual(
+    statement.dropped.map((d) => [d.sourceLine, d.reason]),
+    [
+      [11, 'not a decimal amount: "-50.00 CHF"'],
+      [12, 'row carries both a debit (-10.00) and a credit (20.00)'],
+    ],
+  );
+});

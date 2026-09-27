@@ -131,6 +131,34 @@ describe('integration: a whole run from a statement file', { skip }, () => {
     );
   });
 
+  it('recognises its own earlier write after the transaction has been re-dated', async () => {
+    // The cards parser dates a purchase by `Date d'achat` while the bank books
+    // it weeks later, so re-dating it in Actual to its booking date moves it a
+    // long way from where this tool wrote it. Reading only a window around the
+    // file's dates would miss the imported ID, report the row as Clean - "nothing
+    // in Actual looks like it" - and have the human confirm a duplicate.
+    const { config, accountId } = await arrange('re-dated', '9659086893219337559');
+    const path = DATA + 'ubs_cards_1.csv';
+
+    await run(config, path, () => 'i', 3);
+    const stored = await session.gateway.getAccountHistory(accountId);
+    assert.equal(stored.length, 3);
+
+    // Move one of them to its booking date, months away and well outside any
+    // window around the statement's own dates.
+    const moved = stored.find((t) => t.date === '2020-02-24')!;
+    await session.api.updateTransaction(moved.id, { date: '2026-03-16' });
+    await session.api.sync();
+
+    const second = await run(config, path, () => 'l', 3);
+    assert.deepEqual(
+      second.result.outcomes.map((o) => o.row.state),
+      ['skip', 'skip', 'skip'],
+      'the re-dated transaction is still recognised by its imported ID',
+    );
+    assert.equal((await session.gateway.getAccountHistory(accountId)).length, 3);
+  });
+
   it('says on the Tape which rows the file held but the parser did not read', async () => {
     const { config } = await arrange('cards-pending', '9659086893219337559');
     const { io } = await run(config, DATA + 'ubs_cards_pending.csv', () => 'l', 3);

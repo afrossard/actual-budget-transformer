@@ -1,6 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatCents, parseCents, signedAmountCents } from '../../src/money.ts';
+import {
+  formatCents,
+  parseCents,
+  readAmount,
+  signedAmountCents,
+} from '../../src/money.ts';
 
 test('parseCents reads bank decimals exactly', () => {
   assert.equal(parseCents('186.65'), 18665);
@@ -49,4 +54,13 @@ test('formatCents right-aligns two decimals', () => {
   assert.equal(formatCents(-18665), '   -186.65');
   assert.equal(formatCents(5), '      0.05');
   assert.equal(formatCents(650000), '   6500.00');
+});
+
+test('readAmount reports an unreadable amount instead of throwing', () => {
+  assert.deepEqual(readAmount('-186.65', ''), { cents: -18665 });
+  assert.deepEqual(readAmount('', ''), { empty: true });
+  assert.deepEqual(readAmount('186.65 CHF', ''), {
+    problem: 'not a decimal amount: "186.65 CHF"',
+  });
+  assert.match((readAmount('10', '20') as { problem: string }).problem, /both a debit/);
 });
