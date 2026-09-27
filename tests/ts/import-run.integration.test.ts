@@ -7,6 +7,7 @@ import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import type { Config } from '../../src/config.ts';
+import { DEFAULT_FORMATS } from '../../src/sources/formats.ts';
 import { createScriptedIo } from '../../src/io.ts';
 import { runImport } from '../../src/import-run.ts';
 import {
@@ -47,6 +48,7 @@ describe('integration: a whole run from a statement file', { skip }, () => {
           budgetName: '',
           dataDir: null,
         },
+        formats: DEFAULT_FORMATS,
       },
     };
   }
@@ -171,6 +173,7 @@ describe('integration: a whole run from a statement file', { skip }, () => {
     const config: Config = {
       accountNames: { CH4200120123A12345678: 'No Such Account' },
       actual: { serverUrl: '', password: '', budgetName: '', dataDir: null },
+      formats: DEFAULT_FORMATS,
     };
     await assert.rejects(
       () =>

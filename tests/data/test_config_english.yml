@@ -1,0 +1,37 @@
+# A user whose e-banking is in English, with a cards export they have also
+# reconfigured. Deliberately partial: only the keys that differ are restated.
+account_names:
+  "CH4200120123A12345678": "Test Checking"
+
+processors:
+  ubs_csv:
+    expected_header_labels:
+      - "Account number:"
+      - "IBAN:"
+      - "From:"
+      - "To:"
+      - "Opening balance:"
+      - "Closing balance:"
+      - "Evaluated in:"
+      - "Number of transactions in this period:"
+    expected_transaction_labels:
+      - "Trade date"
+      - "Trade time"
+      - "Booking date"
+      - "Value date"
+      - "Currency"
+      - "Debit"
+      - "Credit"
+      - "Subtotal"
+      - "Balance"
+      - "Transaction no."
+      - "Description1"
+      - "Description2"
+      - "Description3"
+      - "Footnotes"
+    date_format: "%d.%m.%Y"
+
+  ubs_cards:
+    csv_settings:
+      encoding: "utf-8"
+      separator: ","

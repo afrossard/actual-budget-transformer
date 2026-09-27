@@ -1,21 +1,30 @@
 /**
  * Reading the bank's delimited files.
  *
- * Both UBS exports are semicolon-separated, quote fields that contain a
- * semicolon, and carry a preamble above the transaction table, so they are
- * parsed as raw rows and interpreted by the format's own parser rather than
- * via a header-aware reader.
+ * Both UBS exports quote fields that contain the separator and carry a preamble
+ * above the transaction table, so they are parsed as raw rows and interpreted by
+ * the format's own parser rather than via a header-aware reader. The separator
+ * and encoding come from the format settings.
  */
 import { readFileSync } from 'node:fs';
 import { parse } from 'csv-parse/sync';
+import type { Encoding } from './formats.ts';
 
-/** `utf8` for the account CSV (BOM-prefixed), `latin1` for the cards CSV. */
-export type SourceEncoding = 'utf8' | 'latin1';
+const BOM = String.fromCharCode(0xfeff);
 
-export function readRows(path: string, encoding: SourceEncoding): string[][] {
-  const text = readFileSync(path).toString(encoding).replace(/^﻿/, '');
+/** The account CSV is BOM-prefixed; the BOM is not part of the first label. */
+function stripBom(text: string): string {
+  return text.startsWith(BOM) ? text.slice(BOM.length) : text;
+}
+
+export function readRows(
+  path: string,
+  encoding: Encoding,
+  delimiter: string,
+): string[][] {
+  const text = stripBom(readFileSync(path).toString(encoding));
   return parse(text, {
-    delimiter: ';',
+    delimiter,
     // The bank's rows are ragged: the preamble has 3 columns, the table 15,
     // and the footer fewer again.
     relax_column_count: true,

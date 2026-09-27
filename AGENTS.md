@@ -72,7 +72,11 @@ src/
 ├── io.ts              # terminal input (single keystroke on a TTY, lines otherwise)
 ├── imported-id.ts     # minting, and the forced-copy scheme
 ├── money.ts           # integer cents; the debit/credit sign convention
-└── sources/           # one parser per statement format, plus the registry
+└── sources/
+    ├── formats.ts      # what each export looks like, as overridable settings
+    ├── index.ts        # builds the parsers from those settings, and picks one
+    ├── delimited.ts    # the CSV read
+    └── ubs-*.ts        # one parser factory per statement format
 ```
 
 **The two seams are pre-agreed and closed.** The classifier takes source transactions plus Actual transactions and returns four states; most tests live there. The gateway is integration-tested against a real server. The review loop is tested through the gateway rather than given a seam of its own. Do not add a third.
@@ -87,6 +91,7 @@ src/
 | A correction never writes the amount | `actual-gateway.ts` `correct()` | A split's parts must still sum to their parent. Where the bank and Actual disagree on an amount, nothing is applied and the difference is reported (#49 owns what to do instead). |
 | Classify once per batch | `import-run.ts` | Re-reading Actual between prompts makes each confirmation flag the next transaction — #50's noise, manufactured. |
 | A decline is a decision | `review.ts`, `tape.ts` | Skip and Locked rows are prompted and show what they matched. Bank data never goes out on a log line. |
+| A minted imported ID hashes the reference columns **verbatim** | `sources/ubs-cards-csv.ts` | Not the parsed date. Correcting `date_format` after a UBS change is exactly what the config is for, and it must not silently renumber every transaction already written. |
 | Read the account's **whole** history, never a window around the file's dates | `import-run.ts`, `gateway.getAccountHistory` | An imported ID has to be recognised wherever the transaction now sits. The cards parser dates a purchase by `Date d'achat` while the bank books it weeks later, so re-dating it in Actual moves it outside any sensible window — and a missed imported ID means the row comes back as Clean, which claims nothing in Actual looks like it. Guarded by the `re-dated` test. |
 
 ### Testing it

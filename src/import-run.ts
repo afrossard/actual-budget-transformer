@@ -26,7 +26,7 @@ export type RunResult = ReviewResult & { accountName: string };
 export async function runImport(options: RunOptions): Promise<RunResult> {
   const { path, config, gateway, io } = options;
 
-  const statement = parseStatement(path);
+  const statement = parseStatement(path, config.formats);
   const accountName = accountNameFor(config, statement.accountKey);
   io.write(
     `${path}: ${statement.format}, account ${statement.accountKey} -> ${JSON.stringify(accountName)}`,
