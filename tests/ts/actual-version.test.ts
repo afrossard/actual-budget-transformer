@@ -7,37 +7,37 @@ import {
 } from '../../src/actual-version.ts';
 
 test('an api at most as new as the server proceeds', () => {
-  assertVersionCompatible('26.5.2', '26.5.2');
+  assertVersionCompatible('26.9.0', '26.9.0'); // api == server, the ideal
   assertVersionCompatible('25.3.1', '26.4.0');
-  assertVersionCompatible('26.4.0', '26.5.0');
+  assertVersionCompatible('26.9.0', '26.10.0');
 });
 
 test('an api newer than the server aborts, and says how to lift the block', () => {
   assert.throws(
-    () => assertVersionCompatible('26.6.0', '26.5.2'),
+    () => assertVersionCompatible('26.10.0', '26.9.0'),
     (error: Error) => {
-      assert.match(error.message, /newer than server 26\.5\.2/);
-      assert.match(error.message, /Upgrade the server to >= 26\.6\.0/);
+      assert.match(error.message, /newer than server 26\.9\.0/);
+      assert.match(error.message, /Upgrade the server to >= 26\.10\.0/);
       assert.match(error.message, /Data is not lost/);
       return true;
     },
   );
-  assert.throws(() => assertVersionCompatible('27.0.0', '26.5.2'), /aborting/);
-  assert.throws(() => assertVersionCompatible('26.5.3', '26.5.2'), /aborting/);
+  assert.throws(() => assertVersionCompatible('27.0.0', '26.9.0'), /aborting/);
+  assert.throws(() => assertVersionCompatible('26.9.1', '26.9.0'), /aborting/);
 });
 
 test('a skew that cannot be assessed aborts rather than proceeding', () => {
   assert.throws(
-    () => assertVersionCompatible(null, '26.5.2'),
+    () => assertVersionCompatible(null, '26.9.0'),
     /@actual-app\/api version/,
   );
-  assert.throws(() => assertVersionCompatible('26.5.2', null), /server version/);
+  assert.throws(() => assertVersionCompatible('26.9.0', null), /server version/);
   assert.throws(
-    () => assertVersionCompatible('not-a-version', '26.5.2'),
+    () => assertVersionCompatible('not-a-version', '26.9.0'),
     /cannot parse API/,
   );
   assert.throws(
-    () => assertVersionCompatible('26.5.2', 'unknown'),
+    () => assertVersionCompatible('26.9.0', 'unknown'),
     /cannot parse server/,
   );
 });
