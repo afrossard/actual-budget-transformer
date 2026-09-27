@@ -127,12 +127,7 @@ export async function review(options: ReviewOptions): Promise<ReviewResult> {
     const number = index + 1;
     io.write('');
     io.write(tapeLine(number, row, style));
-    if (row.state === 'locked') {
-      io.write(
-        `    this date is inside the reconciled range (boundary ${boundary}). ` +
-          'Anything written here changes a range you have already attested to.',
-      );
-    }
+    for (const warning of warnings(row, boundary)) io.write(`    ${warning}`);
 
     const actions = availableActions(row);
     const allowed = [...actions.map(keyFor), '?', 'q'];
@@ -253,6 +248,34 @@ async function apply(args: {
       (target.is_parent ? '. The split parts were left untouched.' : '.'),
   );
   return { row, action, wrote: 'corrected' };
+}
+
+/**
+ * What has to be said out loud before this row is answered.
+ *
+ * A row dated after the boundary can still match a transaction inside the
+ * reconciled range - the boundary is the newest reconciled date, so a candidate
+ * one day earlier can be exactly that transaction. The row is then Suspicious
+ * rather than Locked, and correcting it would reach into an attested range with
+ * nothing but the evidence line to say so. Hence the second warning.
+ */
+export function warnings(row: ClassifiedRow, boundary: string | null): string[] {
+  const lines: string[] = [];
+  if (row.state === 'locked') {
+    lines.push(
+      `this date is inside the reconciled range (boundary ${boundary}). ` +
+        'Anything written here changes a range you have already attested to.',
+    );
+  }
+  const reconciled = correctionTargets(row).filter((t) => t.reconciled);
+  if (reconciled.length > 0) {
+    lines.push(
+      `${reconciled.length} of the transaction(s) this could correct ` +
+        `${reconciled.length === 1 ? 'is' : 'are'} reconciled: ` +
+        `${reconciled.map(describe).join('; ')}. Actual will not stop that patch.`,
+    );
+  }
+  return lines;
 }
 
 /** The raw source row and every stored transaction behind the evidence. */
