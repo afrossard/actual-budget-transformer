@@ -2,8 +2,15 @@ name: Test
 on:
   push:
     branches: [main]
+  # Long-lived feature branches are PR targets too, so a PR into one gets the
+  # same checks a PR into main gets. Without this a branch can accumulate dozens
+  # of commits without ever being built, which is how the `ruff format` drift on
+  # `feature/direct-actual-import` survived.
+  #
+  # `push` stays on main alone: a branch with an open PR would otherwise be built
+  # twice for every commit.
   pull_request:
-    branches: [main]
+    branches: [main, "feature/**"]
 
 jobs:
   test:
