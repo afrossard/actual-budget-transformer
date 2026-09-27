@@ -1,0 +1,11 @@
+﻿Account number:;0123 A1234567.8;
+IBAN:;CH42 0012 0123 A123 4567 8;
+From:;2031-07-01;
+To:;2031-07-31;
+Opening balance:;1000.00;
+Closing balance:;850.00;
+Evaluated in:;CHF;
+Number of transactions in this period:;1;
+
+Trade date;Trade time;Booking date;Value date;Currency;Debit;Credit;Subtotal;Balance;Transaction no.;Description1;Description2;Description3;Footnotes;
+15.07.2031;;15.07.2031;15.07.2031;CHF;-150.00;;;850.00;ENGLISH-REF-1;"RENT PAYMENT";;"Motif: juillet";;

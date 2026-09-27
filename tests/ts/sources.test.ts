@@ -1,9 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
-import * as accountCsv from '../../src/sources/ubs-account-csv.ts';
-import * as cardsCsv from '../../src/sources/ubs-cards-csv.ts';
+import { ubsAccountCsvParser } from '../../src/sources/ubs-account-csv.ts';
+import { ubsCardsCsvParser } from '../../src/sources/ubs-cards-csv.ts';
+import { DEFAULT_ACCOUNT_CSV, DEFAULT_CARDS_CSV } from '../../src/sources/formats.ts';
+import { mintFromParts } from '../../src/imported-id.ts';
 import { parseStatement, pickParser } from '../../src/sources/index.ts';
+
+const accountCsv = ubsAccountCsvParser(DEFAULT_ACCOUNT_CSV);
+const cardsCsv = ubsCardsCsvParser(DEFAULT_CARDS_CSV);
 
 const DATA = fileURLToPath(new URL('../data/', import.meta.url));
 
@@ -106,20 +111,33 @@ test('minted imported IDs are reproducible across runs and files', () => {
   );
 });
 
-test('the minted ID ignores the converted amount, which moves between exports', () => {
-  const stable = cardsCsv.mintImportedId(
-    {
-      date: '2020-02-23',
-      payee: 'MERCHANT-30A2B4C6',
-      originalAmount: '30',
-      originalCurrency: 'EUR',
-    },
-    0,
-  );
+test('the minted ID hashes the reference columns verbatim, not the parsed date', () => {
+  // Verbatim matters: the ID must not depend on `date_format`. Correcting that
+  // setting after a UBS change is exactly the kind of edit this config exists
+  // for, and it must not silently renumber every transaction already written.
+  const stable = mintFromParts(['23.02.2020', 'MERCHANT-30A2B4C6', '30', 'EUR', 0]);
   const fromFile = cardsCsv
     .parse(DATA + 'ubs_cards_1.csv')
     .transactions.find((t) => t.payee === 'MERCHANT-30A2B4C6');
   assert.equal(fromFile?.importedId, stable);
+  // And the converted CHF amount (28) is not in it, because it moves with the
+  // exchange rate between exports.
+  assert.notEqual(
+    fromFile?.importedId,
+    mintFromParts(['23.02.2020', 'MERCHANT-30A2B4C6', '28', 'CHF', 0]),
+  );
+});
+
+test('a minted ID survives a change to date_format', () => {
+  const statement = cardsCsv.parse(DATA + 'ubs_cards_1.csv');
+  const relaxed = ubsCardsCsvParser({
+    ...DEFAULT_CARDS_CSV,
+    dateFormat: '%d.%m.%Y',
+  }).parse(DATA + 'ubs_cards_1.csv');
+  assert.deepEqual(
+    statement.transactions.map((t) => t.importedId),
+    relaxed.transactions.map((t) => t.importedId),
+  );
 });
 
 test('pending card rows are dropped, and said so rather than logged away', () => {
@@ -169,4 +187,60 @@ test('an unreadable amount is reported with its line, and the rest of the file s
       [12, 'row carries both a debit (-10.00) and a credit (20.00)'],
     ],
   );
+});
+
+test('a renamed, re-ordered-language export parses once the config is corrected', () => {
+  // UBS labels are in the language of the user's e-banking, and UBS changes its
+  // exports without announcing it. Both are fixed by editing config, which is
+  // the whole reason these are settings and not constants.
+  const english = {
+    ...DEFAULT_ACCOUNT_CSV,
+    preambleLabels: [
+      'Account number:',
+      'IBAN:',
+      'From:',
+      'To:',
+      'Opening balance:',
+      'Closing balance:',
+      'Evaluated in:',
+      'Number of transactions in this period:',
+    ],
+    transactionColumns: [
+      'Trade date',
+      'Trade time',
+      'Booking date',
+      'Value date',
+      'Currency',
+      'Debit',
+      'Credit',
+      'Subtotal',
+      'Balance',
+      'Transaction no.',
+      'Description1',
+      'Description2',
+      'Description3',
+      'Footnotes',
+    ],
+    dateFormat: '%d.%m.%Y',
+  };
+
+  // The shipped defaults do not recognise it at all.
+  assert.equal(accountCsv.canParse(DATA + 'ubs_account_english.csv'), false);
+
+  const corrected = ubsAccountCsvParser(english);
+  assert.equal(corrected.canParse(DATA + 'ubs_account_english.csv'), true);
+  const statement = corrected.parse(DATA + 'ubs_account_english.csv');
+  assert.deepEqual(statement.transactions, [
+    {
+      date: '2031-07-15',
+      amountCents: -15000,
+      payee: 'RENT PAYMENT',
+      notes: 'Motif: juillet',
+      importedId: 'ENGLISH-REF-1',
+      importedIdOrigin: 'bank-reference',
+      sourceLine: 11,
+    },
+  ]);
+  // And it does not start claiming the French file it was not configured for.
+  assert.equal(corrected.canParse(DATA + 'ubs_valid.csv'), false);
 });

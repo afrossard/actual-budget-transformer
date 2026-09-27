@@ -1,24 +1,41 @@
 /**
  * The statement parsers, and which one claims a file.
  *
- * Each parser inspects the file cheaply and never raises while deciding, so a
- * directory of mixed downloads can be walked without special-casing.
+ * Parsers are built from the format settings rather than imported ready-made, so
+ * the column names and encodings a user has corrected in `config.yml` are the
+ * ones actually used. Each one inspects a file cheaply and never raises while
+ * deciding, so a directory of mixed downloads can be walked without
+ * special-casing.
  */
-import { parser as ubsAccountCsv } from './ubs-account-csv.ts';
-import { parser as ubsCardsCsv } from './ubs-cards-csv.ts';
+import { ubsAccountCsvParser } from './ubs-account-csv.ts';
+import { ubsCardsCsvParser } from './ubs-cards-csv.ts';
+import { DEFAULT_FORMATS, type Formats } from './formats.ts';
 import type { ParsedStatement, StatementParser } from './types.ts';
 
-export const PARSERS: readonly StatementParser[] = [ubsAccountCsv, ubsCardsCsv];
-
-export function pickParser(path: string): StatementParser | null {
-  return PARSERS.find((p) => p.canParse(path)) ?? null;
+export function createParsers(formats: Formats = DEFAULT_FORMATS): StatementParser[] {
+  return [
+    ubsAccountCsvParser(formats.ubsAccountCsv),
+    ubsCardsCsvParser(formats.ubsCardsCsv),
+  ];
 }
 
-export function parseStatement(path: string): ParsedStatement {
-  const parser = pickParser(path);
+export function pickParser(
+  path: string,
+  formats: Formats = DEFAULT_FORMATS,
+): StatementParser | null {
+  return createParsers(formats).find((p) => p.canParse(path)) ?? null;
+}
+
+export function parseStatement(
+  path: string,
+  formats: Formats = DEFAULT_FORMATS,
+): ParsedStatement {
+  const parsers = createParsers(formats);
+  const parser = parsers.find((p) => p.canParse(path));
   if (!parser) {
     throw new Error(
-      `no parser recognises ${path} (known formats: ${PARSERS.map((p) => p.format).join(', ')})`,
+      `no parser recognises ${path} (known formats: ${parsers.map((p) => p.format).join(', ')}). ` +
+        `If the bank changed its export, correct the column names under processors.* in your config.`,
     );
   }
   return parser.parse(path);

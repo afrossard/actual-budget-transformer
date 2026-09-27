@@ -1,46 +1,34 @@
 /**
- * UBS account CSV: an eight-line preamble, a blank line, then the transaction
- * table. Every row normally carries `N° de transaction`, which becomes the
- * imported ID verbatim; where the bank leaves it empty the imported ID stays
- * **blank** rather than being minted, because a reference the bank could have
- * written and did not is a fact about the row, not something to paper over.
+ * UBS account CSV: a preamble, a blank line, then the transaction table.
+ *
+ * Every row normally carries `N° de transaction`, which becomes the imported ID
+ * verbatim; where the bank leaves it empty the imported ID stays **blank** rather
+ * than being minted, because a reference the bank could have written and did not
+ * is a fact about the row, not something to paper over.
+ *
+ * Column names, encoding, separator and date format all come from the format
+ * settings - see `formats.ts` for why they are settings.
  */
 import { cell, joinNotes, readRows } from './delimited.ts';
+import { parseDate, type AccountCsvFormat } from './formats.ts';
 import { readAmount } from '../money.ts';
-import type { DroppedRow, ParsedStatement, SourceTransaction } from './types.ts';
+import type {
+  DroppedRow,
+  ParsedStatement,
+  SourceTransaction,
+  StatementParser,
+} from './types.ts';
 
 export const FORMAT = 'ubs-account-csv';
 
-/** The preamble's row labels, in order, as the bank writes them. */
-const PREAMBLE_LABELS = [
-  'Numéro de compte:',
-  'IBAN:',
-  'Du:',
-  'Au:',
-  'Solde initial:',
-  'Solde final:',
-  'Évaluation en:',
-  'Nombre de transactions dans cette période:',
-];
-
-/** The transaction table's columns, in order. */
-const COLUMNS = [
-  'Date de transaction',
-  'Heure de transaction',
-  'Date de comptabilisation',
-  'Date de valeur',
-  'Monnaie',
-  'Débit',
-  'Crédit',
-  'Sous-montant',
-  'Solde',
-  'N° de transaction',
-  'Description1',
-  'Description2',
-  'Description3',
-  'Notes de bas de page',
-];
-
+/**
+ * Field positions within the transaction table.
+ *
+ * Positional, like the Python path, which renames the columns by position too.
+ * So a column the bank *renames* is handled by editing the configured names,
+ * while a column it *reorders* breaks both paths equally - no regression, and
+ * the preamble check fails loudly rather than reading the wrong field.
+ */
 const COL = {
   date: 0,
   debit: 5,
@@ -54,79 +42,87 @@ const COL = {
 } as const;
 
 const IBAN_ROW = 1;
-const TABLE_HEADER_ROW = 9;
-const FIRST_TRANSACTION_ROW = TABLE_HEADER_ROW + 1;
 
-function looksLikeThisFormat(rows: readonly string[][]): boolean {
-  if (rows.length <= TABLE_HEADER_ROW) return false;
-  for (const [i, label] of PREAMBLE_LABELS.entries()) {
-    if (cell(rows[i] ?? [], 0) !== label) return false;
-  }
-  const header = rows[TABLE_HEADER_ROW] ?? [];
-  return COLUMNS.every((name, i) => cell(header, i) === name);
-}
+export function ubsAccountCsvParser(format: AccountCsvFormat): StatementParser {
+  // Preamble occupies rows 0..headerRows-1, then a blank line, then the header.
+  const tableHeaderRow = format.headerRows + 1;
+  const firstTransactionRow = tableHeaderRow + 1;
 
-export function canParse(path: string): boolean {
-  if (!path.toLowerCase().endsWith('.csv')) return false;
-  try {
-    return looksLikeThisFormat(readRows(path, 'utf8'));
-  } catch {
-    return false;
-  }
-}
-
-export function parse(path: string): ParsedStatement {
-  const rows = readRows(path, 'utf8');
-  if (!looksLikeThisFormat(rows)) {
-    throw new Error(`${path} is not a UBS account CSV`);
-  }
-
-  const accountKey = cell(rows[IBAN_ROW] ?? [], 1).replace(/\s/g, '');
-  const transactions: SourceTransaction[] = [];
-  const dropped: DroppedRow[] = [];
-
-  for (let i = FIRST_TRANSACTION_ROW; i < rows.length; i += 1) {
-    const row = rows[i]!;
-    const sourceLine = i + 1;
-    const date = cell(row, COL.date);
-    if (date === '') continue; // trailing blank line
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      dropped.push({
-        sourceLine,
-        reason: `unreadable date ${date}`,
-        raw: row.join(';'),
-      });
-      continue;
+  const looksRight = (rows: readonly string[][]): boolean => {
+    if (rows.length <= tableHeaderRow) return false;
+    for (const [i, label] of format.preambleLabels.entries()) {
+      if (cell(rows[i] ?? [], 0) !== label) return false;
     }
+    const header = rows[tableHeaderRow] ?? [];
+    return format.transactionColumns.every((name, i) => cell(header, i) === name);
+  };
 
-    const amount = readAmount(cell(row, COL.debit), cell(row, COL.credit));
-    if ('problem' in amount || 'empty' in amount) {
-      dropped.push({
-        sourceLine,
-        reason: 'problem' in amount ? amount.problem : 'no debit and no credit',
-        raw: row.join(';'),
-      });
-      continue;
-    }
+  return {
+    format: FORMAT,
 
-    const reference = cell(row, COL.reference);
-    transactions.push({
-      date,
-      amountCents: amount.cents,
-      payee: cell(row, COL.payee),
-      notes: joinNotes([
-        cell(row, COL.note1),
-        cell(row, COL.note2),
-        cell(row, COL.footnote),
-        cell(row, COL.trailing),
-      ]),
-      importedId: reference,
-      importedIdOrigin: reference === '' ? 'absent' : 'bank-reference',
-      sourceLine,
-    });
-  }
+    canParse(path: string): boolean {
+      if (!path.toLowerCase().endsWith('.csv')) return false;
+      try {
+        return looksRight(readRows(path, format.encoding, format.separator));
+      } catch {
+        return false;
+      }
+    },
 
-  return { format: FORMAT, accountKey, transactions, dropped };
+    parse(path: string): ParsedStatement {
+      const rows = readRows(path, format.encoding, format.separator);
+      if (!looksRight(rows)) {
+        throw new Error(`${path} is not a UBS account CSV`);
+      }
+
+      const accountKey = cell(rows[IBAN_ROW] ?? [], 1).replace(/\s/g, '');
+      const transactions: SourceTransaction[] = [];
+      const dropped: DroppedRow[] = [];
+
+      for (let i = firstTransactionRow; i < rows.length; i += 1) {
+        const row = rows[i]!;
+        const sourceLine = i + 1;
+        const raw = row.join(format.separator);
+        const rawDate = cell(row, COL.date);
+        if (rawDate === '') continue; // trailing blank line
+
+        const date = parseDate(rawDate, format.dateFormat);
+        if (date === null) {
+          dropped.push({ sourceLine, reason: `unreadable date ${rawDate}`, raw });
+          continue;
+        }
+
+        // An unreadable amount is reported like an unreadable date rather than
+        // aborting the file: the message would otherwise name neither the file
+        // nor the line, and one odd row is no reason to abandon the others.
+        const amount = readAmount(cell(row, COL.debit), cell(row, COL.credit));
+        if ('problem' in amount || 'empty' in amount) {
+          dropped.push({
+            sourceLine,
+            reason: 'problem' in amount ? amount.problem : 'no debit and no credit',
+            raw,
+          });
+          continue;
+        }
+
+        const reference = cell(row, COL.reference);
+        transactions.push({
+          date,
+          amountCents: amount.cents,
+          payee: cell(row, COL.payee),
+          notes: joinNotes([
+            cell(row, COL.note1),
+            cell(row, COL.note2),
+            cell(row, COL.footnote),
+            cell(row, COL.trailing),
+          ]),
+          importedId: reference,
+          importedIdOrigin: reference === '' ? 'absent' : 'bank-reference',
+          sourceLine,
+        });
+      }
+
+      return { format: FORMAT, accountKey, transactions, dropped };
+    },
+  };
 }
-
-export const parser = { format: FORMAT, canParse, parse };
