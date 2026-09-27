@@ -56,8 +56,11 @@ export async function main(argv: readonly string[]): Promise<number> {
   };
 
   const gateway = new ActualGateway(settings);
-  await gateway.open();
   try {
+    // Inside the try: `open()` creates its temp data dir before it locates the
+    // budget, so a wrong budget name would otherwise leave a downloaded budget
+    // behind in $TMPDIR on every attempt.
+    await gateway.open();
     const result = await runImport({
       path: parsed.positionals[0]!,
       config,

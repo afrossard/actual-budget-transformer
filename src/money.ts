@@ -47,6 +47,29 @@ export function signedAmountCents(debit: string, credit: string): number | null 
   return inflow - outflow;
 }
 
+/**
+ * `signedAmountCents` as a result rather than an exception, so a parser can
+ * record one unreadable row and carry on.
+ *
+ * Aborting the file would be worse on both counts: the message names neither the
+ * file nor the line the reader has to go and look at, and one odd row is no
+ * reason to abandon the other twenty.
+ */
+export type AmountReading =
+  | { cents: number }
+  /** Neither column was filled in. What that means is the format's to say. */
+  | { empty: true }
+  | { problem: string };
+
+export function readAmount(debit: string, credit: string): AmountReading {
+  try {
+    const cents = signedAmountCents(debit, credit);
+    return cents === null ? { empty: true } : { cents };
+  } catch (error) {
+    return { problem: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 /** Right-aligned two-decimal rendering for the Tape, e.g. `   -186.65`. */
 export function formatCents(cents: number, width = 10): string {
   const sign = cents < 0 ? '-' : '';

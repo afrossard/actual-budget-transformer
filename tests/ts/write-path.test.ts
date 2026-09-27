@@ -10,8 +10,13 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { classify, type ActualTransaction } from '../../src/classify.ts';
-import { availableActions, correctionTargets, warnings } from '../../src/review.ts';
-import { explain, tapeLine } from '../../src/tape.ts';
+import {
+  availableActions,
+  correctionTargets,
+  MAX_CORRECTION_CHOICES,
+  warnings,
+} from '../../src/review.ts';
+import { explain, tapeLine, TAPE_HEADER } from '../../src/tape.ts';
 import type { SourceTransaction } from '../../src/sources/types.ts';
 
 const SRC = fileURLToPath(new URL('../../src/', import.meta.url));
@@ -194,4 +199,47 @@ test('a Locked row matching the reconciled transaction is warned about twice', (
 test('an ordinary row is warned about not at all', () => {
   const [row] = classify([src()], [actual()], null);
   assert.deepEqual(warnings(row!, null), []);
+});
+
+test('too many correction candidates withholds correcting, and says why', () => {
+  // The prompt reads one keystroke, so a tenth choice could never be entered.
+  // Offering nine of eleven would hide the rest; withholding says so out loud.
+  const many = Array.from({ length: MAX_CORRECTION_CHOICES + 1 }, (_, i) =>
+    actual({ id: `stored-${i}` }),
+  );
+  const [row] = classify([src()], many, null);
+  assert.equal(correctionTargets(row!).length, MAX_CORRECTION_CHOICES + 1);
+  assert.deepEqual(availableActions(row!), ['import', 'leave']);
+  const said = warnings(row!, null);
+  assert.match(said.join('\n'), /too many to choose between at a prompt/);
+});
+
+test('exactly the maximum number of candidates still offers correcting', () => {
+  const many = Array.from({ length: MAX_CORRECTION_CHOICES }, (_, i) =>
+    actual({ id: `stored-${i}` }),
+  );
+  const [row] = classify([src()], many, null);
+  assert.deepEqual(availableActions(row!), ['import', 'correct', 'leave']);
+  assert.deepEqual(warnings(row!, null), []);
+});
+
+test('every Tape header label sits at the start of the field it names', () => {
+  const [row] = classify([src({ payee: 'MIGROS', amountCents: -2345 })], [], null);
+  const line = tapeLine(1, row!);
+  // The amount is right-aligned, so its label's right edge is what must line up.
+  assert.equal(
+    TAPE_HEADER.indexOf('amount') + 'amount'.length,
+    line.indexOf('-23.45') + '-23.45'.length,
+  );
+  for (const [label, field] of [
+    ['date', '2031-'],
+    ['state', 'clean'],
+    ['payee', 'MIGROS'],
+  ] as const) {
+    assert.equal(
+      TAPE_HEADER.indexOf(label),
+      line.indexOf(field),
+      `the ${label} header is not above the ${label} column`,
+    );
+  }
 });

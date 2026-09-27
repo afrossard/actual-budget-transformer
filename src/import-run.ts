@@ -6,27 +6,12 @@
  * confirmation flag the next transaction - a cascade of manufactured noise
  * rather than a finding.
  */
-import { classify, tally, type ActualTransaction } from './classify.ts';
+import { classify, reconciliationBoundary, tally } from './classify.ts';
 import { accountNameFor, type Config } from './config.ts';
 import { parseStatement } from './sources/index.ts';
 import { review, type ReviewIo, type ReviewResult } from './review.ts';
 import type { ActualGateway } from './actual-gateway.ts';
 import type { TapeStyle } from './tape.ts';
-
-/**
- * How far either side of the file's own date range Actual is read.
- *
- * The blind-duplicate check only needs a day, but a transaction this tool wrote
- * earlier may since have been moved by a few days in the UI, and it still has to
- * be recognised by its imported ID rather than imported twice. A week matches
- * the width of Actual's own matcher.
- */
-export const READ_MARGIN_DAYS = 7;
-
-function shift(date: string, days: number): string {
-  const ms = Date.parse(`${date}T00:00:00Z`) + days * 86_400_000;
-  return new Date(ms).toISOString().slice(0, 10);
-}
 
 export type RunOptions = {
   path: string;
@@ -56,14 +41,20 @@ export async function runImport(options: RunOptions): Promise<RunResult> {
   }
 
   const account = await gateway.findAccount(accountName);
-  const boundary = await gateway.reconciliationBoundary(account.id);
 
-  const dates = statement.transactions.map((t) => t.date).sort();
-  const existing: ActualTransaction[] = await gateway.getTransactions(
-    account.id,
-    shift(dates[0]!, -READ_MARGIN_DAYS),
-    shift(dates[dates.length - 1]!, READ_MARGIN_DAYS),
-  );
+  // The account's whole history, in one read, for everything: the boundary, the
+  // imported-ID match, and the amount-and-date match.
+  //
+  // A window around the file's own dates would be enough for the second of
+  // those - it looks a day either side - but not for the first. An imported ID
+  // has to be recognised wherever the transaction now sits, and a transaction
+  // can sit a long way from where this tool wrote it: the cards parser dates a
+  // purchase by `Date d'achat` while the bank books it weeks later, so someone
+  // re-dating it in Actual to its booking date moves it outside any sensible
+  // window. Miss that and the row comes back as Clean, which claims nothing in
+  // Actual looks like it, and the human confirms a duplicate.
+  const existing = await gateway.getAccountHistory(account.id);
+  const boundary = reconciliationBoundary(existing);
 
   const rows = classify(statement.transactions, existing, boundary);
   const counts = tally(rows);

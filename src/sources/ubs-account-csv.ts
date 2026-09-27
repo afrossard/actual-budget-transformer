@@ -6,7 +6,7 @@
  * written and did not is a fact about the row, not something to paper over.
  */
 import { cell, joinNotes, readRows } from './delimited.ts';
-import { signedAmountCents } from '../money.ts';
+import { readAmount } from '../money.ts';
 import type { DroppedRow, ParsedStatement, SourceTransaction } from './types.ts';
 
 export const FORMAT = 'ubs-account-csv';
@@ -99,11 +99,11 @@ export function parse(path: string): ParsedStatement {
       continue;
     }
 
-    const amountCents = signedAmountCents(cell(row, COL.debit), cell(row, COL.credit));
-    if (amountCents === null) {
+    const amount = readAmount(cell(row, COL.debit), cell(row, COL.credit));
+    if ('problem' in amount || 'empty' in amount) {
       dropped.push({
         sourceLine,
-        reason: 'no debit and no credit',
+        reason: 'problem' in amount ? amount.problem : 'no debit and no credit',
         raw: row.join(';'),
       });
       continue;
@@ -112,7 +112,7 @@ export function parse(path: string): ParsedStatement {
     const reference = cell(row, COL.reference);
     transactions.push({
       date,
-      amountCents,
+      amountCents: amount.cents,
       payee: cell(row, COL.payee),
       notes: joinNotes([
         cell(row, COL.note1),

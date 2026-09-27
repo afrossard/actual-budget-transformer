@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   assertVersionCompatible,
+  infoUrl,
   installedApiVersion,
 } from '../../src/actual-version.ts';
 
@@ -45,4 +46,19 @@ test('the pinned api version is read from the installed package, so it cannot dr
   // ADR-007's sketch kept this as a literal for bundle safety; there is no
   // bundling step here, and the bridge's literal has already drifted.
   assert.match(installedApiVersion() ?? '', /^\d+\.\d+\.\d+$/);
+});
+
+test('the /info probe keeps the server URL base path', () => {
+  // `new URL('/info', base)` throws the base path away, which 404s for a server
+  // behind a subpath reverse proxy and aborts the run on an unknown version.
+  assert.equal(
+    infoUrl('https://host.example/actual/').href,
+    'https://host.example/actual/info',
+  );
+  assert.equal(
+    infoUrl('https://host.example/actual').href,
+    'https://host.example/actual/info',
+  );
+  assert.equal(infoUrl('http://localhost:5006').href, 'http://localhost:5006/info');
+  assert.equal(infoUrl('http://localhost:5006/').href, 'http://localhost:5006/info');
 });

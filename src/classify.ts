@@ -56,6 +56,23 @@ export type ClassifiedRow = {
   reasons: Evidence[];
 };
 
+/**
+ * The reconciliation boundary: the date of the newest reconciled transaction.
+ *
+ * Actual has no such field, so it is derived. Pass the account's whole history -
+ * a window would silently lower the boundary, and a lower boundary means a row
+ * inside an attested range is not classified as if it were.
+ */
+export function reconciliationBoundary(
+  history: readonly ActualTransaction[],
+): string | null {
+  let newest: string | null = null;
+  for (const tx of history) {
+    if (tx.reconciled && (newest === null || tx.date > newest)) newest = tx.date;
+  }
+  return newest;
+}
+
 /** How many days apart two amounts may be and still look like the same event. */
 const BLIND_DUPLICATE_WINDOW_DAYS = 1;
 

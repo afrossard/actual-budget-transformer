@@ -148,21 +148,16 @@ export class ActualGateway {
   }
 
   /**
-   * The reconciliation boundary: the date of the newest reconciled transaction
-   * in the account. Actual has no such field, so it is read off the history.
+   * Everything the account holds, whatever its date.
    *
-   * The window spans the whole calendar deliberately. Capping it at today would
-   * miss a reconciled transaction dated in the future, and the boundary has to
-   * be the newest one wherever it sits, or a source row inside an attested
-   * range would be classified as if it were not.
+   * The span is the whole calendar deliberately. Capping it at today would miss
+   * a transaction dated in the future - Actual allows them - and both things
+   * this feeds need the complete set: the reconciliation boundary is the newest
+   * reconciled date wherever it sits, and an imported ID has to be recognised
+   * wherever the transaction now sits.
    */
-  async reconciliationBoundary(accountId: string): Promise<string | null> {
-    const rows = await this.getTransactions(accountId, '1000-01-01', '9999-12-31');
-    let newest: string | null = null;
-    for (const tx of rows) {
-      if (tx.reconciled && (newest === null || tx.date > newest)) newest = tx.date;
-    }
-    return newest;
+  async getAccountHistory(accountId: string): Promise<ActualTransaction[]> {
+    return this.getTransactions(accountId, '1000-01-01', '9999-12-31');
   }
 
   /** The payee's own name, so the Tape can show it rather than a raw string. */
@@ -204,6 +199,11 @@ export class ActualGateway {
         ...(tx.importedId === '' ? {} : { imported_id: tx.importedId }),
       },
     ]);
+    // `payee_name` makes Actual resolve or create the payee server-side, so the
+    // cached list is now behind. Keeping it would make a later correction on the
+    // same payee miss the one that was just created and create a second payee
+    // with the same name.
+    this.#payeeNames = null;
   }
 
   /**
