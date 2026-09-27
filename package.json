@@ -3,11 +3,14 @@
   "version": "1.0.0",
   "private": true,
   "description": "CLI tool that transforms bank statements into Actual Budget imports",
+  "type": "module",
   "scripts": {
-    "typecheck": "echo 'SKIP: @actual-app/core ships raw .ts source that fails strict checks — tsc unusable until upstream fixes packaging'",
-    "format": "prettier --write 'src/**/*.ts' 'scripts/**/*.ts'",
-    "format:check": "prettier --check 'src/**/*.ts' 'scripts/**/*.ts'",
-    "bootstrap": "ACTUAL_DATA_DIR=/tmp/actual-data tsx scripts/bootstrap_test_budget.ts"
+    "import": "node src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write 'src/**/*.ts' 'scripts/**/*.ts' 'tests/ts/**/*.ts'",
+    "format:check": "prettier --check 'src/**/*.ts' 'scripts/**/*.ts' 'tests/ts/**/*.ts'",
+    "test": "node --test --test-concurrency=1 'tests/ts/**/*.test.ts'",
+    "bootstrap": "ACTUAL_DATA_DIR=/tmp/actual-data node scripts/bootstrap_test_budget.ts"
   },
   "repository": {
     "type": "git",
@@ -15,7 +18,9 @@
   },
   "license": "ISC",
   "dependencies": {
-    "@actual-app/api": "26.5.2"
+    "@actual-app/api": "26.5.2",
+    "csv-parse": "^7.0.3",
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
