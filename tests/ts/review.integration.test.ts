@@ -77,8 +77,8 @@ describe('integration: the review loop', { skip }, () => {
     assert.equal(boundary, scenario.boundary);
   });
 
-  it('reaches every one of the four states on one seeded month', async () => {
-    const { scenario, existing, boundary } = await arrange('states');
+  it('reaches every one of the four buckets on one seeded month', async () => {
+    const { scenario, existing, boundary } = await arrange('buckets');
     const rows = classify(scenario.source, existing, boundary);
 
     assert.deepEqual(tally(rows), {
@@ -88,7 +88,7 @@ describe('integration: the review loop', { skip }, () => {
       clean: 8,
     });
     assert.deepEqual(
-      rows.map((r) => `${r.source.payee} ${r.state}`),
+      rows.map((r) => `${r.source.payee} ${r.bucket}`),
       [
         'SUPERMARKET CORRECTION locked',
         'MIGROS clean',
@@ -158,7 +158,7 @@ describe('integration: the review loop', { skip }, () => {
       await arrange('locked-declined');
     const rows = classify(scenario.source, existing, boundary);
     const locked = rows[0]!;
-    assert.equal(locked.state, 'locked');
+    assert.equal(locked.bucket, 'locked');
 
     const before = existing.find((t) => t.id === scenario.reconciledId)!;
     const io = createScriptedIo(['l']);
@@ -250,7 +250,7 @@ describe('integration: the review loop', { skip }, () => {
       await arrange('amount-mismatch');
     const rows = classify(scenario.source, existing, boundary);
     const changed = rows.find((r) => r.source.payee === 'PRICE CHANGED')!;
-    assert.equal(changed.state, 'skip');
+    assert.equal(changed.bucket, 'skip');
 
     const io = createScriptedIo(['c']);
     const result = await review({
@@ -280,7 +280,7 @@ describe('integration: the review loop', { skip }, () => {
       await arrange('force');
     const rows = classify(scenario.source, existing, boundary);
     const salary = rows.find((r) => r.source.payee === 'SALARY ACME SA')!;
-    assert.equal(salary.state, 'skip');
+    assert.equal(salary.bucket, 'skip');
 
     const io = createScriptedIo(['f']);
     const result = await review({
@@ -308,7 +308,7 @@ describe('integration: the review loop', { skip }, () => {
     const first = classify(scenario.source, existing, boundary);
 
     // Import everything importable; leave the rest.
-    const firstAnswers = first.map((row) => (row.state === 'skip' ? 'l' : 'i'));
+    const firstAnswers = first.map((row) => (row.bucket === 'skip' ? 'l' : 'i'));
     const firstResult = await review({
       gateway: session.gateway,
       accountId,
@@ -331,15 +331,15 @@ describe('integration: the review loop', { skip }, () => {
     // Everything that carried a reference and was written comes back as Skip.
     const withReference = second.filter((r) => r.source.importedId !== '');
     assert.equal(
-      withReference.every((r) => r.state === 'skip'),
+      withReference.every((r) => r.bucket === 'skip'),
       true,
-      withReference.map((r) => `${r.source.payee} ${r.state}`).join(', '),
+      withReference.map((r) => `${r.source.payee} ${r.bucket}`).join(', '),
     );
     // The reference-less twins cannot Skip, so they surface as Suspicious
     // against what the first run wrote rather than being written again.
     const twins = second.filter((r) => r.source.importedId === '');
     assert.deepEqual(
-      twins.map((r) => r.state),
+      twins.map((r) => r.bucket),
       ['suspicious', 'suspicious'],
     );
 
@@ -433,7 +433,7 @@ describe('integration: the review loop', { skip }, () => {
     ];
     const rows = classify(source, existing, null);
     assert.deepEqual(
-      rows.map((r) => r.state),
+      rows.map((r) => r.bucket),
       ['clean', 'suspicious'],
     );
 

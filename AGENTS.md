@@ -83,7 +83,7 @@ src/
     └── ubs-*.ts        # one parser factory per statement format
 ```
 
-**The two seams are pre-agreed and closed.** The classifier takes source transactions plus Actual transactions and returns four states; most tests live there. The gateway is integration-tested against a real server. The review loop is tested through the gateway rather than given a seam of its own. Do not add a third.
+**The two seams are pre-agreed and closed.** The classifier takes source transactions plus Actual transactions and returns four buckets; most tests live there. The gateway is integration-tested against a real server. The review loop is tested through the gateway rather than given a seam of its own. Do not add a third.
 
 ### Rules the code enforces, and why
 
@@ -96,7 +96,7 @@ src/
 | Classify once per batch | `import-run.ts` | Re-reading Actual between prompts makes each confirmation flag the next transaction — #50's noise, manufactured. |
 | A decline is a decision | `review.ts`, `tape.ts` | Skip and Locked rows are prompted and show what they matched. Bank data never goes out on a log line. |
 | A minted imported ID hashes the reference columns **verbatim** | `sources/ubs-cards-csv.ts` | Not the parsed date. Correcting `date_format` after a UBS change is exactly what the config is for, and it must not silently renumber every transaction already written. |
-| Two source rows sharing an identity key make the **later one Suspicious** | `classify.ts` `identityKey` | Not in #41's scope list, and **kept deliberately** (review, 2026-09-28). It implements #38's closing recommendation to catch the twins by comparing source rows to each other, using the existing four states rather than a fifth. For reference-less twins it is informational - both are still written if confirmed, because the bank's file is authoritative on the count - and it stops the human declining one of two identical Clean lines by mistake. For a **repeated non-blank reference** it is a real guard: writing both would put two rows in Actual under one `imported_id`, and our own next run's Skip could not tell them apart. |
+| Two source rows sharing an identity key make the **later one Suspicious** | `classify.ts` `identityKey` | Not in #41's scope list, and **kept deliberately** (review, 2026-09-28). It implements #38's closing recommendation to catch the twins by comparing source rows to each other, using the existing four buckets rather than a fifth. For reference-less twins it is informational - both are still written if confirmed, because the bank's file is authoritative on the count - and it stops the human declining one of two identical Clean lines by mistake. For a **repeated non-blank reference** it is a real guard: writing both would put two rows in Actual under one `imported_id`, and our own next run's Skip could not tell them apart. |
 | Read the account's **whole** history, never a window around the file's dates | `import-run.ts`, `gateway.getAccountHistory` | An imported ID has to be recognised wherever the transaction now sits. The cards parser dates a purchase by `Date d'achat` while the bank books it weeks later, so re-dating it in Actual moves it outside any sensible window — and a missed imported ID means the row comes back as Clean, which claims nothing in Actual looks like it. Guarded by the `re-dated` test. |
 
 ### Testing it

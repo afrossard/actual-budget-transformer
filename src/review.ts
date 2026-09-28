@@ -87,11 +87,11 @@ export const MAX_CORRECTION_CHOICES = 9;
  */
 export function availableActions(row: ClassifiedRow): Action[] {
   const actions: Action[] = [];
-  if (row.state !== 'skip') actions.push('import');
+  if (row.bucket !== 'skip') actions.push('import');
   const targets = correctionTargets(row).length;
   if (targets > 0 && targets <= MAX_CORRECTION_CHOICES) actions.push('correct');
   actions.push('leave');
-  if (row.state === 'skip') actions.push('force');
+  if (row.bucket === 'skip') actions.push('force');
   return actions;
 }
 
@@ -282,7 +282,7 @@ async function apply(args: {
  */
 export function warnings(row: ClassifiedRow, boundary: string | null): string[] {
   const lines: string[] = [];
-  if (row.state === 'locked') {
+  if (row.bucket === 'locked') {
     lines.push(
       `this date is inside the reconciled range (boundary ${boundary}). ` +
         'Anything written here changes a range you have already attested to.',
