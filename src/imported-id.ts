@@ -16,8 +16,22 @@ export const MINTED_PREFIX = 'abt1-';
 /** Marker between a base ID and the copy index a forced write appends. */
 const FORCED_SEPARATOR = '~dup';
 
+/**
+ * Hash the parts into a minted ID.
+ *
+ * The parts are JSON-encoded rather than joined on a separator, because a plain
+ * join is ambiguous: `['A|B', 'C']` and `['A', 'B|C']` both flatten to `A|B|C`
+ * and so mint the *same* ID for different transactions. That is not a
+ * theoretical worry in the wrong direction - the ID is written to Actual, so a
+ * collision means two genuinely different transactions share an `imported_id`,
+ * and the next run reports the second as Skip, "already in Actual". A human
+ * would then decline a real transaction on the tool's false evidence, which is
+ * precisely the silent loss the rest of this design exists to prevent.
+ */
 export function mintFromParts(parts: readonly (string | number)[]): string {
-  const digest = createHash('sha256').update(parts.join('|')).digest('hex');
+  const digest = createHash('sha256')
+    .update(JSON.stringify(parts.map((p) => String(p))))
+    .digest('hex');
   return MINTED_PREFIX + digest.slice(0, 16);
 }
 
