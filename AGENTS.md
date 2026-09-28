@@ -28,6 +28,10 @@ Until the TypeScript CLI reaches parity on both UBS CSV inputs, both live side b
 
 See "The TypeScript import CLI" below for the new codebase, and everything from "Processor pattern" onwards for the Python one.
 
+**The TypeScript stays at `src/*.ts` and is not nested** (decided in review, 2026-09-28). `src/` is the source root, which is the plain Node convention; nesting would only earn its place with multiple packages, and that would be a workspace layout (`packages/*`) rather than a folder. The one cost is today's: `tests/ts/write-path.test.ts` has to skip `src/actual_budget_transformer/` when it walks the tree, and that ends when the Python goes - at which point `src/` is purely TypeScript with no rename needed.
+
+> **Do not run `--format actual`** until the Python package is deleted. It inverts the sign of every UBS account CSV transaction (#59, blocked by #41): a payment of 186.65 lands as income of 186.65. Use `npm run import` instead, which takes the sign from the debit/credit *column* rather than the value. The file-output formats (`csv`, `camt053`) are unaffected - they never compute a signed amount.
+
 ---
 
 ## The TypeScript import CLI
@@ -92,6 +96,7 @@ src/
 | Classify once per batch | `import-run.ts` | Re-reading Actual between prompts makes each confirmation flag the next transaction — #50's noise, manufactured. |
 | A decline is a decision | `review.ts`, `tape.ts` | Skip and Locked rows are prompted and show what they matched. Bank data never goes out on a log line. |
 | A minted imported ID hashes the reference columns **verbatim** | `sources/ubs-cards-csv.ts` | Not the parsed date. Correcting `date_format` after a UBS change is exactly what the config is for, and it must not silently renumber every transaction already written. |
+| Two source rows sharing an identity key make the **later one Suspicious** | `classify.ts` `identityKey` | Not in #41's scope list, and **kept deliberately** (review, 2026-09-28). It implements #38's closing recommendation to catch the twins by comparing source rows to each other, using the existing four states rather than a fifth. For reference-less twins it is informational - both are still written if confirmed, because the bank's file is authoritative on the count - and it stops the human declining one of two identical Clean lines by mistake. For a **repeated non-blank reference** it is a real guard: writing both would put two rows in Actual under one `imported_id`, and our own next run's Skip could not tell them apart. |
 | Read the account's **whole** history, never a window around the file's dates | `import-run.ts`, `gateway.getAccountHistory` | An imported ID has to be recognised wherever the transaction now sits. The cards parser dates a purchase by `Date d'achat` while the bank books it weeks later, so re-dating it in Actual moves it outside any sensible window — and a missed imported ID means the row comes back as Clean, which claims nothing in Actual looks like it. Guarded by the `re-dated` test. |
 
 ### Testing it
