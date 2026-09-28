@@ -83,7 +83,7 @@ describe('integration: a whole run from a statement file', { skip }, () => {
     assert.equal(stored[0]!.imported_id, '1234563AB9269773');
 
     const second = await run(config, path, () => 'l', 1);
-    assert.equal(second.result.outcomes[0]!.row.state, 'skip');
+    assert.equal(second.result.outcomes[0]!.row.bucket, 'skip');
     assert.equal(second.result.outcomes[0]!.wrote, 'nothing');
     assert.equal(
       (await session.gateway.getTransactions(accountId, '2022-01-01', '2024-12-31'))
@@ -119,7 +119,7 @@ describe('integration: a whole run from a statement file', { skip }, () => {
 
     const second = await run(config, path, () => 'l', 3);
     assert.deepEqual(
-      second.result.outcomes.map((o) => o.row.state),
+      second.result.outcomes.map((o) => o.row.bucket),
       ['skip', 'skip', 'skip'],
     );
     assert.equal(
@@ -154,7 +154,7 @@ describe('integration: a whole run from a statement file', { skip }, () => {
 
     const second = await run(config, path, () => 'l', 3);
     assert.deepEqual(
-      second.result.outcomes.map((o) => o.row.state),
+      second.result.outcomes.map((o) => o.row.bucket),
       ['skip', 'skip', 'skip'],
       'the re-dated transaction is still recognised by its imported ID',
     );

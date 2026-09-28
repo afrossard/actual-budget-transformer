@@ -39,7 +39,7 @@ function actual(over: Partial<ActualTransaction> = {}): ActualTransaction {
 
 test('a source transaction nothing matches is Clean', () => {
   const [row] = classify([src()], [], null);
-  assert.equal(row!.state, 'clean');
+  assert.equal(row!.bucket, 'clean');
   assert.deepEqual(
     row!.reasons.map((r) => r.kind),
     ['no-match'],
@@ -49,7 +49,7 @@ test('a source transaction nothing matches is Clean', () => {
 test('an imported ID already in Actual is Skip, and names the row it matched', () => {
   const stored = actual({ imported_id: 'T-BANK-1', id: 'stored-1' });
   const [row] = classify([src({ importedId: 'T-BANK-1' })], [stored], null);
-  assert.equal(row!.state, 'skip');
+  assert.equal(row!.bucket, 'skip');
   const [reason] = row!.reasons;
   assert.equal(reason!.kind, 'already-imported');
   assert.equal(reason!.kind === 'already-imported' && reason.matched.id, 'stored-1');
@@ -64,7 +64,7 @@ test('a blank imported ID never matches a blank stored one', () => {
     [handEntry],
     null,
   );
-  assert.notEqual(row!.state, 'skip');
+  assert.notEqual(row!.bucket, 'skip');
 });
 
 test('same amount within one day is Suspicious, and carries every candidate', () => {
@@ -73,7 +73,7 @@ test('same amount within one day is Suspicious, and carries every candidate', ()
   const far = actual({ date: '2031-03-13', amount: -450, id: 'hand-3' });
   const other = actual({ date: '2031-03-10', amount: -999, id: 'hand-4' });
   const [row] = classify([src()], [near, also, far, other], null);
-  assert.equal(row!.state, 'suspicious');
+  assert.equal(row!.bucket, 'suspicious');
   const reason = row!.reasons.find((r) => r.kind === 'same-amount-within-one-day');
   assert.ok(reason);
   assert.deepEqual(
@@ -88,7 +88,7 @@ test('a candidate that already holds a different imported ID still counts', () =
   // is the only thing that catches it.
   const reExported = actual({ date: '2031-03-10', imported_id: 'OLD-REF', id: 'prev' });
   const [row] = classify([src({ importedId: 'NEW-REF' })], [reExported], null);
-  assert.equal(row!.state, 'suspicious');
+  assert.equal(row!.bucket, 'suspicious');
 });
 
 test('dated on or before the boundary is Locked', () => {
@@ -102,7 +102,7 @@ test('dated on or before the boundary is Locked', () => {
     '2020-06-15',
   );
   assert.deepEqual(
-    rows.map((r) => r.state),
+    rows.map((r) => r.bucket),
     ['locked', 'locked', 'clean'],
   );
   const reason = rows[0]!.reasons.find((r) => r.kind === 'inside-reconciled-range');
@@ -116,7 +116,7 @@ test('dated on or before the boundary is Locked', () => {
 test('Locked still carries the match evidence a write would touch', () => {
   const stored = actual({ date: '2020-06-15', amount: -450, id: 'locked-match' });
   const [row] = classify([src({ date: '2020-06-15' })], [stored], '2020-06-30');
-  assert.equal(row!.state, 'locked');
+  assert.equal(row!.bucket, 'locked');
   assert.deepEqual(
     row!.reasons.map((r) => r.kind),
     ['inside-reconciled-range', 'same-amount-within-one-day'],
@@ -130,7 +130,7 @@ test('Skip wins over Locked, so a re-run of an old file stays quiet', () => {
     [stored],
     '2020-06-30',
   );
-  assert.equal(row!.state, 'skip');
+  assert.equal(row!.bucket, 'skip');
 });
 
 test('a source row repeated inside one file is Suspicious, not a silent drop', () => {
@@ -150,8 +150,8 @@ test('a source row repeated inside one file is Suspicious, not a silent drop', (
     [],
     null,
   );
-  assert.equal(rows[0]!.state, 'clean');
-  assert.equal(rows[1]!.state, 'suspicious');
+  assert.equal(rows[0]!.bucket, 'clean');
+  assert.equal(rows[1]!.bucket, 'suspicious');
   const reason = rows[1]!.reasons.find((r) => r.kind === 'repeated-in-this-file');
   assert.ok(reason);
   assert.equal(reason.kind === 'repeated-in-this-file' && reason.firstSeenLine, 11);
@@ -169,7 +169,7 @@ test('classification does not shift as earlier rows are confirmed', () => {
     null,
   );
   assert.deepEqual(
-    rows.map((r) => r.state),
+    rows.map((r) => r.bucket),
     ['suspicious', 'clean', 'clean', 'clean', 'clean'],
   );
 });
@@ -186,7 +186,7 @@ test('the row paired by imported ID is not also listed as a blind duplicate', ()
   // Otherwise a Skip's evidence names the same transaction twice.
   const stored = actual({ imported_id: 'T-X', id: 'stored-x' });
   const [row] = classify([src({ importedId: 'T-X' })], [stored], null);
-  assert.equal(row!.state, 'skip');
+  assert.equal(row!.bucket, 'skip');
   assert.deepEqual(
     row!.reasons.map((r) => r.kind),
     ['already-imported'],
@@ -197,7 +197,7 @@ test('a different transaction on the same day is still a blind duplicate of a Sk
   const paired = actual({ imported_id: 'T-X', id: 'stored-x' });
   const other = actual({ imported_id: null, id: 'stored-y' });
   const [row] = classify([src({ importedId: 'T-X' })], [paired, other], null);
-  assert.equal(row!.state, 'skip');
+  assert.equal(row!.bucket, 'skip');
   const reason = row!.reasons.find((r) => r.kind === 'same-amount-within-one-day');
   assert.deepEqual(
     reason?.kind === 'same-amount-within-one-day' && reason.candidates.map((c) => c.id),
@@ -215,7 +215,7 @@ test('an imported ID is recognised however far the transaction has been moved', 
     [moved],
     null,
   );
-  assert.equal(row!.state, 'skip');
+  assert.equal(row!.bucket, 'skip');
 });
 
 test('reconciliationBoundary takes the newest reconciled date, ignoring the rest', () => {

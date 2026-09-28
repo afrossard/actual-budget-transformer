@@ -1,6 +1,6 @@
 /**
  * The classifier: source transactions plus what Actual already holds in, four
- * states out. Pure — no server, no I/O, no clock.
+ * buckets out. Pure — no server, no I/O, no clock.
  *
  * Classification happens **once per batch**. Re-reading Actual before each
  * prompt would make every confirmation flag the next transaction, which is a
@@ -24,18 +24,22 @@ export type ActualTransaction = {
 };
 
 /**
- * What the tool proposes to do with a source transaction.
+ * The bucket a source transaction lands in - `CONTEXT.md`'s term, which the
+ * glossary prefers over "state", "status" and especially "category" (that means
+ * something else in Actual). This is a sorting outcome, not a budget category.
+ *
+ * What the tool proposes to do with a source transaction:
  *
  * - `clean` — nothing in Actual looks like it.
  * - `suspicious` — something does, but not confidently enough to pair.
  * - `skip` — its imported ID is already in Actual; nothing left to do.
  * - `locked` — dated on or before the reconciliation boundary.
  */
-export type RowState = 'clean' | 'suspicious' | 'skip' | 'locked';
+export type Bucket = 'clean' | 'suspicious' | 'skip' | 'locked';
 
 /**
- * Why a row is in its state. The classifier returns this rather than only the
- * state: a decline is a decision, and the human cannot make it without seeing
+ * Why a row is in its bucket. The classifier returns this rather than only the
+ * bucket: a decline is a decision, and the human cannot make it without seeing
  * what the tool matched and on what basis.
  */
 export type Evidence =
@@ -51,7 +55,7 @@ export type Evidence =
 
 export type ClassifiedRow = {
   source: SourceTransaction;
-  state: RowState;
+  bucket: Bucket;
   /** Every reason that applies, most decisive first. */
   reasons: Evidence[];
 };
@@ -111,8 +115,8 @@ export function classify(
 
   const byAmount = new Map<number, ActualTransaction[]>();
   for (const tx of existing) {
-    const bucket = byAmount.get(tx.amount);
-    if (bucket) bucket.push(tx);
+    const sameAmount = byAmount.get(tx.amount);
+    if (sameAmount) sameAmount.push(tx);
     else byAmount.set(tx.amount, [tx]);
   }
 
@@ -138,21 +142,21 @@ export function classify(
     const repeatOf = firstSeen.get(key);
     if (repeatOf === undefined) firstSeen.set(key, source.sourceLine);
 
-    let state: RowState;
+    let bucket: Bucket;
     if (alreadyImported) {
-      state = 'skip';
+      bucket = 'skip';
       reasons.push({ kind: 'already-imported', matched: alreadyImported });
     } else if (boundary !== null && source.date <= boundary) {
-      state = 'locked';
+      bucket = 'locked';
       reasons.push({
         kind: 'inside-reconciled-range',
         boundary,
         matched: candidates[0] ?? null,
       });
     } else if (candidates.length > 0 || repeatOf !== undefined) {
-      state = 'suspicious';
+      bucket = 'suspicious';
     } else {
-      state = 'clean';
+      bucket = 'clean';
     }
 
     if (candidates.length > 0) {
@@ -163,20 +167,20 @@ export function classify(
     }
     if (reasons.length === 0) reasons.push({ kind: 'no-match' });
 
-    rows.push({ source, state, reasons });
+    rows.push({ source, bucket, reasons });
   }
 
   return rows;
 }
 
-/** Count rows per state, for the Tape's header and the run's closing line. */
-export function tally(rows: readonly ClassifiedRow[]): Record<RowState, number> {
-  const counts: Record<RowState, number> = {
+/** Count rows per bucket, for the Tape's header and the run's closing line. */
+export function tally(rows: readonly ClassifiedRow[]): Record<Bucket, number> {
+  const counts: Record<Bucket, number> = {
     clean: 0,
     suspicious: 0,
     skip: 0,
     locked: 0,
   };
-  for (const row of rows) counts[row.state] += 1;
+  for (const row of rows) counts[row.bucket] += 1;
   return counts;
 }

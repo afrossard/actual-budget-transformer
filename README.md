@@ -24,9 +24,9 @@ npm ci
 ACTUAL_BUDGET_PASSWORD=… npm run import -- -c config.yaml statement.csv
 ```
 
-It reads the account from the file, reads the account's history from Actual, and classifies every transaction once into one of four states:
+It reads the account from the file, reads the account's history from Actual, and classifies every transaction once into one of four buckets:
 
-| State | Meaning |
+| Bucket | Meaning |
 | --- | --- |
 | **clean** | nothing in Actual looks like it |
 | **suspicious** | something does — same amount within a day — but not confidently enough to pair |

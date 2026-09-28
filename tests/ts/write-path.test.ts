@@ -173,7 +173,7 @@ test('a row just after the boundary that matches a reconciled transaction is war
     [actual({ date: '2020-06-30', reconciled: true, id: 'attested' })],
     '2020-06-30',
   );
-  assert.equal(row!.state, 'suspicious');
+  assert.equal(row!.bucket, 'suspicious');
   const said = warnings(row!, '2020-06-30');
   assert.equal(said.length, 1);
   assert.match(said[0]!, /1 of the transaction\(s\) this could correct is reconciled/);
@@ -233,7 +233,7 @@ test('every Tape header label sits at the start of the field it names', () => {
   );
   for (const [label, field] of [
     ['date', '2031-'],
-    ['state', 'clean'],
+    ['bucket', 'clean'],
     ['payee', 'MIGROS'],
   ] as const) {
     assert.equal(

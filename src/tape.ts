@@ -7,18 +7,13 @@
  * away, and bank data is never dropped on a log line.
  */
 import { formatCents } from './money.ts';
-import type {
-  ActualTransaction,
-  ClassifiedRow,
-  Evidence,
-  RowState,
-} from './classify.ts';
+import type { ActualTransaction, ClassifiedRow, Evidence, Bucket } from './classify.ts';
 
 const ESC = `${String.fromCharCode(27)}[`;
 const RESET = `${ESC}0m`;
 const DIM = `${ESC}2m`;
 
-const STYLE: Record<RowState, string> = {
+const STYLE: Record<Bucket, string> = {
   clean: `${ESC}32m`, // green: nothing in the way
   suspicious: `${ESC}33m`, // yellow: something is
   skip: DIM, // dim: already done
@@ -82,7 +77,7 @@ const WIDTH = {
   date: 10,
   /** Right-aligned, so `formatCents`'s own width has to match. */
   amount: 10,
-  state: 10,
+  bucket: 10,
   payee: 32,
 } as const;
 
@@ -92,12 +87,12 @@ export function tapeLine(
   row: ClassifiedRow,
   style: TapeStyle = { colour: false },
 ): string {
-  const { source, state } = row;
+  const { source, bucket } = row;
   const head = [
     String(index).padStart(WIDTH.index),
     source.date.padEnd(WIDTH.date),
     formatCents(source.amountCents, WIDTH.amount),
-    paint(state.padEnd(WIDTH.state), STYLE[state], style),
+    paint(bucket.padEnd(WIDTH.bucket), STYLE[bucket], style),
     source.payee.slice(0, WIDTH.payee).padEnd(WIDTH.payee),
   ].join(' ');
   const why = explain(row.reasons);
@@ -109,7 +104,7 @@ export const TAPE_HEADER = [
   '#'.padStart(WIDTH.index),
   'date'.padEnd(WIDTH.date),
   'amount'.padStart(WIDTH.amount),
-  'state'.padEnd(WIDTH.state),
+  'bucket'.padEnd(WIDTH.bucket),
   'payee'.padEnd(WIDTH.payee),
   'why',
 ].join(' ');

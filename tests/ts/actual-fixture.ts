@@ -1,6 +1,6 @@
 /**
  * The integration suite's harness: a real Actual server, a fresh account per
- * run, and one seeded month that hits every state at once.
+ * run, and one seeded month that hits every bucket at once.
  *
  * The fixture design is carried over from the #38 prototype (`scenario_source`
  * + `seed_actual`): a pre-boundary transaction inside the reconciled range, a
