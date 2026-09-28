@@ -116,9 +116,15 @@ ACTUAL_SERVER_URL=http://localhost:5006 npm test
 ### Choices, so they are not re-litigated
 
 - **Test runner: `node:test`.** Zero dependencies, and Node 24 runs `.ts` files directly. Native type stripping forbids `enum` and parameter properties — use unions and an explicit constructor body.
-- **CSV parsing: `csv-parse`.** The node-csv project's parser, the standard for Node rather than merely a popular one. Verified against the real fixtures: it handles the quoted field with an embedded semicolon, the ragged column counts, and `latin1`. Hand-rolling was rejected after testing the alternative, not before.
-- **YAML: `yaml`.** Reads the same `config.yml` the Python path uses.
-- **Only two config blocks are read**, `account_names` and `actual_budget`. Column names, encodings, date formats and the reference columns are facts about the export format, so they are constants in the parsers, not settings.
+- **CSV parsing: `csv-parse`, because Actual already depends on it.** `@actual-app/core` pulls in `csv-parse`, and at api 26.9.0 that is the same 7.0.3 we ask for, so npm dedupes to **one** copy. Any other parser adds a second, unrelated CSV library beside it.
+
+  The reasoning first given here — that it is "the standard for Node rather than merely popular" — did not survive review. papaparse was driven against the same fixtures and handles both files with zero errors, including the ragged rows and the quoted `;`. It also has three times the stars (13.6k vs 4.3k). Capability was never the differentiator.
+
+  On security, csv-parse is the one with the **recent** advisory, so this is a trade rather than a win: GHSA-8cw4-87c7-c6xx (moderate, 2026-09-08) is *"prototype replacement **still** reachable via columns path"*, and "still" means an earlier fix was incomplete. We are clear twice — it is fixed in 7.0.2 and we pin `^7.0.3`, and the parsers never pass the `columns` option because the header sits on line 10. Both parsers also carry an ancient ReDoS, fixed long before the versions in use. csv-parse has npm provenance attestations where papaparse does not; papaparse has two maintainers where csv-parse has one.
+
+  **Run `npm audit` after touching dependencies.** It was not run while this code was written, and the tree then carried three high advisories, all transitive through a stale `@actual-app/api`.
+- **YAML: `yaml`.** Reads the same `config.yml` the Python path uses. Both its advisories are fixed well below the pinned version.
+- **The bank's column names, encodings, separators and date formats are `config.yml` settings, not constants.** They were briefly hard-coded here on the grounds that they describe the export rather than the user's preferences. That was wrong twice over: UBS changes its exports without announcing it, and the labels are in the language of the user's e-banking, so they move when that setting moves. Either way the person hitting it has to be able to fix it by editing a file, which is why they were in a config file to begin with. `src/sources/formats.ts` holds the defaults; `processors.ubs_csv` / `processors.ubs_cards` override them key by key, in **the same schema the Python path reads**, so one file serves both. A partial block keeps the defaults for what it does not restate, and a test asserts `config.template.yml` and the defaults have not drifted apart.
 - **Minted imported IDs are prefixed `abt1-`**, where `1` versions the scheme, so a change to how IDs are derived is visible rather than silent. They are not byte-compatible with the Python path's hashes, which is fine: nothing has ever been written to the real budget (#32 is still open).
 
 ---
