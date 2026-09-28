@@ -1,8 +1,24 @@
 /**
  * Money is integer cents everywhere past the parsers, which is Actual's own
- * representation. Amounts are parsed straight from the decimal strings the
- * bank writes rather than through a float, so `18.65` is exactly 1865 and not
- * 1864.9999999999998.
+ * representation (`IntegerAmount` in `@actual-app/core/shared/util`).
+ *
+ * Actual ships the conversion publicly as `api.utils.amountToInteger`, which is
+ * `Math.round(amount * 100)` and agrees with `parseCents` on every input a bank
+ * writes. We keep our own for two reasons that are not about the arithmetic:
+ *
+ * - **It takes a `number`, and ours takes the bank's string.** `Number()` on a
+ *   cell like `"186.65 CHF"` is `NaN`, and `Math.round(NaN * 100)` is `NaN` - a
+ *   transaction with no amount, written without complaint. `parseCents` throws
+ *   with the offending text instead, and that throw is what routes the row into
+ *   `dropped` with its line number. The validation has to exist either way, and
+ *   once it does the conversion is one more line.
+ * - **The parsers are pure.** `api.utils` only exists once `@actual-app/api` is
+ *   imported, and the gateway is meant to be the only module that imports it -
+ *   there is a test for that. Reaching for it here would also make parsing a CSV
+ *   in a unit test load a native SQLite binary.
+ *
+ * Amounts are therefore parsed straight from the decimal string rather than
+ * through a float, so `18.65` is exactly 1865 with no rounding step needed.
  */
 
 /** Parse a bank-written decimal like `-186.65` or `41` into integer cents. */
