@@ -1,0 +1,4 @@
+processors:
+  ubs_csv:
+    csv_settings:
+      encoding: "EBCDIC"

@@ -9,9 +9,41 @@ See [Actual Budget](https://actualbudget.org/)
   - Credit card transactions CSV files (pending transactions are automatically skipped)
 - CAMT.053 (ISO 20022 XML bank statements)
 
+## Two ways to get transactions into Actual
+
+**Direct import** (`npm run import`) reads a statement and writes into a self-hosted Actual server, asking about every transaction first.
+It is the path being built out, and it currently covers the two UBS CSV formats.
+
+**File output** (`--format csv|camt053|both`) writes files you then import through Actual's own dialog.
+This is the original path and still covers CAMT.053.
+
+### Direct import
+
+```bash
+npm ci
+ACTUAL_BUDGET_PASSWORD=… npm run import -- -c config.yaml statement.csv
+```
+
+It reads the account from the file, reads the account's history from Actual, and classifies every transaction once into one of four buckets:
+
+| Bucket | Meaning |
+| --- | --- |
+| **clean** | nothing in Actual looks like it |
+| **suspicious** | something does — same amount within a day — but not confidently enough to pair |
+| **skip** | its imported ID is already in Actual; nothing left to do |
+| **locked** | dated on or before the newest reconciled transaction |
+
+It then prints one line per transaction — the Tape — and prompts on **every** row, including the ones it is declining, showing what each matched and why.
+Four answers: **i**mport it, **c**orrect the matched transaction from the bank's data, **l**eave it, or **f**orce a separate transaction. `?` shows the detail and `q` stops the run.
+
+Nothing is written without an answer for that transaction, a correction never changes an amount, and re-running the same file writes nothing — which is also how an interrupted run resumes.
+
+Server settings come from the config's `actual_budget` block, overridden by `ACTUAL_BUDGET_URL`, `ACTUAL_BUDGET_PASSWORD` and `ACTUAL_BUDGET_FILE`.
+The account names in `account_names` must match the account names in your budget.
+
 ## Output formats
 
-Use `--format` to select the output format:
+Use `--format` to select the output format for file output:
 
 | Flag | Output | Use case |
 |------|--------|----------|

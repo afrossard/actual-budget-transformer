@@ -25,7 +25,7 @@ def _server_reachable() -> bool:
     try:
         urllib.request.urlopen(f"{SERVER_URL}/account/needs-bootstrap", timeout=2)
         return True
-    except (urllib.error.URLError, OSError):
+    except urllib.error.URLError, OSError:
         return False
 
 

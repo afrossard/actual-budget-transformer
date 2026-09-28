@@ -45,7 +45,7 @@ console.error = toStderr('error');
 
 // Kept in sync with package.json's @actual-app/api dep. Bundle-safe — a
 // literal, no fs/JSON read at runtime. Update on every dep bump.
-const PINNED_API_VERSION = '26.4.0';
+const PINNED_API_VERSION = '26.9.0';
 
 type ActualApi = typeof import('@actual-app/api');
 

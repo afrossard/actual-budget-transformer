@@ -428,9 +428,7 @@ def test_reconciled_boundary_filters_on_or_before(
     )
     # Assertion C: after the boundary still imports — the filter isn't silently
     # dropping everything.
-    assert after_id in by_id, (
-        "source tx dated 2020-07-15 (> boundary) must import"
-    )
+    assert after_id in by_id, "source tx dated 2020-07-15 (> boundary) must import"
 
 
 def test_suspicious_match_assigns_review_category(

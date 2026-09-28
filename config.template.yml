@@ -9,6 +9,13 @@ account_names:
   "1234567890123456": "personal_card"
   "6543210987654321": "partner_card"
 
+# Per-format settings. Read by BOTH the TypeScript import CLI and the Python
+# file-output path, which is why the schema is shared.
+#
+# These are settings rather than constants on purpose: UBS changes its exports
+# without announcing it, and the column labels are in the language of your
+# e-banking, so they change when that setting changes. If an import stops
+# recognising your file, correct the labels here - you do not need a new release.
 processors:
   # UBS CSV Transaction Processor settings
   ubs_csv:
@@ -80,6 +87,10 @@ processors:
     # Columns used to generate a stable transaction reference (hash).
     # Use original-currency fields rather than converted amounts, which
     # can shift between exports due to exchange rate changes.
+    #
+    # WARNING: changing these changes every minted reference, so card
+    # transactions already imported stop matching and come back as new.
+    # Change them on a fresh account, or expect to resolve duplicates by hand.
     reference_columns:
       - "Date d'achat"
       - "Texte comptable"
