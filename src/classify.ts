@@ -90,7 +90,12 @@ function daysApart(a: string, b: string): number {
  */
 function identityKey(tx: SourceTransaction): string {
   if (tx.importedId !== '') return `id:${tx.importedId}`;
-  return `content:${tx.date}|${tx.amountCents}|${tx.payee}|${tx.notes}`;
+  // JSON-encoded, not joined on a separator: a plain join cannot tell
+  // `payee="A|B", notes="C"` from `payee="A", notes="B|C"`. A collision here is
+  // only ever an extra prompt rather than a lost row, but it costs nothing to
+  // make impossible - and it is the same mistake that would matter in
+  // `mintFromParts`, where the result is written.
+  return `content:${JSON.stringify([tx.date, tx.amountCents, tx.payee, tx.notes])}`;
 }
 
 export function classify(
