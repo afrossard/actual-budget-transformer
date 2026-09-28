@@ -64,3 +64,28 @@ test('readAmount reports an unreadable amount instead of throwing', () => {
   });
   assert.match((readAmount('10', '20') as { problem: string }).problem, /both a debit/);
 });
+
+test('parseCents agrees with Actual on every amount a bank writes', () => {
+  // Actual's own `api.utils.amountToInteger` is `Math.round(amount * 100)`. This
+  // pins the agreement without importing the api into a parser test: if the two
+  // ever diverge on bank-shaped input, the divergence should be deliberate.
+  const actualAmountToInteger = (amount: number): number => Math.round(amount * 100);
+  for (const written of [
+    '186.65',
+    '-186.65',
+    '18.65',
+    '0.29',
+    '41',
+    '0.05',
+    '1234.55',
+    '6500.00',
+    '21.62',
+    '0',
+  ]) {
+    assert.equal(
+      parseCents(written),
+      actualAmountToInteger(Number(written)),
+      `disagreed on ${written}`,
+    );
+  }
+});
