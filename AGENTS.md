@@ -115,7 +115,7 @@ ACTUAL_SERVER_URL=http://localhost:5006 npm test
 
 ### Choices, so they are not re-litigated
 
-- **Test runner: `node:test`.** Zero dependencies, and Node 24 runs `.ts` files directly. Native type stripping forbids `enum` and parameter properties — use unions and an explicit constructor body.
+- **Test runner: `node:test`.** Zero dependencies, and Node 24 runs `.ts` files directly. Native type stripping forbids `enum` and parameter properties — use unions and an explicit constructor body. `erasableSyntaxOnly` in `tsconfig.json` makes `tsc` reject exactly what the runtime rejects, so this is enforced rather than remembered.
 - **CSV parsing: `csv-parse`, because Actual already depends on it.** `@actual-app/core` pulls in `csv-parse`, and at api 26.9.0 that is the same 7.0.3 we ask for, so npm dedupes to **one** copy. Any other parser adds a second, unrelated CSV library beside it.
 
   The reasoning first given here — that it is "the standard for Node rather than merely popular" — did not survive review. papaparse was driven against the same fixtures and handles both files with zero errors, including the ragged rows and the quoted `;`. It also has three times the stars (13.6k vs 4.3k). Capability was never the differentiator.
