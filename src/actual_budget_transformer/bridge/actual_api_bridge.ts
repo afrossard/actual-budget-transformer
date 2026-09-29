@@ -116,7 +116,7 @@ interface OkResponse {
 interface ErrResponse {
   id: number;
   ok: false;
-  error: { message: string; stack?: string };
+  error: { message: string; stack?: string | undefined };
 }
 
 let api: ActualApi | undefined;

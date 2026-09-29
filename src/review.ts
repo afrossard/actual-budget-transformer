@@ -121,7 +121,7 @@ export type ReviewOptions = {
   dropped?: readonly DroppedRow[];
   boundary: string | null;
   io: ReviewIo;
-  style?: TapeStyle;
+  style?: TapeStyle | undefined;
 };
 
 export async function review(options: ReviewOptions): Promise<ReviewResult> {
