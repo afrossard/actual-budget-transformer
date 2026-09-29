@@ -5,6 +5,8 @@
     "moduleResolution": "bundler",
     "esModuleInterop": true,
     "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noUnusedLocals": true,
     "erasableSyntaxOnly": true,
     "noUnusedParameters": true,
     "noImplicitReturns": true,
