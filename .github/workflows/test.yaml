@@ -67,6 +67,9 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Lint
+        run: npm run lint
+
       - name: Wait for the Actual server
         run: |
           for _ in $(seq 1 30); do

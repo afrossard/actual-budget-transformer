@@ -71,6 +71,18 @@ export async function openSession(): Promise<Session> {
   return { gateway, api, close: () => gateway.close() };
 }
 
+/**
+ * Close a session that `before` may never have opened.
+ *
+ * `node:test` runs `after` even when `before` threw - which is exactly what
+ * happens when the server goes away mid-suite - and closing nothing beats a
+ * TypeError stacked on top of the real failure. The suites hold their session
+ * in a `let session: Session`, so this is where the "maybe" is stated.
+ */
+export async function closeSession(session: Session | undefined): Promise<void> {
+  await session?.close();
+}
+
 let accountCounter = 0;
 
 /** A fresh, uniquely named account, so this run owns its whole history. */

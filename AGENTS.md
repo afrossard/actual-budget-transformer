@@ -41,6 +41,7 @@ One account at a time: read a bank statement file, read Actual, classify once, p
 ```bash
 npm ci                                   # once
 npm run typecheck                        # tsc --noEmit
+npm run lint                             # type-aware ESLint; see "What the checkers enforce"
 npm test                                 # node:test; integration tests skip if no server
 ACTUAL_BUDGET_PASSWORD=… npm run import -- -c config.yml statement.csv
 ```
@@ -98,6 +99,26 @@ src/
 | A minted imported ID hashes the reference columns **verbatim** | `sources/ubs-cards-csv.ts` | Not the parsed date. Correcting `date_format` after a UBS change is exactly what the config is for, and it must not silently renumber every transaction already written. |
 | Two source rows sharing an identity key make the **later one Suspicious** | `classify.ts` `identityKey` | Not in #41's scope list, and **kept deliberately** (review, 2026-09-28). It implements #38's closing recommendation to catch the twins by comparing source rows to each other, using the existing four buckets rather than a fifth. For reference-less twins it is informational - both are still written if confirmed, because the bank's file is authoritative on the count - and it stops the human declining one of two identical Clean lines by mistake. For a **repeated non-blank reference** it is a real guard: writing both would put two rows in Actual under one `imported_id`, and our own next run's Skip could not tell them apart. |
 | Read the account's **whole** history, never a window around the file's dates | `import-run.ts`, `gateway.getAccountHistory` | An imported ID has to be recognised wherever the transaction now sits. The cards parser dates a purchase by `Date d'achat` while the bank books it weeks later, so re-dating it in Actual moves it outside any sensible window — and a missed imported ID means the row comes back as Clean, which claims nothing in Actual looks like it. Guarded by the `re-dated` test. |
+
+### What the checkers enforce
+
+Three commands, three jobs, no overlap: `npm run typecheck` checks types, `npm run lint` checks what types alone cannot, `npm run format:check` checks formatting.
+Prettier stays the only formatter - `eslint-plugin-prettier` is deliberately not installed, because formatting is already a checked step.
+
+`tsconfig.json` runs `strict` plus the seven flags `strict` does not imply (#64).
+Two of them are worth knowing by name:
+
+- **`erasableSyntaxOnly`** makes `tsc` reject exactly what Node's type stripping rejects, so `enum`, parameter properties and `namespace` fail the check rather than the run.
+- **`noUncheckedIndexedAccess`** makes `rows[i]` a `T | undefined` read, which is what it has always been at runtime.
+  It is why a `!` in the parsers is load-bearing rather than decorative.
+
+`eslint.config.js` is flat config, type-aware (`parserOptions.projectService`), and scoped to the same files `typecheck` and `format:check` cover, minus `src/actual_budget_transformer/` which #41 deletes.
+The rule it exists for is **`@typescript-eslint/no-floating-promises`**: every write is `await gateway.add(…)` / `correct(…)` / `sync()`, and a dropped `await` there is a silently skipped write or a race, in a tool whose whole premise is that nothing reaches Actual without a confirmation for that row.
+No grep can prove the next one absent.
+`node:test`'s `test` / `it` / `before` and friends are listed under `allowForKnownSafeCalls`, because the runner owns those promises; nothing in `src/` is exempt.
+
+`@typescript-eslint/no-non-null-assertion` is a **warning**, and off in `tests/ts/`.
+`foo!` after a `find()` is ordinary test shorthand and 90 of them live there; a wall of warnings hides the 12 in `src/` and `scripts/` that are worth looking at.
 
 ### Testing it
 
@@ -306,15 +327,20 @@ uv run python scripts/anonymize_ubs_csv.py /path/to/real/account.csv tests/data/
 
 ## Dependencies
 
-| Package         | Role                                    |
-| --------------- | --------------------------------------- |
-| pandas          | DataFrame parsing & merging             |
-| pyyaml          | Config file loading                     |
-| pyiso20022      | CAMT.053 typed dataclasses (via xsdata) |
-| pytest          | Test runner (dev only)                  |
-| ruff            | Linter & formatter (dev only)           |
-| @actual-app/api | Official Actual Budget JS API (Node.js) |
-| tsx             | TypeScript execution for bridge scripts |
+| Package           | Role                                              |
+| ----------------- | ------------------------------------------------- |
+| pandas            | DataFrame parsing & merging                       |
+| pyyaml            | Config file loading                               |
+| pyiso20022        | CAMT.053 typed dataclasses (via xsdata)           |
+| pytest            | Test runner (dev only)                            |
+| ruff              | Linter & formatter for the Python code (dev only) |
+| @actual-app/api   | Official Actual Budget JS API (Node.js)           |
+| csv-parse         | CSV reading for the TypeScript parsers            |
+| yaml              | `config.yml` for the TypeScript CLI               |
+| eslint            | Linter for the TypeScript code (dev only)         |
+| typescript-eslint | Its type-aware rules (dev only)                   |
+| prettier          | Formatter for the TypeScript code (dev only)      |
+| tsx               | TypeScript execution for bridge scripts           |
 
 ---
 

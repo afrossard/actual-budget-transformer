@@ -15,6 +15,7 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  closeSession,
   createRunAccount,
   openSession,
   serverReachable,
@@ -34,7 +35,7 @@ describe('integration: what @actual-app/api actually does', { skip }, () => {
   });
 
   after(async () => {
-    await session?.close();
+    await closeSession(session);
   });
 
   async function account(label: string): Promise<string> {
