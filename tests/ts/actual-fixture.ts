@@ -36,7 +36,13 @@ export const SETTINGS: GatewaySettings = {
 
 export async function serverReachable(): Promise<boolean> {
   try {
-    const response = await fetch(new URL('/account/needs-bootstrap', SERVER_URL), {
+    // Relative, not root-relative: `new URL('/x', 'https://host/actual/')` is
+    // `https://host/x`, so a leading slash throws away the base path of a
+    // server behind a subpath reverse proxy. The whole suite would then skip
+    // itself as "unreachable" against a server that works perfectly well - the
+    // same trap `infoUrl` in src/actual-version.ts documents and avoids.
+    const base = SERVER_URL.endsWith('/') ? SERVER_URL : `${SERVER_URL}/`;
+    const response = await fetch(new URL('account/needs-bootstrap', base), {
       signal: AbortSignal.timeout(3000),
     });
     return response.ok;
