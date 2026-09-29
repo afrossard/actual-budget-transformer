@@ -51,8 +51,9 @@ test('an imported ID already in Actual is Skip, and names the row it matched', (
   const [row] = classify([src({ importedId: 'T-BANK-1' })], [stored], null);
   assert.equal(row!.bucket, 'skip');
   const [reason] = row!.reasons;
-  assert.equal(reason!.kind, 'already-imported');
-  assert.equal(reason!.kind === 'already-imported' && reason.matched.id, 'stored-1');
+  assert.ok(reason);
+  assert.equal(reason.kind, 'already-imported');
+  assert.equal(reason.kind === 'already-imported' && reason.matched.id, 'stored-1');
 });
 
 test('a blank imported ID never matches a blank stored one', () => {

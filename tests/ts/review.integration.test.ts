@@ -464,7 +464,7 @@ describe('integration: the review loop', { skip }, () => {
   });
 
   it('cancelling the which-one prompt writes nothing', async () => {
-    const { accountId, accountName, scenario, existing, boundary } =
+    const { accountId, accountName, scenario, boundary } =
       await arrange('cancel-choice');
     // Two equal-amount neighbours within a day of one source row.
     await session.api.addTransactions(accountId, [
