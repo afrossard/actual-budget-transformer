@@ -119,11 +119,12 @@ test('the minted ID hashes the reference columns verbatim, not the parsed date',
   const fromFile = cardsCsv
     .parse(DATA + 'ubs_cards_1.csv')
     .transactions.find((t) => t.payee === 'MERCHANT-30A2B4C6');
-  assert.equal(fromFile?.importedId, stable);
+  assert.ok(fromFile);
+  assert.equal(fromFile.importedId, stable);
   // And the converted CHF amount (28) is not in it, because it moves with the
   // exchange rate between exports.
   assert.notEqual(
-    fromFile?.importedId,
+    fromFile.importedId,
     mintFromParts(['23.02.2020', 'MERCHANT-30A2B4C6', '28', 'CHF', 0]),
   );
 });

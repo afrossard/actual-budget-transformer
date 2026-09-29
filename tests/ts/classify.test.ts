@@ -53,7 +53,7 @@ test('an imported ID already in Actual is Skip, and names the row it matched', (
   const [reason] = row!.reasons;
   assert.ok(reason);
   assert.equal(reason.kind, 'already-imported');
-  assert.equal(reason.kind === 'already-imported' && reason.matched.id, 'stored-1');
+  assert.equal(reason.matched.id, 'stored-1');
 });
 
 test('a blank imported ID never matches a blank stored one', () => {
@@ -78,7 +78,7 @@ test('same amount within one day is Suspicious, and carries every candidate', ()
   const reason = row!.reasons.find((r) => r.kind === 'same-amount-within-one-day');
   assert.ok(reason);
   assert.deepEqual(
-    reason.kind === 'same-amount-within-one-day' && reason.candidates.map((c) => c.id),
+    reason.candidates.map((c) => c.id),
     ['hand-1', 'hand-2'],
   );
 });
@@ -108,10 +108,7 @@ test('dated on or before the boundary is Locked', () => {
   );
   const reason = rows[0]!.reasons.find((r) => r.kind === 'inside-reconciled-range');
   assert.ok(reason);
-  assert.equal(
-    reason.kind === 'inside-reconciled-range' && reason.boundary,
-    '2020-06-15',
-  );
+  assert.equal(reason.boundary, '2020-06-15');
 });
 
 test('Locked still carries the match evidence a write would touch', () => {
@@ -155,7 +152,7 @@ test('a source row repeated inside one file is Suspicious, not a silent drop', (
   assert.equal(rows[1]!.bucket, 'suspicious');
   const reason = rows[1]!.reasons.find((r) => r.kind === 'repeated-in-this-file');
   assert.ok(reason);
-  assert.equal(reason.kind === 'repeated-in-this-file' && reason.firstSeenLine, 11);
+  assert.equal(reason.firstSeenLine, 11);
 });
 
 test('classification does not shift as earlier rows are confirmed', () => {

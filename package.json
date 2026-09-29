@@ -10,8 +10,9 @@
   "scripts": {
     "import": "node src/cli.ts",
     "typecheck": "tsc --noEmit",
-    "format": "prettier --write 'src/**/*.ts' 'scripts/**/*.ts' 'tests/ts/**/*.ts'",
-    "format:check": "prettier --check 'src/**/*.ts' 'scripts/**/*.ts' 'tests/ts/**/*.ts'",
+    "lint": "eslint .",
+    "format": "prettier --write 'src/**/*.ts' 'scripts/**/*.ts' 'tests/ts/**/*.ts' eslint.config.js",
+    "format:check": "prettier --check 'src/**/*.ts' 'scripts/**/*.ts' 'tests/ts/**/*.ts' eslint.config.js",
     "test": "node --test --test-concurrency=1 'tests/ts/**/*.test.ts'",
     "bootstrap": "ACTUAL_DATA_DIR=/tmp/actual-data node scripts/bootstrap_test_budget.ts"
   },
@@ -27,8 +28,10 @@
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
+    "eslint": "^10.11.0",
     "prettier": "^3.8.2",
     "tsx": "^4.21.0",
-    "typescript": "^6.0.2"
+    "typescript": "^6.0.2",
+    "typescript-eslint": "^8.71.0"
   }
 }
