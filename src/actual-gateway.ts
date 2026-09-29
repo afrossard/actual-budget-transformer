@@ -41,10 +41,10 @@ export type NewTransaction = {
 
 /** The fields a correction may patch. Never the amount — see `correct`. */
 export type Patch = {
-  date?: string;
-  notes?: string;
-  payeeName?: string;
-  importedId?: string;
+  date?: string | undefined;
+  notes?: string | undefined;
+  payeeName?: string | undefined;
+  importedId?: string | undefined;
 };
 
 type Api = typeof import('@actual-app/api');
