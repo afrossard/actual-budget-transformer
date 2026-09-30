@@ -43,7 +43,8 @@ export async function main(argv: readonly string[]): Promise<number> {
     process.stdout.write(`${USAGE}\n`);
     return 0;
   }
-  if (parsed.positionals.length !== 1) {
+  const [path, ...extra] = parsed.positionals;
+  if (path === undefined || extra.length > 0) {
     process.stderr.write(`expected exactly one statement file\n${USAGE}\n`);
     return 2;
   }
@@ -62,7 +63,7 @@ export async function main(argv: readonly string[]): Promise<number> {
     // behind in $TMPDIR on every attempt.
     await gateway.open();
     const result = await runImport({
-      path: parsed.positionals[0]!,
+      path,
       config,
       gateway,
       io,

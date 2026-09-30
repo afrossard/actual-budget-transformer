@@ -143,43 +143,48 @@ export function toEncoding(name: string): Encoding {
  * not read at all.
  */
 export function parseDate(value: string, format: string): string | null {
-  const groups: string[] = [];
-  let pattern = '';
-  for (let i = 0; i < format.length; i += 1) {
-    const char = format[i]!;
-    if (char !== '%') {
-      pattern += char.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      continue;
-    }
-    const token = format[i + 1];
-    i += 1;
-    if (token === 'Y') {
-      groups.push('Y');
-      pattern += '(\\d{4})';
-    } else if (token === 'm') {
-      groups.push('m');
-      pattern += '(\\d{2})';
-    } else if (token === 'd') {
-      groups.push('d');
-      pattern += '(\\d{2})';
-    } else if (token === '%') {
-      pattern += '%';
+  const pattern = datePattern(format);
+  const trimmed = value.trim();
+  // Anchored, so a match replaces the whole value and nothing else survives.
+  return pattern.test(trimmed) ? trimmed.replace(pattern, '$<Y>-$<m>-$<d>') : null;
+}
+
+const DATE_FIELDS = new Map([
+  ['Y', '(?<Y>\\d{4})'],
+  ['m', '(?<m>\\d{2})'],
+  ['d', '(?<d>\\d{2})'],
+]);
+
+/** The regex a strftime-style date format describes, with a named group per field. */
+function datePattern(format: string): RegExp {
+  const seen = new Set<string>();
+  let source = '';
+  // Each piece is either a directive (`%` plus one character, or a lone `%` at
+  // the end) or a run of literal text.
+  for (const [, directive, literal] of format.matchAll(/%(.?)|([^%]+)/gsu)) {
+    const field = directive === undefined ? undefined : DATE_FIELDS.get(directive);
+    if (literal !== undefined) {
+      source += literal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    } else if (directive === '%') {
+      source += '%';
+    } else if (directive !== undefined && field !== undefined) {
+      if (seen.has(directive)) {
+        throw new Error(
+          `date format ${JSON.stringify(format)} uses %${directive} more than once`,
+        );
+      }
+      seen.add(directive);
+      source += field;
     } else {
       throw new Error(
-        `unsupported date format ${JSON.stringify(format)}: %${token ?? ''} is not one of %Y, %m, %d`,
+        `unsupported date format ${JSON.stringify(format)}: %${directive ?? ''} is not one of %Y, %m, %d`,
       );
     }
   }
-  const match = new RegExp(`^${pattern}$`).exec(value.trim());
-  if (!match) return null;
-  const parts: Record<string, string> = {};
-  groups.forEach((g, i) => {
-    parts[g] = match[i + 1]!;
-  });
-  if (!parts['Y'] || !parts['m'] || !parts['d']) {
+  if (seen.size !== DATE_FIELDS.size) {
     throw new Error(
       `date format ${JSON.stringify(format)} must use all of %Y, %m and %d`,
     );
   }
-  return `${parts['Y']}-${parts['m']}-${parts['d']}`;
+  return new RegExp(`^${source}$`, 'u');
 }

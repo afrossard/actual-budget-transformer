@@ -90,13 +90,19 @@ export class ActualGateway {
   }
 
   async close(): Promise<void> {
-    if (this.#api) {
-      await this.#api.shutdown();
-      this.#api = null;
-    }
-    if (this.#ownedDataDir) {
-      rmSync(this.#ownedDataDir, { recursive: true, force: true });
-      this.#ownedDataDir = null;
+    // The temp dir holds a downloaded copy of the budget, so it goes whichever
+    // way `shutdown()` ends.
+    try {
+      if (this.#api) {
+        const api = this.#api;
+        this.#api = null;
+        await api.shutdown();
+      }
+    } finally {
+      if (this.#ownedDataDir) {
+        rmSync(this.#ownedDataDir, { recursive: true, force: true });
+        this.#ownedDataDir = null;
+      }
     }
   }
 
@@ -222,6 +228,11 @@ export class ActualGateway {
     if (patch.notes !== undefined) fields['notes'] = patch.notes;
     if (patch.importedId !== undefined) fields['imported_id'] = patch.importedId;
     if (patch.payeeName !== undefined) {
+      // A blank name would resolve to a newly created payee called "", which
+      // stays in the budget for good. The caller omits a payee it does not have.
+      if (patch.payeeName === '') {
+        throw new Error('refusing to set a blank payee; omit payeeName instead');
+      }
       // Both: the payee link is what the UI shows, and `imported_payee` is the
       // raw name the bank wrote, which is what Actual's own import would set.
       fields['payee'] = await this.resolvePayeeId(patch.payeeName);

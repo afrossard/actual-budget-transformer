@@ -79,16 +79,19 @@ export function ubsAccountCsvParser(format: AccountCsvFormat): StatementParser {
       const transactions: SourceTransaction[] = [];
       const dropped: DroppedRow[] = [];
 
-      for (let i = firstTransactionRow; i < rows.length; i += 1) {
-        const row = rows[i]!;
+      for (const [i, row] of rows.entries()) {
+        if (i < firstTransactionRow) continue;
         const sourceLine = i + 1;
         const raw = row.join(format.separator);
-        const rawDate = cell(row, COL.date);
-        if (rawDate === '') continue; // trailing blank line
+        // Only a wholly blank row is skipped unrecorded; one with an empty date
+        // but an amount or a reference is bank data, and goes to `dropped`.
+        if (row.every((value) => value.trim() === '')) continue;
 
+        const rawDate = cell(row, COL.date);
         const date = parseDate(rawDate, format.dateFormat);
         if (date === null) {
-          dropped.push({ sourceLine, reason: `unreadable date ${rawDate}`, raw });
+          const reason = rawDate === '' ? 'no date' : `unreadable date ${rawDate}`;
+          dropped.push({ sourceLine, reason, raw });
           continue;
         }
 

@@ -464,6 +464,131 @@ describe('integration: the review loop', { skip }, () => {
     assert.equal(corrected.payee, named[0]!.id, 'linked to the one payee, not a twin');
   });
 
+  it('a correction keeps the payee and notes the bank left blank', async () => {
+    // A blank description column parses as payee '' and notes ''. Sending those
+    // would wipe the human's own data and create a payee named '' in the budget.
+    const account = await createRunAccount(session, 'blank-correct');
+    await session.api.addTransactions(account.id, [
+      {
+        date: '2031-06-10',
+        amount: -4500,
+        payee_name: 'Dentist',
+        notes: 'quarterly checkup',
+      },
+    ]);
+    await session.api.sync();
+    const existing = await session.gateway.getAccountHistory(account.id);
+    const before = existing[0]!;
+    // Payees are budget-global and outlive the run, so compare against what was
+    // there before rather than expecting none.
+    const blankPayees = async (): Promise<number> =>
+      (await session.api.getPayees()).filter((p) => p.name === '').length;
+    const blankBefore = await blankPayees();
+
+    const importedId = `${runTag()}-blank-correct`;
+    const rows = classify(
+      [
+        {
+          date: '2031-06-11',
+          amountCents: -4500,
+          payee: '',
+          notes: '',
+          importedId,
+          importedIdOrigin: 'bank-reference',
+          sourceLine: 1,
+        },
+      ],
+      existing,
+      null,
+    );
+    assert.equal(rows[0]!.bucket, 'suspicious');
+
+    const io = createScriptedIo(['c']);
+    const result = await review({
+      gateway: session.gateway,
+      accountId: account.id,
+      accountName: account.name,
+      rows,
+      existing,
+      boundary: null,
+      io,
+    });
+    assert.equal(result.outcomes[0]!.wrote, 'corrected');
+
+    const after = (await session.gateway.getAccountHistory(account.id))[0]!;
+    assert.equal(after.imported_id, importedId);
+    assert.equal(after.date, '2031-06-11', "the bank's date was taken");
+    assert.equal(after.payee, before.payee);
+    assert.equal(after.notes, 'quarterly checkup');
+    assert.equal(await blankPayees(), blankBefore, 'no payee named "" was created');
+    // The run says only what it wrote.
+    assert.ok(
+      io.transcript.some((line) =>
+        line.includes("from the bank's data: date, imported ID."),
+      ),
+      io.transcript.join('\n'),
+    );
+  });
+
+  it('two rows cannot correct the same stored transaction in one run', async () => {
+    // Both rows are within a day of the one hand entry. If the second could
+    // correct it too, it would overwrite the first row's imported ID, and the
+    // first row would come back Clean next run and be written as a duplicate.
+    const account = await createRunAccount(session, 'correct-twice');
+    await session.api.addTransactions(account.id, [
+      { date: '2031-03-10', amount: -450, payee_name: 'Coffee (typed by hand)' },
+    ]);
+    await session.api.sync();
+    const existing = await session.gateway.getAccountHistory(account.id);
+    const stored = existing[0]!;
+
+    const tag = `${runTag()}-correct-twice`;
+    const source: SourceTransaction[] = ['2031-03-10', '2031-03-11'].map((date, i) => ({
+      date,
+      amountCents: -450,
+      payee: 'CAFE LUGANO',
+      notes: 'Carte',
+      importedId: `${tag}-${i + 1}`,
+      importedIdOrigin: 'bank-reference',
+      sourceLine: i + 1,
+    }));
+    const rows = classify(source, existing, null);
+    assert.deepEqual(
+      rows.map((r) => correctionTargets(r).map((t) => t.id)),
+      [[stored.id], [stored.id]],
+      'both rows start out pointing at the one hand entry',
+    );
+
+    // `c` on the second row would be refused by the scripted io, so the only
+    // thing the script can answer there is what is still offered.
+    const io = createScriptedIo(['c', 'l']);
+    const result = await review({
+      gateway: session.gateway,
+      accountId: account.id,
+      accountName: account.name,
+      rows,
+      existing,
+      boundary: null,
+      io,
+    });
+    assert.deepEqual(
+      result.outcomes.map((o) => o.wrote),
+      ['corrected', 'nothing'],
+    );
+    const secondPrompt = io.transcript.filter((line) => line.includes('[?]detail'))[1];
+    assert.ok(secondPrompt !== undefined && !secondPrompt.includes('[c]orrect'));
+    assert.ok(
+      io.transcript.some((line) =>
+        line.includes('already corrected by an earlier row in this run'),
+      ),
+      io.transcript.join('\n'),
+    );
+
+    const after = await session.gateway.getAccountHistory(account.id);
+    assert.equal(after.length, 1);
+    assert.equal(after[0]!.imported_id, `${tag}-1`, "the first row's ID was kept");
+  });
+
   it('cancelling the which-one prompt writes nothing', async () => {
     const { accountId, accountName, scenario, boundary } =
       await arrange('cancel-choice');

@@ -43,15 +43,8 @@ export type ReviewResult = {
   stopped: boolean;
 };
 
-const KEY: Record<string, Action> = {
-  i: 'import',
-  c: 'correct',
-  l: 'leave',
-  f: 'force',
-};
-
-/** Every stored transaction this row could correct, most relevant first. */
-export function correctionTargets(row: ClassifiedRow): ActualTransaction[] {
+/** Every stored transaction the evidence names, most relevant first. */
+function candidates(row: ClassifiedRow): ActualTransaction[] {
   const seen = new Set<string>();
   const targets: ActualTransaction[] = [];
   const add = (tx: ActualTransaction | null): void => {
@@ -66,6 +59,22 @@ export function correctionTargets(row: ClassifiedRow): ActualTransaction[] {
     if (reason.kind === 'same-amount-within-one-day') reason.candidates.forEach(add);
   }
   return targets;
+}
+
+/**
+ * Every stored transaction this row could correct, most relevant first.
+ *
+ * `corrected` holds what earlier rows in this run have already corrected, and
+ * those are not offered again. A second correction would overwrite the first
+ * row's imported ID, and that row would come back Clean on the next run and be
+ * written as a duplicate. Classification runs once per batch, so the evidence
+ * cannot know about this run's own writes; this is where they are counted.
+ */
+export function correctionTargets(
+  row: ClassifiedRow,
+  corrected: ReadonlySet<string> = new Set(),
+): ActualTransaction[] {
+  return candidates(row).filter((tx) => !corrected.has(tx.id));
 }
 
 /**
@@ -85,28 +94,39 @@ export const MAX_CORRECTION_CHOICES = 9;
  * is already in Actual, so adding it again would create a row our own next run
  * could not tell apart. `force` is the override on exactly that case.
  */
-export function availableActions(row: ClassifiedRow): Action[] {
+export function availableActions(
+  row: ClassifiedRow,
+  corrected: ReadonlySet<string> = new Set(),
+): Action[] {
   const actions: Action[] = [];
   if (row.bucket !== 'skip') actions.push('import');
-  const targets = correctionTargets(row).length;
+  const targets = correctionTargets(row, corrected).length;
   if (targets > 0 && targets <= MAX_CORRECTION_CHOICES) actions.push('correct');
   actions.push('leave');
   if (row.bucket === 'skip') actions.push('force');
   return actions;
 }
 
+/** The keystroke for each action. Total, so no action can lack one. */
+const KEY: Record<Action, string> = {
+  import: 'i',
+  correct: 'c',
+  leave: 'l',
+  force: 'f',
+};
+
 function keyFor(action: Action): string {
-  return Object.keys(KEY).find((k) => KEY[k] === action)!;
+  return KEY[action];
 }
 
-function promptFor(row: ClassifiedRow): string {
+function promptFor(row: ClassifiedRow, corrected: ReadonlySet<string>): string {
   const labels: Record<Action, string> = {
     import: '[i]mport',
     correct: '[c]orrect the matched transaction',
     leave: '[l]eave it',
     force: '[f]orce a separate transaction',
   };
-  const offered = availableActions(row).map((a) => labels[a]);
+  const offered = availableActions(row, corrected).map((a) => labels[a]);
   return `${offered.join('  ')}  [?]detail  [q]uit > `;
 }
 
@@ -130,6 +150,8 @@ export async function review(options: ReviewOptions): Promise<ReviewResult> {
   const importedIds = new Set(
     options.existing.map((t) => t.imported_id ?? '').filter((id) => id !== ''),
   );
+  // Stored transactions corrected so far in this run; see `correctionTargets`.
+  const corrected = new Set<string>();
 
   printTape(options, style);
 
@@ -138,14 +160,16 @@ export async function review(options: ReviewOptions): Promise<ReviewResult> {
     const number = index + 1;
     io.write('');
     io.write(tapeLine(number, row, style));
-    for (const warning of warnings(row, boundary)) io.write(`    ${warning}`);
+    for (const warning of warnings(row, boundary, corrected)) {
+      io.write(`    ${warning}`);
+    }
 
-    const actions = availableActions(row);
+    const actions = availableActions(row, corrected);
     const allowed = [...actions.map(keyFor), '?', 'q'];
-    let answer = await io.ask(promptFor(row), allowed);
+    let answer = await io.ask(promptFor(row, corrected), allowed);
     while (answer === '?') {
       for (const line of detail(row)) io.write(`    ${line}`);
-      answer = await io.ask(promptFor(row), allowed);
+      answer = await io.ask(promptFor(row, corrected), allowed);
     }
 
     if (answer === 'q') {
@@ -157,13 +181,19 @@ export async function review(options: ReviewOptions): Promise<ReviewResult> {
       return { outcomes, stopped: true };
     }
 
-    const action = KEY[answer]!;
+    const action = actions.find((a) => keyFor(a) === answer);
+    if (action === undefined) {
+      throw new Error(
+        `answer ${JSON.stringify(answer)} is not one of the offered actions`,
+      );
+    }
     const outcome = await apply({
       action,
       row,
       gateway,
       accountId,
       importedIds,
+      corrected,
       io,
     });
     outcomes.push(outcome);
@@ -179,9 +209,10 @@ async function apply(args: {
   gateway: ActualGateway;
   accountId: string;
   importedIds: Set<string>;
+  corrected: Set<string>;
   io: ReviewIo;
 }): Promise<RowOutcome> {
-  const { action, row, gateway, accountId, importedIds, io } = args;
+  const { action, row, gateway, accountId, importedIds, corrected, io } = args;
   const { source } = row;
 
   if (action === 'leave') {
@@ -224,10 +255,15 @@ async function apply(args: {
   }
 
   // action === 'correct'
-  const targets = correctionTargets(row);
-  let target = targets[0]!;
+  const targets = correctionTargets(row, corrected);
+  const [first] = targets;
+  if (first === undefined) {
+    throw new Error('correct was answered on a row that offers no target');
+  }
+  let target = first;
   if (targets.length > 1) {
-    const choices = targets.map((_, i) => String(i + 1));
+    const byChoice = new Map(targets.map((tx, i) => [String(i + 1), tx]));
+    const choices = [...byChoice.keys()];
     for (const [i, candidate] of targets.entries()) {
       io.write(`    ${i + 1}) ${describe(candidate)}`);
     }
@@ -238,11 +274,12 @@ async function apply(args: {
       `    which one? [${choices.join('/')}, q to cancel] > `,
       [...choices, 'q'],
     );
-    if (choice === 'q') {
+    const chosen = byChoice.get(choice);
+    if (chosen === undefined) {
       io.write('    cancelled. Nothing written.');
       return { row, action: 'leave', wrote: 'nothing' };
     }
-    target = targets[Number(choice) - 1]!;
+    target = chosen;
   }
 
   if (target.amount !== source.amountCents) {
@@ -255,17 +292,26 @@ async function apply(args: {
     return { row, action, wrote: 'nothing', refusal };
   }
 
-  await gateway.correct(target.id, {
+  // A field the bank left blank is not sent: it would wipe what the human
+  // typed, and a blank payee name would create a payee called "".
+  const patch = {
     date: source.date,
-    notes: source.notes,
-    payeeName: source.payee,
+    notes: source.notes === '' ? undefined : source.notes,
+    payeeName: source.payee === '' ? undefined : source.payee,
     importedId: source.importedId === '' ? undefined : source.importedId,
-  });
+  };
+  await gateway.correct(target.id, patch);
   await gateway.sync();
-  if (source.importedId !== '') importedIds.add(source.importedId);
+  corrected.add(target.id);
+  if (patch.importedId !== undefined) importedIds.add(patch.importedId);
+  const written = [
+    'date',
+    ...(patch.payeeName === undefined ? [] : ['payee']),
+    ...(patch.notes === undefined ? [] : ['notes']),
+    ...(patch.importedId === undefined ? [] : ['imported ID']),
+  ];
   io.write(
-    `    corrected ${target.id} from the bank's data: date, payee, notes` +
-      (source.importedId === '' ? '' : ', imported ID') +
+    `    corrected ${target.id} from the bank's data: ${written.join(', ')}` +
       (target.is_parent ? '. The split parts were left untouched.' : '.'),
   );
   return { row, action, wrote: 'corrected' };
@@ -279,8 +325,16 @@ async function apply(args: {
  * one day earlier can be exactly that transaction. The row is then Suspicious
  * rather than Locked, and correcting it would reach into an attested range with
  * nothing but the evidence line to say so. Hence the second warning.
+ *
+ * A candidate an earlier row already corrected is withheld (see
+ * `correctionTargets`), and that is said too, so a row whose `correct` has gone
+ * does not simply look as if it never matched anything.
  */
-export function warnings(row: ClassifiedRow, boundary: string | null): string[] {
+export function warnings(
+  row: ClassifiedRow,
+  boundary: string | null,
+  corrected: ReadonlySet<string> = new Set(),
+): string[] {
   const lines: string[] = [];
   if (row.bucket === 'locked') {
     lines.push(
@@ -288,7 +342,15 @@ export function warnings(row: ClassifiedRow, boundary: string | null): string[] 
         'Anything written here changes a range you have already attested to.',
     );
   }
-  const targets = correctionTargets(row);
+  const taken = candidates(row).filter((tx) => corrected.has(tx.id));
+  if (taken.length > 0) {
+    lines.push(
+      `already corrected by an earlier row in this run, so not offered again: ` +
+        `${taken.map(describe).join('; ')}. A second correction would overwrite ` +
+        "that row's imported ID.",
+    );
+  }
+  const targets = correctionTargets(row, corrected);
   const reconciled = targets.filter((t) => t.reconciled);
   if (reconciled.length > 0) {
     lines.push(

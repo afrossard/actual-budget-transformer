@@ -3,7 +3,11 @@ import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { ubsAccountCsvParser } from '../../src/sources/ubs-account-csv.ts';
 import { ubsCardsCsvParser } from '../../src/sources/ubs-cards-csv.ts';
-import { DEFAULT_ACCOUNT_CSV, DEFAULT_CARDS_CSV } from '../../src/sources/formats.ts';
+import {
+  DEFAULT_ACCOUNT_CSV,
+  DEFAULT_CARDS_CSV,
+  DEFAULT_FORMATS,
+} from '../../src/sources/formats.ts';
 import { mintFromParts } from '../../src/imported-id.ts';
 import { parseStatement, pickParser } from '../../src/sources/index.ts';
 
@@ -190,6 +194,23 @@ test('an unreadable amount is reported with its line, and the rest of the file s
   );
 });
 
+test('an account row with a blank date is dropped, not silently discarded', () => {
+  // A row can carry a real amount and reference yet have no date - that is a
+  // fact worth a Tape line, unlike a genuinely blank trailing line.
+  const statement = accountCsv.parse(DATA + 'ubs_account_blank_date.csv');
+  assert.deepEqual(
+    statement.transactions.map((t) => t.payee),
+    ['READABLE ROW'],
+  );
+  // The blank-date row is the file's only dropped row: the genuinely blank
+  // trailing line does not appear in `transactions` or `dropped` either.
+  assert.equal(statement.dropped.length, 1);
+  const [blankDate] = statement.dropped;
+  assert.ok(blankDate);
+  assert.ok(blankDate.raw.includes('REF-NO-DATE'));
+  assert.equal(blankDate.reason, 'no date');
+});
+
 test('a renamed, re-ordered-language export parses once the config is corrected', () => {
   // UBS labels are in the language of the user's e-banking, and UBS changes its
   // exports without announcing it. Both are fixed by editing config, which is
@@ -244,4 +265,23 @@ test('a renamed, re-ordered-language export parses once the config is corrected'
   ]);
   // And it does not start claiming the French file it was not configured for.
   assert.equal(corrected.canParse(DATA + 'ubs_valid.csv'), false);
+});
+
+test('a broken cards reference_columns setting does not block the account CSV', () => {
+  // A half-finished repair of the cards block - columns renamed, reference_columns
+  // left stale - must only fail once a cards file is actually parsed. It must not
+  // take down the unrelated account path, whose file this broken setting never
+  // touches.
+  const brokenFormats = {
+    ...DEFAULT_FORMATS,
+    ubsCardsCsv: {
+      ...DEFAULT_CARDS_CSV,
+      referenceColumns: ['Not A Configured Column'],
+    },
+  };
+  assert.doesNotThrow(() => parseStatement(DATA + 'ubs_valid.csv', brokenFormats));
+  assert.throws(
+    () => parseStatement(DATA + 'ubs_cards_1.csv', brokenFormats),
+    /reference column "Not A Configured Column" is not one of the configured columns for the UBS cards CSV/,
+  );
 });
