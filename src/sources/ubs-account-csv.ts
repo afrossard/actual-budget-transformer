@@ -83,9 +83,9 @@ export function ubsAccountCsvParser(format: AccountCsvFormat): StatementParser {
         const row = rows[i]!;
         const sourceLine = i + 1;
         const raw = row.join(format.separator);
-        const rawDate = cell(row, COL.date);
-        if (rawDate === '') continue; // trailing blank line
+        if (raw.split(format.separator).join('').trim() === '') continue; // trailing blank line
 
+        const rawDate = cell(row, COL.date);
         const date = parseDate(rawDate, format.dateFormat);
         if (date === null) {
           dropped.push({ sourceLine, reason: `unreadable date ${rawDate}`, raw });

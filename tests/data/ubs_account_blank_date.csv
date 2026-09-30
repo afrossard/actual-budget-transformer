@@ -1,0 +1,13 @@
+Numéro de compte:;0123 A1234567.8;
+IBAN:;CH42 0012 0123 A123 4567 8;
+Du:;2031-04-01;
+Au:;2031-04-30;
+Solde initial:;1000.00;
+Solde final:;900.00;
+Évaluation en:;CHF;
+Nombre de transactions dans cette période:;2;
+
+Date de transaction;Heure de transaction;Date de comptabilisation;Date de valeur;Monnaie;Débit;Crédit;Sous-montant;Solde;N° de transaction;Description1;Description2;Description3;Notes de bas de page;
+;;2031-04-05;2031-04-05;CHF;-60.00;;;940.00;REF-NO-DATE;"NO DATE ROW";;;;
+2031-04-06;;2031-04-06;2031-04-06;CHF;-10.00;;;930.00;REF-GOOD;"READABLE ROW";;;;
+

@@ -190,6 +190,23 @@ test('an unreadable amount is reported with its line, and the rest of the file s
   );
 });
 
+test('an account row with a blank date is dropped, not silently discarded', () => {
+  // A row can carry a real amount and reference yet have no date - that is a
+  // fact worth a Tape line, unlike a genuinely blank trailing line.
+  const statement = accountCsv.parse(DATA + 'ubs_account_blank_date.csv');
+  assert.deepEqual(
+    statement.transactions.map((t) => t.payee),
+    ['READABLE ROW'],
+  );
+  // The blank-date row is the file's only dropped row: the genuinely blank
+  // trailing line does not appear in `transactions` or `dropped` either.
+  assert.equal(statement.dropped.length, 1);
+  const [blankDate] = statement.dropped;
+  assert.ok(blankDate);
+  assert.ok(blankDate.raw.includes('REF-NO-DATE'));
+  assert.match(blankDate.reason, /unreadable date/);
+});
+
 test('a renamed, re-ordered-language export parses once the config is corrected', () => {
   // UBS labels are in the language of the user's e-banking, and UBS changes its
   // exports without announcing it. Both are fixed by editing config, which is
