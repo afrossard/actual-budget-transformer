@@ -118,7 +118,7 @@ No grep can prove the next one absent.
 `node:test`'s `test` / `it` / `before` and friends are listed under `allowForKnownSafeCalls`, because the runner owns those promises; nothing in `src/` is exempt.
 
 `@typescript-eslint/no-non-null-assertion` is a **warning**, and off in `tests/ts/`.
-`foo!` after a `find()` is ordinary test shorthand and 90 of them live there; a wall of warnings hides the 12 in `src/` and `scripts/` that are worth looking at.
+`foo!` after a `find()` is ordinary test shorthand and 90 of them live there; a wall of warnings hides the 2 in `src/` that are worth looking at, each commented with the guard that makes it safe.
 
 ### Testing it
 
