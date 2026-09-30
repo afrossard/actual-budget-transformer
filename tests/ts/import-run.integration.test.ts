@@ -162,6 +162,34 @@ describe('integration: a whole run from a statement file', { skip }, () => {
     assert.equal((await session.gateway.getAccountHistory(accountId)).length, 3);
   });
 
+  it('names both stored transactions when two share the imported ID of a row', async () => {
+    // Actual enforces no uniqueness on imported_id, so a hand-edit or an
+    // interrupted write can leave two rows under one ID. Naming only one of them
+    // would let the human decline on half the facts and never see the duplicate.
+    const { config, accountId } = await arrange('shared-id', 'CH4200120123A12345678');
+    const path = DATA + 'ubs_valid.csv';
+
+    await run(config, path, () => 'i', 1);
+    await session.gateway.add(accountId, {
+      date: '2023-03-01',
+      amountCents: -18665,
+      payee: 'Second copy',
+      notes: '',
+      importedId: '1234563AB9269773',
+    });
+    await session.api.sync();
+
+    const { result, io } = await run(config, path, () => 'l', 1);
+    assert.equal(result.outcomes[0]!.row.bucket, 'skip');
+    const transcript = io.transcript.join('\n');
+    assert.match(
+      transcript,
+      /already in Actual as 2 transactions sharing this imported ID: /,
+    );
+    assert.match(transcript, /2023-01-13 -186.65 "EXAMPLE; Paiement UBS TWINT/);
+    assert.match(transcript, /2023-03-01 -186.65 "Second copy"/);
+  });
+
   it('says on the Tape which rows the file held but the parser did not read', async () => {
     const { config } = await arrange('cards-pending', '9659086893219337559');
     const { io } = await run(config, DATA + 'ubs_cards_pending.csv', () => 'l', 3);

@@ -53,7 +53,10 @@ test('an imported ID already in Actual is Skip, and names the row it matched', (
   const [reason] = row!.reasons;
   assert.ok(reason);
   assert.equal(reason.kind, 'already-imported');
-  assert.equal(reason.matched.id, 'stored-1');
+  assert.deepEqual(
+    reason.matched.map((t) => t.id),
+    ['stored-1'],
+  );
 });
 
 test('a blank imported ID never matches a blank stored one', () => {
@@ -238,5 +241,30 @@ test('reconciliationBoundary finds a reconciled transaction dated in the future'
   assert.equal(
     reconciliationBoundary([actual({ date: '2099-12-31', reconciled: true })]),
     '2099-12-31',
+  );
+});
+
+test('two stored transactions sharing an imported ID are both named, not collapsed', () => {
+  // Actual has no uniqueness constraint on imported_id, so this state is
+  // reachable, and it is exactly the corruption this tool exists to prevent.
+  // Reporting only one of them would let the human decline on half the facts.
+  const first = actual({ imported_id: 'SHARED-ID', id: 'first', date: '2031-08-01' });
+  const second = actual({ imported_id: 'SHARED-ID', id: 'second', date: '2031-08-02' });
+  const [row] = classify([src({ importedId: 'SHARED-ID' })], [first, second], null);
+  assert.equal(row!.bucket, 'skip');
+  const reason = row!.reasons.find((r) => r.kind === 'already-imported');
+  assert.deepEqual(
+    reason?.kind === 'already-imported' && reason.matched.map((t) => t.id),
+    ['first', 'second'],
+  );
+});
+
+test('neither of two rows sharing an imported ID is also listed as a blind duplicate', () => {
+  const first = actual({ imported_id: 'SHARED-ID', id: 'first' });
+  const second = actual({ imported_id: 'SHARED-ID', id: 'second' });
+  const [row] = classify([src({ importedId: 'SHARED-ID' })], [first, second], null);
+  assert.deepEqual(
+    row!.reasons.map((r) => r.kind),
+    ['already-imported'],
   );
 });
