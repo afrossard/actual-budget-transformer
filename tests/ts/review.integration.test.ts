@@ -530,6 +530,65 @@ describe('integration: the review loop', { skip }, () => {
     );
   });
 
+  it('two rows cannot correct the same stored transaction in one run', async () => {
+    // Both rows are within a day of the one hand entry. If the second could
+    // correct it too, it would overwrite the first row's imported ID, and the
+    // first row would come back Clean next run and be written as a duplicate.
+    const account = await createRunAccount(session, 'correct-twice');
+    await session.api.addTransactions(account.id, [
+      { date: '2031-03-10', amount: -450, payee_name: 'Coffee (typed by hand)' },
+    ]);
+    await session.api.sync();
+    const existing = await session.gateway.getAccountHistory(account.id);
+    const stored = existing[0]!;
+
+    const tag = `${runTag()}-correct-twice`;
+    const source: SourceTransaction[] = ['2031-03-10', '2031-03-11'].map((date, i) => ({
+      date,
+      amountCents: -450,
+      payee: 'CAFE LUGANO',
+      notes: 'Carte',
+      importedId: `${tag}-${i + 1}`,
+      importedIdOrigin: 'bank-reference',
+      sourceLine: i + 1,
+    }));
+    const rows = classify(source, existing, null);
+    assert.deepEqual(
+      rows.map((r) => correctionTargets(r).map((t) => t.id)),
+      [[stored.id], [stored.id]],
+      'both rows start out pointing at the one hand entry',
+    );
+
+    // `c` on the second row would be refused by the scripted io, so the only
+    // thing the script can answer there is what is still offered.
+    const io = createScriptedIo(['c', 'l']);
+    const result = await review({
+      gateway: session.gateway,
+      accountId: account.id,
+      accountName: account.name,
+      rows,
+      existing,
+      boundary: null,
+      io,
+    });
+    assert.deepEqual(
+      result.outcomes.map((o) => o.wrote),
+      ['corrected', 'nothing'],
+    );
+    const secondPrompt = io.transcript.filter((line) => line.includes('[?]detail'))[1];
+    assert.ok(secondPrompt !== undefined && !secondPrompt.includes('[c]orrect'));
+    assert.ok(
+      io.transcript.some((line) =>
+        line.includes('already corrected by an earlier row in this run'),
+      ),
+      io.transcript.join('\n'),
+    );
+
+    const after = await session.gateway.getAccountHistory(account.id);
+    assert.equal(after.length, 1);
+    assert.equal(after[0]!.imported_id, `${tag}-1`, "the first row's ID was kept");
+  });
+
   it('cancelling the which-one prompt writes nothing', async () => {
     const { accountId, accountName, scenario, boundary } =
       await arrange('cancel-choice');

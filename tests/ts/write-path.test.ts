@@ -223,6 +223,33 @@ test('exactly the maximum number of candidates still offers correcting', () => {
   assert.deepEqual(warnings(row!, null), []);
 });
 
+test('a transaction already corrected in this run is no longer offered as a target', () => {
+  // Correcting it again would overwrite the first row's imported ID, and that
+  // row would come back Clean on the next run and be written a second time.
+  const [row] = classify([src()], [actual({ id: 'taken' })], null);
+  const corrected = new Set(['taken']);
+  assert.deepEqual(correctionTargets(row!, corrected), []);
+  assert.deepEqual(availableActions(row!, corrected), ['import', 'leave']);
+});
+
+test('a withheld target is said out loud, not silently dropped from the choices', () => {
+  const [row] = classify(
+    [src()],
+    [actual({ id: 'taken' }), actual({ id: 'free', date: '2031-03-11' })],
+    null,
+  );
+  const corrected = new Set(['taken']);
+  assert.deepEqual(
+    correctionTargets(row!, corrected).map((t) => t.id),
+    ['free'],
+  );
+  assert.deepEqual(availableActions(row!, corrected), ['import', 'correct', 'leave']);
+  const said = warnings(row!, null, corrected);
+  assert.equal(said.length, 1);
+  assert.match(said[0]!, /already corrected by an earlier row in this run/);
+  assert.match(said[0]!, /2031-03-10 -4.50 "Coffee \(typed by hand\) \/ manual"/);
+});
+
 test('every Tape header label sits at the start of the field it names', () => {
   const [row] = classify([src({ payee: 'MIGROS', amountCents: -2345 })], [], null);
   const line = tapeLine(1, row!);
