@@ -90,13 +90,19 @@ export class ActualGateway {
   }
 
   async close(): Promise<void> {
-    if (this.#api) {
-      await this.#api.shutdown();
-      this.#api = null;
-    }
-    if (this.#ownedDataDir) {
-      rmSync(this.#ownedDataDir, { recursive: true, force: true });
-      this.#ownedDataDir = null;
+    // The temp dir holds a downloaded copy of the budget, so it goes whichever
+    // way `shutdown()` ends.
+    try {
+      if (this.#api) {
+        const api = this.#api;
+        this.#api = null;
+        await api.shutdown();
+      }
+    } finally {
+      if (this.#ownedDataDir) {
+        rmSync(this.#ownedDataDir, { recursive: true, force: true });
+        this.#ownedDataDir = null;
+      }
     }
   }
 
