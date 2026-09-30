@@ -43,18 +43,6 @@ export function ubsCardsCsvParser(format: CardsCsvFormat): StatementParser {
   const headerRow = format.headerRow - 1; // config is 1-based
   const firstTransactionRow = headerRow + 1;
 
-  /** Index of each configured reference column within the header. */
-  const referenceIndices = format.referenceColumns.map((name) => {
-    const index = format.columns.indexOf(name);
-    if (index === -1) {
-      throw new Error(
-        `reference column ${JSON.stringify(name)} is not one of the configured ` +
-          `columns for the UBS cards CSV: ${format.columns.join(', ')}`,
-      );
-    }
-    return index;
-  });
-
   const looksRight = (rows: readonly string[][]): boolean => {
     if (cell(rows[SEP_ROW] ?? [], 0) !== 'sep=') return false;
     const header = rows[headerRow] ?? [];
@@ -78,6 +66,18 @@ export function ubsCardsCsvParser(format: CardsCsvFormat): StatementParser {
       if (!looksRight(rows)) {
         throw new Error(`${path} is not a UBS cards CSV`);
       }
+
+      /** Index of each configured reference column within the header. */
+      const referenceIndices = format.referenceColumns.map((name) => {
+        const index = format.columns.indexOf(name);
+        if (index === -1) {
+          throw new Error(
+            `reference column ${JSON.stringify(name)} is not one of the configured ` +
+              `columns for the UBS cards CSV: ${format.columns.join(', ')}`,
+          );
+        }
+        return index;
+      });
 
       const transactions: SourceTransaction[] = [];
       const dropped: DroppedRow[] = [];

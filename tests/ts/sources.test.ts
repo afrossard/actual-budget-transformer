@@ -3,7 +3,11 @@ import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { ubsAccountCsvParser } from '../../src/sources/ubs-account-csv.ts';
 import { ubsCardsCsvParser } from '../../src/sources/ubs-cards-csv.ts';
-import { DEFAULT_ACCOUNT_CSV, DEFAULT_CARDS_CSV } from '../../src/sources/formats.ts';
+import {
+  DEFAULT_ACCOUNT_CSV,
+  DEFAULT_CARDS_CSV,
+  DEFAULT_FORMATS,
+} from '../../src/sources/formats.ts';
 import { mintFromParts } from '../../src/imported-id.ts';
 import { parseStatement, pickParser } from '../../src/sources/index.ts';
 
@@ -244,4 +248,23 @@ test('a renamed, re-ordered-language export parses once the config is corrected'
   ]);
   // And it does not start claiming the French file it was not configured for.
   assert.equal(corrected.canParse(DATA + 'ubs_valid.csv'), false);
+});
+
+test('a broken cards reference_columns setting does not block the account CSV', () => {
+  // A half-finished repair of the cards block - columns renamed, reference_columns
+  // left stale - must only fail once a cards file is actually parsed. It must not
+  // take down the unrelated account path, whose file this broken setting never
+  // touches.
+  const brokenFormats = {
+    ...DEFAULT_FORMATS,
+    ubsCardsCsv: {
+      ...DEFAULT_CARDS_CSV,
+      referenceColumns: ['Not A Configured Column'],
+    },
+  };
+  assert.doesNotThrow(() => parseStatement(DATA + 'ubs_valid.csv', brokenFormats));
+  assert.throws(
+    () => parseStatement(DATA + 'ubs_cards_1.csv', brokenFormats),
+    /reference column "Not A Configured Column" is not one of the configured columns for the UBS cards CSV/,
+  );
 });
