@@ -41,10 +41,10 @@ export type NewTransaction = {
 
 /** The fields a correction may patch. Never the amount — see `correct`. */
 export type Patch = {
-  date?: string;
-  notes?: string;
-  payeeName?: string;
-  importedId?: string;
+  date?: string | undefined;
+  notes?: string | undefined;
+  payeeName?: string | undefined;
+  importedId?: string | undefined;
 };
 
 type Api = typeof import('@actual-app/api');
@@ -117,7 +117,7 @@ export class ActualGateway {
   async listAccounts(): Promise<Account[]> {
     const rows = await this.#require().getAccounts();
     return rows.map((a) => ({
-      id: a.id ?? '',
+      id: a.id,
       name: a.name,
       closed: a.closed ?? false,
     }));
@@ -180,7 +180,7 @@ export class ActualGateway {
   async #payees(): Promise<Map<string, string>> {
     if (this.#payeeNames === null) {
       const rows = await this.#require().getPayees();
-      this.#payeeNames = new Map(rows.map((p) => [p.id ?? '', p.name]));
+      this.#payeeNames = new Map(rows.map((p) => [p.id, p.name]));
     }
     return this.#payeeNames;
   }

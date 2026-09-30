@@ -67,7 +67,7 @@ function nonEmpty(value: unknown, fallback: string): string {
 }
 
 function accountCsvFormat(raw: Record<string, unknown>): AccountCsvFormat {
-  const csv = (raw['csv_settings'] as Record<string, unknown>) ?? {};
+  const csv = (raw['csv_settings'] ?? {}) as Record<string, unknown>;
   const d = DEFAULT_ACCOUNT_CSV;
   return {
     encoding:
@@ -84,7 +84,7 @@ function accountCsvFormat(raw: Record<string, unknown>): AccountCsvFormat {
 }
 
 function cardsCsvFormat(raw: Record<string, unknown>): CardsCsvFormat {
-  const csv = (raw['csv_settings'] as Record<string, unknown>) ?? {};
+  const csv = (raw['csv_settings'] ?? {}) as Record<string, unknown>;
   const d = DEFAULT_CARDS_CSV;
   return {
     encoding:

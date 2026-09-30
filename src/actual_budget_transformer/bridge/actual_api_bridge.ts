@@ -59,7 +59,7 @@ function parseSemver(v: string): Semver | null {
 
 function cmpSemver(a: Semver, b: Semver): number {
   for (let i = 0; i < 3; i++) {
-    if (a[i] !== b[i]) return a[i] - b[i];
+    if (a[i] !== b[i]) return a[i]! - b[i]!;
   }
   return 0;
 }
@@ -116,7 +116,7 @@ interface OkResponse {
 interface ErrResponse {
   id: number;
   ok: false;
-  error: { message: string; stack?: string };
+  error: { message: string; stack?: string | undefined };
 }
 
 let api: ActualApi | undefined;

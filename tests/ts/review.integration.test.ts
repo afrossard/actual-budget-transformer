@@ -17,6 +17,7 @@ import { createScriptedIo } from '../../src/io.ts';
 import { correctionTargets, review } from '../../src/review.ts';
 import type { SourceTransaction } from '../../src/sources/types.ts';
 import {
+  closeSession,
   createRunAccount,
   openSession,
   seedScenario,
@@ -37,7 +38,7 @@ describe('integration: the review loop', { skip }, () => {
   });
 
   after(async () => {
-    await session?.close();
+    await closeSession(session);
   });
 
   /** A fresh account, seeded, classified once. */
@@ -464,7 +465,7 @@ describe('integration: the review loop', { skip }, () => {
   });
 
   it('cancelling the which-one prompt writes nothing', async () => {
-    const { accountId, accountName, scenario, existing, boundary } =
+    const { accountId, accountName, scenario, boundary } =
       await arrange('cancel-choice');
     // Two equal-amount neighbours within a day of one source row.
     await session.api.addTransactions(accountId, [

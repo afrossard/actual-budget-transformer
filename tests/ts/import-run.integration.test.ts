@@ -11,6 +11,7 @@ import { DEFAULT_FORMATS } from '../../src/sources/formats.ts';
 import { createScriptedIo } from '../../src/io.ts';
 import { runImport } from '../../src/import-run.ts';
 import {
+  closeSession,
   createRunAccount,
   openSession,
   serverReachable,
@@ -29,7 +30,7 @@ describe('integration: a whole run from a statement file', { skip }, () => {
   });
 
   after(async () => {
-    await session?.close();
+    await closeSession(session);
   });
 
   /** A fresh account, plus a config that points the file's identifier at it. */
