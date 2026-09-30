@@ -145,14 +145,19 @@ export function toEncoding(name: string): Encoding {
 export function parseDate(value: string, format: string): string | null {
   const groups: string[] = [];
   let pattern = '';
-  for (let i = 0; i < format.length; i += 1) {
-    const char = format[i]!;
+  const chars = [...format];
+  let skipNext = false;
+  for (const [i, char] of chars.entries()) {
+    if (skipNext) {
+      skipNext = false;
+      continue;
+    }
     if (char !== '%') {
       pattern += char.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       continue;
     }
-    const token = format[i + 1];
-    i += 1;
+    const token = chars[i + 1];
+    skipNext = true;
     if (token === 'Y') {
       groups.push('Y');
       pattern += '(\\d{4})';
@@ -174,6 +179,8 @@ export function parseDate(value: string, format: string): string | null {
   if (!match) return null;
   const parts: Record<string, string> = {};
   groups.forEach((g, i) => {
+    // `groups` has exactly as many entries as capturing groups in `pattern`,
+    // built together in the loop above, so group i+1 always exists here.
     parts[g] = match[i + 1]!;
   });
   if (!parts['Y'] || !parts['m'] || !parts['d']) {

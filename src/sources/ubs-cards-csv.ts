@@ -84,8 +84,8 @@ export function ubsCardsCsvParser(format: CardsCsvFormat): StatementParser {
       const occurrences = new Map<string, number>();
       let accountKey = '';
 
-      for (let i = firstTransactionRow; i < rows.length; i += 1) {
-        const row = rows[i]!;
+      for (const [i, row] of rows.entries()) {
+        if (i < firstTransactionRow) continue;
         const sourceLine = i + 1;
         const raw = row.join(format.separator);
         if (raw.split(format.separator).join('').trim() === '') continue;
