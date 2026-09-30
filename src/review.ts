@@ -43,13 +43,6 @@ export type ReviewResult = {
   stopped: boolean;
 };
 
-const KEY: Record<string, Action> = {
-  i: 'import',
-  c: 'correct',
-  l: 'leave',
-  f: 'force',
-};
-
 /** Every stored transaction the evidence names, most relevant first. */
 function candidates(row: ClassifiedRow): ActualTransaction[] {
   const seen = new Set<string>();
@@ -114,7 +107,8 @@ export function availableActions(
   return actions;
 }
 
-const ACTION_KEY: Record<Action, string> = {
+/** The keystroke for each action. Total, so no action can lack one. */
+const KEY: Record<Action, string> = {
   import: 'i',
   correct: 'c',
   leave: 'l',
@@ -122,7 +116,7 @@ const ACTION_KEY: Record<Action, string> = {
 };
 
 function keyFor(action: Action): string {
-  return ACTION_KEY[action];
+  return KEY[action];
 }
 
 function promptFor(row: ClassifiedRow, corrected: ReadonlySet<string>): string {
@@ -187,8 +181,12 @@ export async function review(options: ReviewOptions): Promise<ReviewResult> {
       return { outcomes, stopped: true };
     }
 
-    // Non-null: `answer` is one of `allowed`, built from `keyFor`, so it is a KEY key.
-    const action = KEY[answer]!;
+    const action = actions.find((a) => keyFor(a) === answer);
+    if (action === undefined) {
+      throw new Error(
+        `answer ${JSON.stringify(answer)} is not one of the offered actions`,
+      );
+    }
     const outcome = await apply({
       action,
       row,
