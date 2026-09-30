@@ -79,8 +79,8 @@ export function ubsAccountCsvParser(format: AccountCsvFormat): StatementParser {
       const transactions: SourceTransaction[] = [];
       const dropped: DroppedRow[] = [];
 
-      for (let i = firstTransactionRow; i < rows.length; i += 1) {
-        const row = rows[i]!;
+      for (const [i, row] of rows.entries()) {
+        if (i < firstTransactionRow) continue;
         const sourceLine = i + 1;
         const raw = row.join(format.separator);
         const rawDate = cell(row, COL.date);

@@ -127,10 +127,11 @@ async function bootstrap(dataDir: string): Promise<void> {
   } else {
     console.log('Category group already exists: Review');
   }
+  const reviewGroupId = reviewGroup.id;
 
   const cats = (await api.getCategories()) as Category[];
   const haveReview = cats.some(
-    (c) => c.name === 'To Review' && c.group_id === reviewGroup!.id,
+    (c) => c.name === 'To Review' && c.group_id === reviewGroupId,
   );
   if (!haveReview) {
     const id = await api.createCategory({

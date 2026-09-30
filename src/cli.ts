@@ -62,6 +62,7 @@ export async function main(argv: readonly string[]): Promise<number> {
     // behind in $TMPDIR on every attempt.
     await gateway.open();
     const result = await runImport({
+      // Non-null: the length !== 1 check above returned already otherwise.
       path: parsed.positionals[0]!,
       config,
       gateway,

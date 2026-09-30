@@ -20,8 +20,8 @@ function parseSemver(version: string): Semver | null {
 }
 
 function compareSemver(a: Semver, b: Semver): number {
-  for (let i = 0; i < 3; i += 1) {
-    if (a[i] !== b[i]) return a[i]! - b[i]!;
+  for (const i of [0, 1, 2] as const) {
+    if (a[i] !== b[i]) return a[i] - b[i];
   }
   return 0;
 }

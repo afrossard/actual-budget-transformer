@@ -95,8 +95,15 @@ export function availableActions(row: ClassifiedRow): Action[] {
   return actions;
 }
 
+const ACTION_KEY: Record<Action, string> = {
+  import: 'i',
+  correct: 'c',
+  leave: 'l',
+  force: 'f',
+};
+
 function keyFor(action: Action): string {
-  return Object.keys(KEY).find((k) => KEY[k] === action)!;
+  return ACTION_KEY[action];
 }
 
 function promptFor(row: ClassifiedRow): string {
@@ -157,6 +164,7 @@ export async function review(options: ReviewOptions): Promise<ReviewResult> {
       return { outcomes, stopped: true };
     }
 
+    // Non-null: `answer` is one of `allowed`, built from `keyFor`, so it is a KEY key.
     const action = KEY[answer]!;
     const outcome = await apply({
       action,
