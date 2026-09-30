@@ -208,7 +208,7 @@ test('an account row with a blank date is dropped, not silently discarded', () =
   const [blankDate] = statement.dropped;
   assert.ok(blankDate);
   assert.ok(blankDate.raw.includes('REF-NO-DATE'));
-  assert.match(blankDate.reason, /unreadable date/);
+  assert.equal(blankDate.reason, 'no date');
 });
 
 test('a renamed, re-ordered-language export parses once the config is corrected', () => {
