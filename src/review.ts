@@ -255,17 +255,25 @@ async function apply(args: {
     return { row, action, wrote: 'nothing', refusal };
   }
 
-  await gateway.correct(target.id, {
+  // A field the bank left blank is not sent: it would wipe what the human
+  // typed, and a blank payee name would create a payee called "".
+  const patch = {
     date: source.date,
-    notes: source.notes,
-    payeeName: source.payee,
+    notes: source.notes === '' ? undefined : source.notes,
+    payeeName: source.payee === '' ? undefined : source.payee,
     importedId: source.importedId === '' ? undefined : source.importedId,
-  });
+  };
+  await gateway.correct(target.id, patch);
   await gateway.sync();
-  if (source.importedId !== '') importedIds.add(source.importedId);
+  if (patch.importedId !== undefined) importedIds.add(patch.importedId);
+  const written = [
+    'date',
+    ...(patch.payeeName === undefined ? [] : ['payee']),
+    ...(patch.notes === undefined ? [] : ['notes']),
+    ...(patch.importedId === undefined ? [] : ['imported ID']),
+  ];
   io.write(
-    `    corrected ${target.id} from the bank's data: date, payee, notes` +
-      (source.importedId === '' ? '' : ', imported ID') +
+    `    corrected ${target.id} from the bank's data: ${written.join(', ')}` +
       (target.is_parent ? '. The split parts were left untouched.' : '.'),
   );
   return { row, action, wrote: 'corrected' };
