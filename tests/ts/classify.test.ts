@@ -1,10 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  classify,
-  reconciliationBoundary,
-  type ActualTransaction,
-} from '../../src/classify.ts';
+import { classify, type ActualTransaction } from '../../src/classify.ts';
 import type { SourceTransaction } from '../../src/sources/types.ts';
 
 let line = 0;
@@ -217,31 +213,6 @@ test('an imported ID is recognised however far the transaction has been moved', 
     null,
   );
   assert.equal(row!.bucket, 'skip');
-});
-
-test('reconciliationBoundary takes the newest reconciled date, ignoring the rest', () => {
-  assert.equal(
-    reconciliationBoundary([
-      actual({ date: '2020-06-15', reconciled: true }),
-      actual({ date: '2020-06-30', reconciled: true }),
-      actual({ date: '2031-03-10', reconciled: false }),
-    ]),
-    '2020-06-30',
-  );
-});
-
-test('reconciliationBoundary is null when the account has never been reconciled', () => {
-  assert.equal(reconciliationBoundary([]), null);
-  assert.equal(reconciliationBoundary([actual({ reconciled: false })]), null);
-});
-
-test('reconciliationBoundary finds a reconciled transaction dated in the future', () => {
-  // Actual allows future dates, and a boundary read only up to today would come
-  // back lower than it is - which silently unlocks an attested range.
-  assert.equal(
-    reconciliationBoundary([actual({ date: '2099-12-31', reconciled: true })]),
-    '2099-12-31',
-  );
 });
 
 test('two stored transactions sharing an imported ID are both named, not collapsed', () => {

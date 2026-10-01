@@ -55,10 +55,19 @@ export function forcedImportedId(
   tx: SourceTransaction,
   existingImportedIds: Iterable<string>,
 ): string {
-  const base = tx.importedId === '' ? contentImportedId(tx) : tx.importedId;
   const taken = new Set(existingImportedIds);
   for (let copy = 1; ; copy += 1) {
-    const candidate = `${base}${FORCED_SEPARATOR}${copy}`;
+    const candidate = forcedCopyId(tx, copy);
     if (!taken.has(candidate)) return candidate;
   }
+}
+
+/** The first `count` forced IDs this row could take, lowest copy first. */
+export function forcedCopyIds(tx: SourceTransaction, count: number): string[] {
+  return Array.from({ length: count }, (_, i) => forcedCopyId(tx, i + 1));
+}
+
+function forcedCopyId(tx: SourceTransaction, copy: number): string {
+  const base = tx.importedId === '' ? contentImportedId(tx) : tx.importedId;
+  return `${base}${FORCED_SEPARATOR}${copy}`;
 }
