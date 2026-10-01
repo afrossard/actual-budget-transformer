@@ -45,8 +45,16 @@ export function describe(tx: ActualTransaction): string {
 export function explain(reasons: readonly Evidence[]): string[] {
   return reasons.flatMap((reason) => {
     switch (reason.kind) {
-      case 'already-imported':
-        return [`already in Actual as ${describe(reason.matched)}`];
+      case 'already-imported': {
+        const [only, ...more] = reason.matched;
+        if (more.length === 0) return [`already in Actual as ${describe(only)}`];
+        // Not a tie to break: one imported ID held twice is corruption in
+        // Actual, and fixing it there is likely the right action.
+        return [
+          `already in Actual as ${reason.matched.length} transactions sharing this imported ID: ` +
+            reason.matched.map(describe).join('; '),
+        ];
+      }
       case 'inside-reconciled-range':
         return [
           `on or before the reconciliation boundary ${reason.boundary}` +

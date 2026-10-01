@@ -54,7 +54,7 @@ function candidates(row: ClassifiedRow): ActualTransaction[] {
     }
   };
   for (const reason of row.reasons) {
-    if (reason.kind === 'already-imported') add(reason.matched);
+    if (reason.kind === 'already-imported') reason.matched.forEach(add);
     if (reason.kind === 'inside-reconciled-range') add(reason.matched);
     if (reason.kind === 'same-amount-within-one-day') reason.candidates.forEach(add);
   }

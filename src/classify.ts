@@ -43,7 +43,13 @@ export type Bucket = 'clean' | 'suspicious' | 'skip' | 'locked';
  * what the tool matched and on what basis.
  */
 export type Evidence =
-  | { kind: 'already-imported'; matched: ActualTransaction }
+  /**
+   * Every stored transaction holding this imported ID. Usually one; more is a
+   * finding in its own right - Actual does not enforce uniqueness, so two rows
+   * sharing an ID is reachable, and it is the corruption this tool exists to
+   * prevent.
+   */
+  | { kind: 'already-imported'; matched: [ActualTransaction, ...ActualTransaction[]] }
   | {
       kind: 'inside-reconciled-range';
       boundary: string;
@@ -108,9 +114,15 @@ export function classify(
   /** ISO date of the newest reconciled transaction, or null if there is none. */
   boundary: string | null,
 ): ClassifiedRow[] {
-  const byImportedId = new Map<string, ActualTransaction>();
+  // A list, not one transaction: nothing in Actual stops two rows sharing an
+  // imported ID, and keeping only the last would hide exactly that from the
+  // human.
+  const byImportedId = new Map<string, [ActualTransaction, ...ActualTransaction[]]>();
   for (const tx of existing) {
-    if (tx.imported_id) byImportedId.set(tx.imported_id, tx);
+    if (!tx.imported_id) continue;
+    const sameId = byImportedId.get(tx.imported_id);
+    if (sameId) sameId.push(tx);
+    else byImportedId.set(tx.imported_id, [tx]);
   }
 
   const byAmount = new Map<number, ActualTransaction[]>();
@@ -128,13 +140,14 @@ export function classify(
 
     const alreadyImported =
       source.importedId === '' ? undefined : byImportedId.get(source.importedId);
+    const paired = new Set((alreadyImported ?? []).map((tx) => tx.id));
 
     // A blind duplicate is a transaction we could *not* confidently pair, so
-    // the one already paired by imported ID is not one of them - listing it
+    // those already paired by imported ID are not among them - listing them
     // again would name the same row twice in the evidence.
     const candidates = (byAmount.get(source.amountCents) ?? []).filter(
       (tx) =>
-        tx.id !== alreadyImported?.id &&
+        !paired.has(tx.id) &&
         daysApart(tx.date, source.date) <= BLIND_DUPLICATE_WINDOW_DAYS,
     );
 

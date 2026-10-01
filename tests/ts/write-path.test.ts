@@ -136,6 +136,39 @@ test('correction targets are de-duplicated across reasons', () => {
   );
 });
 
+test('a Skip matching two stored transactions says so, and names both', () => {
+  // The right action there is probably to fix Actual, not to answer a prompt,
+  // so the human has to see that one imported ID is held twice.
+  const [row] = classify(
+    [src({ importedId: 'SHARED-ID' })],
+    [
+      actual({
+        id: 'first',
+        imported_id: 'SHARED-ID',
+        payeeName: 'First',
+        notes: null,
+      }),
+      actual({
+        id: 'second',
+        imported_id: 'SHARED-ID',
+        payeeName: 'Second',
+        notes: null,
+      }),
+    ],
+    null,
+  );
+  const [why] = explain(row!.reasons);
+  assert.equal(
+    why,
+    'already in Actual as 2 transactions sharing this imported ID: ' +
+      '2031-03-10 -4.50 "First"; 2031-03-10 -4.50 "Second"',
+  );
+  assert.deepEqual(
+    correctionTargets(row!).map((t) => t.id),
+    ['first', 'second'],
+  );
+});
+
 test('the evidence names the payee, not just an id', () => {
   const [row] = classify([src()], [actual()], null);
   const [why] = explain(row!.reasons);
