@@ -162,6 +162,36 @@ describe('integration: a whole run from a statement file', { skip }, () => {
     assert.equal((await session.gateway.getAccountHistory(accountId)).length, 3);
   });
 
+  it('numbers a forced copy past an earlier one that has since been re-dated', async () => {
+    // A forced copy's number is the lowest one the account does not hold yet,
+    // wherever that earlier copy now sits. Missing it would write a second row
+    // under the same imported ID - the corruption forcing exists to avoid.
+    const { config, accountId } = await arrange(
+      'force-re-dated',
+      '9659086893219337559',
+    );
+    const path = DATA + 'ubs_cards_1.csv';
+
+    await run(config, path, () => 'i', 3);
+    const second = await run(config, path, (i) => (i === 0 ? 'f' : 'l'), 3);
+    const base = second.result.outcomes[0]!.row.source.importedId;
+    const firstCopy = (
+      await session.gateway.findByImportedIds(accountId, [`${base}~dup1`])
+    )[0]!;
+    await session.api.updateTransaction(firstCopy.id, { date: '2026-03-16' });
+    await session.api.sync();
+
+    await run(config, path, (i) => (i === 0 ? 'f' : 'l'), 3);
+    const copies = await session.gateway.findByImportedIds(accountId, [
+      `${base}~dup1`,
+      `${base}~dup2`,
+    ]);
+    assert.deepEqual(copies.map((t) => t.imported_id).sort(), [
+      `${base}~dup1`,
+      `${base}~dup2`,
+    ]);
+  });
+
   it('names both stored transactions when two share the imported ID of a row', async () => {
     // Actual enforces no uniqueness on imported_id, so a hand-edit or an
     // interrupted write can leave two rows under one ID. Naming only one of them

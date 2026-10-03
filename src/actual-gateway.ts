@@ -49,6 +49,9 @@ export type Patch = {
 
 type Api = typeof import('@actual-app/api');
 
+/** A transaction as the api hands it back, before narrowing. */
+type TransactionRow = Awaited<ReturnType<Api['getTransactions']>>[number];
+
 export class ActualGateway {
   #api: Api | null = null;
   #ownedDataDir: string | null = null;
@@ -129,12 +132,99 @@ export class ActualGateway {
     }));
   }
 
+  /**
+   * The account's transactions dated from `startDate` to `endDate`, both
+   * inclusive. Splits come back as their parent, with the parts inside it.
+   */
   async getTransactions(
     accountId: string,
     startDate: string,
     endDate: string,
   ): Promise<ActualTransaction[]> {
     const rows = await this.#require().getTransactions(accountId, startDate, endDate);
+    return this.#toActual(rows);
+  }
+
+  /**
+   * Everything the account holds, whatever its date.
+   *
+   * The span is the whole calendar deliberately: Actual allows a transaction
+   * dated in the future. The import itself never reads this - it asks the
+   * targeted questions below - but a test asserting on what a run left behind
+   * needs all of it.
+   */
+  async getAccountHistory(accountId: string): Promise<ActualTransaction[]> {
+    return this.getTransactions(accountId, '1000-01-01', '9999-12-31');
+  }
+
+  /**
+   * The reconciliation boundary: the date of the account's newest reconciled
+   * transaction, or null if it has none.
+   *
+   * Actual has no such field, so it is derived - and from every row whatever
+   * its date, because a lower boundary means a row inside an attested range is
+   * not classified as if it were. The parts of a split are counted as well as
+   * its parent: Actual dates them alike, and should only one side carry the
+   * flag, the higher boundary is the safe error.
+   */
+  async reconciliationBoundary(accountId: string): Promise<string | null> {
+    const api = this.#require();
+    const result = (await api.aqlQuery(
+      api
+        .q('transactions')
+        .filter({ account: accountId, reconciled: true })
+        .orderBy([{ date: 'desc' }])
+        .limit(1)
+        .select(['date'])
+        .options({ splits: 'all' }),
+    )) as { data: { date: string }[] };
+    return result.data[0]?.date ?? null;
+  }
+
+  /**
+   * Every transaction in the account holding one of these imported IDs,
+   * whatever its date.
+   *
+   * Unbounded in date because an imported ID has to be recognised wherever the
+   * transaction now sits: the cards parser dates a purchase by `Date d'achat`
+   * while the bank books it weeks later, so re-dating it in Actual moves it a
+   * long way from where this tool wrote it, and a missed ID turns the row into
+   * a Clean that claims nothing in Actual looks like it. Bounded in rows
+   * instead, which is what makes it cheap (#67).
+   *
+   * Every holder comes back, not one per ID: Actual does not enforce uniqueness.
+   */
+  async findByImportedIds(
+    accountId: string,
+    importedIds: readonly string[],
+  ): Promise<ActualTransaction[]> {
+    const wanted = [...new Set(importedIds)].filter((id) => id !== '');
+    if (wanted.length === 0) return [];
+    const api = this.#require();
+    const result = (await api.aqlQuery(
+      api
+        .q('transactions')
+        .filter({
+          account: accountId,
+          // `$oneof` pastes each value into the SQL between single quotes and
+          // escapes nothing, so the quote is doubled here. It is still the only
+          // safe shape: a plain string is read as a field reference when it
+          // starts with `$` and as a named parameter when it starts with `:`.
+          // Pinned by the characterization tests, since a fix upstream would
+          // turn this doubling into a silent miss.
+          imported_id: { $oneof: wanted.map((id) => id.replaceAll("'", "''")) },
+        })
+        .select('*')
+        .options({ splits: 'grouped' }),
+    )) as { data: TransactionRow[] };
+    // A split whose *part* carries the ID comes back as its parent, which may
+    // not; keep only the rows that hold one of the IDs themselves, as a
+    // whole-history read would have.
+    const asked = new Set(wanted);
+    return this.#toActual(result.data.filter((t) => asked.has(t.imported_id ?? '')));
+  }
+
+  async #toActual(rows: readonly TransactionRow[]): Promise<ActualTransaction[]> {
     const payees = await this.#payees();
     return rows.map((t) => ({
       id: t.id,
@@ -151,19 +241,6 @@ export class ActualGateway {
         amount: s.amount,
       })),
     }));
-  }
-
-  /**
-   * Everything the account holds, whatever its date.
-   *
-   * The span is the whole calendar deliberately. Capping it at today would miss
-   * a transaction dated in the future - Actual allows them - and both things
-   * this feeds need the complete set: the reconciliation boundary is the newest
-   * reconciled date wherever it sits, and an imported ID has to be recognised
-   * wherever the transaction now sits.
-   */
-  async getAccountHistory(accountId: string): Promise<ActualTransaction[]> {
-    return this.getTransactions(accountId, '1000-01-01', '9999-12-31');
   }
 
   /** The payee's own name, so the Tape can show it rather than a raw string. */

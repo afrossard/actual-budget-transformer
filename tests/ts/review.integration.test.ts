@@ -7,12 +7,7 @@
  */
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  classify,
-  reconciliationBoundary,
-  tally,
-  type ActualTransaction,
-} from '../../src/classify.ts';
+import { classify, tally, type ActualTransaction } from '../../src/classify.ts';
 import { createScriptedIo } from '../../src/io.ts';
 import { correctionTargets, review } from '../../src/review.ts';
 import type { SourceTransaction } from '../../src/sources/types.ts';
@@ -52,7 +47,7 @@ describe('integration: the review loop', { skip }, () => {
     const account = await createRunAccount(session, label);
     const scenario = await seedScenario(session, account.id);
     const existing = await session.gateway.getAccountHistory(account.id);
-    const boundary = reconciliationBoundary(existing);
+    const boundary = await session.gateway.reconciliationBoundary(account.id);
     return {
       accountId: account.id,
       accountName: account.name,
@@ -133,7 +128,6 @@ describe('integration: the review loop', { skip }, () => {
       accountId,
       accountName,
       rows,
-      existing,
       boundary,
       io,
     });
@@ -168,7 +162,6 @@ describe('integration: the review loop', { skip }, () => {
       accountId,
       accountName,
       rows: [locked],
-      existing,
       boundary,
       io,
     });
@@ -199,7 +192,6 @@ describe('integration: the review loop', { skip }, () => {
       accountId,
       accountName,
       rows: [locked],
-      existing,
       boundary,
       io,
     });
@@ -226,7 +218,6 @@ describe('integration: the review loop', { skip }, () => {
       accountId,
       accountName,
       rows: [restaurant],
-      existing,
       boundary,
       io,
     });
@@ -259,7 +250,6 @@ describe('integration: the review loop', { skip }, () => {
       accountId,
       accountName,
       rows: [changed],
-      existing,
       boundary,
       io,
     });
@@ -289,7 +279,6 @@ describe('integration: the review loop', { skip }, () => {
       accountId,
       accountName,
       rows: [salary],
-      existing,
       boundary,
       io,
     });
@@ -315,7 +304,6 @@ describe('integration: the review loop', { skip }, () => {
       accountId,
       accountName,
       rows: first,
-      existing,
       boundary,
       io: createScriptedIo(firstAnswers),
     });
@@ -349,7 +337,6 @@ describe('integration: the review loop', { skip }, () => {
       accountId,
       accountName,
       rows: second,
-      existing: afterFirst,
       boundary,
       io: createScriptedIo(second.map(() => 'l')),
     });
@@ -376,7 +363,6 @@ describe('integration: the review loop', { skip }, () => {
       accountId,
       accountName,
       rows,
-      existing,
       boundary,
       io,
     });
@@ -443,7 +429,6 @@ describe('integration: the review loop', { skip }, () => {
       accountId: account.id,
       accountName: account.name,
       rows,
-      existing,
       boundary: null,
       io: createScriptedIo(['i', 'c']),
     });
@@ -509,7 +494,6 @@ describe('integration: the review loop', { skip }, () => {
       accountId: account.id,
       accountName: account.name,
       rows,
-      existing,
       boundary: null,
       io,
     });
@@ -567,7 +551,6 @@ describe('integration: the review loop', { skip }, () => {
       accountId: account.id,
       accountName: account.name,
       rows,
-      existing,
       boundary: null,
       io,
     });
@@ -609,7 +592,6 @@ describe('integration: the review loop', { skip }, () => {
       accountId,
       accountName,
       rows: [twin],
-      existing: history,
       boundary,
       io,
     });
@@ -633,7 +615,6 @@ describe('integration: the review loop', { skip }, () => {
       accountId,
       accountName,
       rows: [restaurant],
-      existing,
       boundary,
       io,
     });

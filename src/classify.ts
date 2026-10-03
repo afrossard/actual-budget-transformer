@@ -66,25 +66,8 @@ export type ClassifiedRow = {
   reasons: Evidence[];
 };
 
-/**
- * The reconciliation boundary: the date of the newest reconciled transaction.
- *
- * Actual has no such field, so it is derived. Pass the account's whole history -
- * a window would silently lower the boundary, and a lower boundary means a row
- * inside an attested range is not classified as if it were.
- */
-export function reconciliationBoundary(
-  history: readonly ActualTransaction[],
-): string | null {
-  let newest: string | null = null;
-  for (const tx of history) {
-    if (tx.reconciled && (newest === null || tx.date > newest)) newest = tx.date;
-  }
-  return newest;
-}
-
 /** How many days apart two amounts may be and still look like the same event. */
-const BLIND_DUPLICATE_WINDOW_DAYS = 1;
+export const BLIND_DUPLICATE_WINDOW_DAYS = 1;
 
 const DAY_MS = 86_400_000;
 
@@ -110,6 +93,12 @@ function identityKey(tx: SourceTransaction): string {
 
 export function classify(
   sources: readonly SourceTransaction[],
+  /**
+   * Every stored transaction a source row could match: each holder of one of
+   * the sources' imported IDs, wherever it is dated, and everything dated
+   * within the blind-duplicate window of the sources. More is harmless - the
+   * account's whole history classifies the same - but less is a silent miss.
+   */
   existing: readonly ActualTransaction[],
   /** ISO date of the newest reconciled transaction, or null if there is none. */
   boundary: string | null,

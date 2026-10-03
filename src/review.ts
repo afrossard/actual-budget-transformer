@@ -12,11 +12,11 @@
  * leave it, force a separate transaction.
  */
 import type { ActualTransaction, ClassifiedRow } from './classify.ts';
-import { forcedImportedId } from './imported-id.ts';
+import { forcedCopyIds, forcedImportedId } from './imported-id.ts';
 import { formatCents } from './money.ts';
 import { describe, explain, tapeLine, TAPE_HEADER, type TapeStyle } from './tape.ts';
 import type { ActualGateway } from './actual-gateway.ts';
-import type { DroppedRow } from './sources/types.ts';
+import type { DroppedRow, SourceTransaction } from './sources/types.ts';
 
 export type Action = 'import' | 'correct' | 'leave' | 'force';
 
@@ -135,8 +135,6 @@ export type ReviewOptions = {
   accountId: string;
   accountName: string;
   rows: readonly ClassifiedRow[];
-  /** What Actual held when the batch was classified, for forced-ID numbering. */
-  existing: readonly ActualTransaction[];
   /** Rows the parser did not turn into transactions, so the Tape can say so. */
   dropped?: readonly DroppedRow[];
   boundary: string | null;
@@ -147,9 +145,6 @@ export type ReviewOptions = {
 export async function review(options: ReviewOptions): Promise<ReviewResult> {
   const { gateway, accountId, accountName, rows, io, boundary } = options;
   const style = options.style ?? { colour: false };
-  const importedIds = new Set(
-    options.existing.map((t) => t.imported_id ?? '').filter((id) => id !== ''),
-  );
   // Stored transactions corrected so far in this run; see `correctionTargets`.
   const corrected = new Set<string>();
 
@@ -192,7 +187,6 @@ export async function review(options: ReviewOptions): Promise<ReviewResult> {
       row,
       gateway,
       accountId,
-      importedIds,
       corrected,
       io,
     });
@@ -203,16 +197,45 @@ export async function review(options: ReviewOptions): Promise<ReviewResult> {
   return { outcomes, stopped: false };
 }
 
+/** How many forced IDs to ask Actual about at once; one is almost always enough. */
+const FORCED_LOOKUP_BATCH = 10;
+
+/**
+ * The forced ID for this row: the lowest copy number the account does not
+ * hold, checked against Actual at the moment of writing.
+ *
+ * Asked here rather than taken from what the batch was classified against,
+ * because that read only holds the rows the classifier could match, and an
+ * earlier forced copy re-dated out of the statement's span is not one of them.
+ * Missing it would write a second row under the same imported ID. Reading at
+ * write time also sees every copy forced earlier in this run, since a write
+ * lands in the local budget at once.
+ */
+async function freeForcedImportedId(
+  gateway: ActualGateway,
+  accountId: string,
+  source: SourceTransaction,
+): Promise<string> {
+  for (let count = FORCED_LOOKUP_BATCH; ; count += FORCED_LOOKUP_BATCH) {
+    const candidates = forcedCopyIds(source, count);
+    const held = await gateway.findByImportedIds(accountId, candidates);
+    const importedId = forcedImportedId(
+      source,
+      held.map((t) => t.imported_id ?? ''),
+    );
+    if (candidates.includes(importedId)) return importedId;
+  }
+}
+
 async function apply(args: {
   action: Action;
   row: ClassifiedRow;
   gateway: ActualGateway;
   accountId: string;
-  importedIds: Set<string>;
   corrected: Set<string>;
   io: ReviewIo;
 }): Promise<RowOutcome> {
-  const { action, row, gateway, accountId, importedIds, corrected, io } = args;
+  const { action, row, gateway, accountId, corrected, io } = args;
   const { source } = row;
 
   if (action === 'leave') {
@@ -229,7 +252,6 @@ async function apply(args: {
       importedId: source.importedId,
     });
     await gateway.sync();
-    if (source.importedId !== '') importedIds.add(source.importedId);
     io.write(
       `    added ${source.date} ${formatCents(source.amountCents).trim()}` +
         (source.importedId === ''
@@ -240,7 +262,7 @@ async function apply(args: {
   }
 
   if (action === 'force') {
-    const importedId = forcedImportedId(source, importedIds);
+    const importedId = await freeForcedImportedId(gateway, accountId, source);
     await gateway.add(accountId, {
       date: source.date,
       amountCents: source.amountCents,
@@ -249,7 +271,6 @@ async function apply(args: {
       importedId,
     });
     await gateway.sync();
-    importedIds.add(importedId);
     io.write(`    forced a separate transaction as ${importedId}`);
     return { row, action, wrote: 'forced' };
   }
@@ -303,7 +324,6 @@ async function apply(args: {
   await gateway.correct(target.id, patch);
   await gateway.sync();
   corrected.add(target.id);
-  if (patch.importedId !== undefined) importedIds.add(patch.importedId);
   const written = [
     'date',
     ...(patch.payeeName === undefined ? [] : ['payee']),

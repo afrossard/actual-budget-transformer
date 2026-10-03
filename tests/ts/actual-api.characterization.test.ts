@@ -1,5 +1,6 @@
 /**
- * Characterization tests for `@actual-app/api`'s write path.
+ * Characterization tests for `@actual-app/api`'s write path, and for the
+ * ActualQL filter shapes its reads are built on (the second suite below).
  *
  * These are the five probes from `prototype/38-interactive-import`, turned from
  * scripts that print into tests that assert. Everything the write path was
@@ -286,5 +287,113 @@ describe('integration: what @actual-app/api actually does', { skip }, () => {
     assert.equal(after.amount, -1111);
     assert.equal(after.notes, 'patched');
     assert.equal(after.reconciled, true, 'and reconciled stayed true');
+  });
+});
+
+/**
+ * Characterization tests for ActualQL's filter shapes, which the gateway's
+ * targeted reads are built on (#67).
+ *
+ * These earn their place because ActualQL answers some shapes **wrongly and
+ * silently**: no error, just a result set that is too small or too large. In
+ * this tool that would be a blind-duplicate check or an imported-ID match that
+ * under- or over-matches while the human trusts its evidence. So each shape is
+ * pinned here, the broken ones included - if a version bump fixes one, that is
+ * also something to find out deliberately rather than by accident.
+ */
+describe('integration: what ActualQL filters actually return', { skip }, () => {
+  let session: Session;
+  let api: typeof import('@actual-app/api');
+  let accountId: string;
+
+  before(async () => {
+    session = await openSession();
+    api = session.api;
+    accountId = (await createRunAccount(session, 'probe-aql')).id;
+    await api.addTransactions(accountId, [
+      { date: '2038-05-10', amount: -100, imported_id: 'A', payee_name: 'Shape' },
+      { date: '2038-05-11', amount: -101, imported_id: 'B', payee_name: 'Shape' },
+      { date: '2038-09-20', amount: -100, imported_id: "O'Brien", payee_name: 'Shape' },
+    ]);
+    await api.sync();
+  });
+
+  after(async () => {
+    await closeSession(session);
+  });
+
+  async function dates(filter: Record<string, unknown>): Promise<string[]> {
+    const result = (await api.aqlQuery(
+      api
+        .q('transactions')
+        .filter({ account: accountId, ...filter })
+        .select('*')
+        .options({ splits: 'grouped' }),
+    )) as { data: { date: string }[] };
+    return result.data.map((t) => t.date).sort();
+  }
+
+  it('$oneof on imported_id works', async () => {
+    assert.deepEqual(await dates({ imported_id: { $oneof: ['A', 'B'] } }), [
+      '2038-05-10',
+      '2038-05-11',
+    ]);
+  });
+
+  it('$oneof pastes its values into SQL unescaped, so a quote must be doubled by the caller', async () => {
+    // `'${id}'` with no escaping: an unpaired quote is a syntax error, and a
+    // doubled one is the only way to match the stored value. If this starts
+    // matching the raw form, the gateway's own doubling has become a
+    // double-escape that silently matches nothing.
+    await assert.rejects(dates({ imported_id: { $oneof: ["O'Brien"] } }));
+    assert.deepEqual(await dates({ imported_id: { $oneof: ["O''Brien"] } }), [
+      '2038-09-20',
+    ]);
+  });
+
+  it('$oneof takes thousands of values in one query', async () => {
+    // A year-long statement passes hundreds of ids. SQLite's limits are on
+    // bound parameters and expression depth, and an inlined IN list hits
+    // neither, so the gateway does not chunk.
+    const ids = Array.from({ length: 10_000 }, (_, i) => `filler-${i}`);
+    assert.deepEqual(await dates({ imported_id: { $oneof: [...ids, 'B'] } }), [
+      '2038-05-11',
+    ]);
+  });
+
+  it('plain equality on amount works', async () => {
+    assert.deepEqual(await dates({ amount: -100 }), ['2038-05-10', '2038-09-20']);
+  });
+
+  it('$or of equalities on amount works', async () => {
+    assert.deepEqual(await dates({ $or: [{ amount: -100 }, { amount: -101 }] }), [
+      '2038-05-10',
+      '2038-05-11',
+      '2038-09-20',
+    ]);
+  });
+
+  it('$oneof on amount silently matches nothing', async () => {
+    // The values are inlined as quoted strings, and a string never equals the
+    // integer column. Use `$or` of equalities instead.
+    assert.deepEqual(await dates({ amount: { $oneof: [-100] } }), []);
+  });
+
+  it('a date range as an $and array works', async () => {
+    assert.deepEqual(
+      await dates({
+        $and: [{ date: { $gte: '2038-05-01' } }, { date: { $lte: '2038-05-31' } }],
+      }),
+      ['2038-05-10', '2038-05-11'],
+    );
+  });
+
+  it('a date range as one object silently ignores a bound', async () => {
+    // `{ $gte, $lte }` in one object keeps only one of the two, so the result
+    // runs past the range. Use the `$and` array, as `getTransactions` does.
+    assert.deepEqual(
+      await dates({ date: { $gte: '2038-05-01', $lte: '2038-05-31' } }),
+      ['2038-05-10', '2038-05-11', '2038-09-20'],
+    );
   });
 });
