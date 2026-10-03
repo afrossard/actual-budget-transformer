@@ -41,6 +41,7 @@ Nothing is written without an answer for that transaction, a correction never ch
 
 Server settings come from the config's `actual_budget` block, overridden by `ACTUAL_BUDGET_URL`, `ACTUAL_BUDGET_PASSWORD` and `ACTUAL_BUDGET_SYNC_ID`.
 The budget is identified by its Sync ID, found in Actual under *Settings → Show advanced settings*, because two budgets on one server can share a name.
+*Reset sync* in Actual gives the budget a new Sync ID, so update `sync_id` after using it; until then the import stops and lists the budgets with their current IDs.
 The account names in `account_names` must match the account names in your budget.
 
 ## Output formats
