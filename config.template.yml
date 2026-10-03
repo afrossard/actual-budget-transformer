@@ -108,11 +108,17 @@ processors:
 # file (preferred for shared / committed configs):
 #   ACTUAL_BUDGET_URL       overrides server_url
 #   ACTUAL_BUDGET_PASSWORD  overrides password
-#   ACTUAL_BUDGET_FILE      overrides budget_name
+#   ACTUAL_BUDGET_SYNC_ID   overrides sync_id
+#   ACTUAL_BUDGET_FILE      overrides budget_name (Python path only)
 actual_budget:
   server_url: "http://actual-server:5006"
   password: "" # set via ACTUAL_BUDGET_PASSWORD
-  budget_name: "" # the budget's name in the UI (e.g. "Personal")
+  # The budget's Sync ID: Settings → Show advanced settings in Actual. The
+  # import CLI reads only this, because two budgets can share a name.
+  sync_id: ""
+  # The budget's name in the UI (e.g. "Personal"). Read only by the Python
+  # `--format actual` path, which is being removed (#41).
+  budget_name: ""
   # Local SQLite cache. Optional — a fresh temp dir is used per run if unset.
   # data_dir: "/var/lib/actual-budget-transformer/data"
   # Category assigned to source rows that look like duplicates of existing

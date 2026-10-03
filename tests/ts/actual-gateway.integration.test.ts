@@ -12,12 +12,39 @@ import {
   closeSession,
   createRunAccount,
   openSession,
+  SERVER_URL,
   serverReachable,
   skipReason,
+  testSettings,
   type Session,
 } from './actual-fixture.ts';
+import { ActualGateway } from '../../src/actual-gateway.ts';
 
 const skip = skipReason(await serverReachable());
+
+// Its own suite, ahead of the one below: `open` initialises the api singleton,
+// so a second gateway opened beside a live session would swap its budget out.
+describe('integration: the gateway opens a budget by sync ID', { skip }, () => {
+  it('refuses an unknown sync ID, listing each budget by name and sync ID', async () => {
+    const settings = await testSettings();
+    const gateway = new ActualGateway({ ...settings, syncId: 'no-such-id' });
+    try {
+      await assert.rejects(gateway.open(), (error: Error) => {
+        assert.match(
+          error.message,
+          new RegExp(`^no budget with sync ID "no-such-id" on ${SERVER_URL}\\.`),
+        );
+        assert.match(
+          error.message,
+          new RegExp(`\\n  "Test Budget" {2,}${settings.syncId}(\\n|$)`),
+        );
+        return true;
+      });
+    } finally {
+      await gateway.close();
+    }
+  });
+});
 
 describe('integration: the gateway reads only what a question needs', { skip }, () => {
   let session: Session;

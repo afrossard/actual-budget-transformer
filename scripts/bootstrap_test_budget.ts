@@ -145,6 +145,12 @@ async function bootstrap(dataDir: string): Promise<void> {
 
   await api.sync();
 
+  // The import CLI opens a budget by sync ID only, so print it for config.yml.
+  const syncIds = ((await api.getBudgets()) as Budget[])
+    .filter((b) => b.name === 'Test Budget' && b.groupId)
+    .map((b) => b.groupId);
+  console.log(`\nTest Budget sync ID: ${[...new Set(syncIds)].join(', ')}`);
+
   // Summary
   const finalAccounts = (await api.getAccounts()) as Account[];
   console.log('\nAccounts:');
