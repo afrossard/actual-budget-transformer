@@ -13,7 +13,7 @@
  * fix it by editing a file.
  */
 import { readFileSync } from 'node:fs';
-import { parse as parseYaml } from 'yaml';
+import { LineCounter, parse as parseYaml, YAMLParseError } from 'yaml';
 import {
   DEFAULT_ACCOUNT_CSV,
   DEFAULT_CARDS_CSV,
@@ -126,20 +126,29 @@ export function loadConfig(
         `cannot read config ${path}: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
+    // Not the parser's pretty error: that quotes the broken line, and the line
+    // may be the password. The bare reason and a position say where to look.
+    const lineCounter = new LineCounter();
     try {
-      raw = (parseYaml(text) as RawConfig | null) ?? {};
+      raw =
+        (parseYaml(text, { prettyErrors: false, lineCounter }) as RawConfig | null) ??
+        {};
     } catch (error) {
-      const line = (error as { linePos?: { line: number }[] }).linePos?.[0]?.line;
-      const where = line === undefined ? '' : ` at line ${line}`;
-      throw new Error(
-        `${path} is not valid YAML${where}: ${error instanceof Error ? error.message.split('\n')[0] : String(error)}`,
-      );
+      if (!(error instanceof YAMLParseError)) throw error;
+      // -1 is the parser saying it has no position for this one.
+      const offset = error.pos[0];
+      let where = '';
+      if (offset >= 0) {
+        const { line, col } = lineCounter.linePos(offset);
+        where = ` at line ${line}, column ${col}`;
+      }
+      throw new Error(`${path} is not valid YAML${where}: ${error.message}`);
     }
   }
 
   const accountNames: Record<string, string> = {};
   for (const [key, value] of Object.entries(raw.account_names ?? {})) {
-    accountNames[key.replace(/\s/g, '')] = text(value);
+    accountNames[configKey(key)] = text(value);
   }
 
   const block = raw.actual_budget ?? {};
@@ -177,11 +186,32 @@ export function requireActualConfig(config: Config): ActualConfig {
   return config.actual;
 }
 
+/** Which Actual account a statement's identifier points at, and why. */
+export type AccountTarget = {
+  /** The identifier as the statement carries it. */
+  accountKey: string;
+  /** The account's name in Actual. */
+  name: string;
+  /**
+   * False when `account_names` has no entry and `name` is the identifier
+   * itself. The two need opposite fixes when the name is not in the budget -
+   * add a mapping, or correct one - so the error has to know which it is.
+   */
+  mapped: boolean;
+};
+
+/** Whatever the bank's spacing: the config's keys are stored without it. */
+export function configKey(accountKey: string): string {
+  return accountKey.replace(/\s/g, '');
+}
+
 /**
- * The account's name in Actual for a bank identifier. Unmapped identifiers
- * fall back to themselves, which surfaces as "account not found in budget"
- * naming the identifier the file carried.
+ * The account's name in Actual for a bank identifier. An unmapped identifier
+ * falls back to itself, so an account named after it still matches.
  */
-export function accountNameFor(config: Config, accountKey: string): string {
-  return config.accountNames[accountKey.replace(/\s/g, '')] ?? accountKey;
+export function accountTargetFor(config: Config, accountKey: string): AccountTarget {
+  const key = configKey(accountKey);
+  return Object.hasOwn(config.accountNames, key)
+    ? { accountKey, name: config.accountNames[key] ?? accountKey, mapped: true }
+    : { accountKey, name: accountKey, mapped: false };
 }

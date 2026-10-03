@@ -109,20 +109,11 @@ export class ActualGateway {
     }
   }
 
-  async findAccount(name: string): Promise<Account> {
-    const accounts = await this.listAccounts();
-    const open = accounts.filter((a) => !a.closed);
-    const match = open.find((a) => a.name === name);
-    if (!match) {
-      throw new Error(
-        `account ${JSON.stringify(name)} not found in budget. ` +
-          `Available: ${open.map((a) => JSON.stringify(a.name)).join(', ') || '(none)'}`,
-      );
-    }
-    return match;
-  }
-
-  /** Not cached: a stale account list is a silently wrong account. */
+  /**
+   * Every account, closed ones included: which one a statement goes into is
+   * `resolveAccount`'s decision, and a closed exact match is worth naming.
+   * Not cached: a stale account list is a silently wrong account.
+   */
   async listAccounts(): Promise<Account[]> {
     const rows = await this.#require().getAccounts();
     return rows.map((a) => ({

@@ -69,6 +69,7 @@ src/
 ├── cli.ts             # argument parsing and wiring
 ├── import-run.ts      # one run: parse, read Actual, classify once, review
 ├── config.ts          # the user's config.yml (account_names + actual_budget only)
+├── account-resolution.ts # which account a statement goes into; the not-found message
 ├── classify.ts        # THE CLASSIFIER SEAM — pure, no server, no I/O
 ├── actual-gateway.ts  # THE GATEWAY SEAM — the only module touching @actual-app/api
 ├── actual-version.ts  # ADR-007 version-skew gate

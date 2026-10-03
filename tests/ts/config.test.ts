@@ -1,7 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
-import { accountNameFor, loadConfig, requireActualConfig } from '../../src/config.ts';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { accountTargetFor, loadConfig, requireActualConfig } from '../../src/config.ts';
 
 const REPO = fileURLToPath(new URL('../../', import.meta.url));
 
@@ -13,13 +16,23 @@ test('the shipped template loads', () => {
 
 test('account identifiers match however the bank spaces them', () => {
   const config = loadConfig(REPO + 'tests/data/test_config.yml', {});
-  assert.equal(accountNameFor(config, 'CH9DDD C4D8 456C 5AFF ACD'), 'test_account');
-  assert.equal(accountNameFor(config, '9659086893219337559'), 'test_card');
+  assert.deepEqual(accountTargetFor(config, 'CH9DDD C4D8 456C 5AFF ACD'), {
+    accountKey: 'CH9DDD C4D8 456C 5AFF ACD',
+    name: 'test_account',
+    mapped: true,
+  });
+  assert.equal(accountTargetFor(config, '9659086893219337559').name, 'test_card');
 });
 
-test('an unmapped identifier falls back to itself', () => {
+test('an unmapped identifier falls back to itself, and says it is unmapped', () => {
   const config = loadConfig(REPO + 'tests/data/test_config.yml', {});
-  assert.equal(accountNameFor(config, 'CH-UNKNOWN'), 'CH-UNKNOWN');
+  assert.deepEqual(accountTargetFor(config, 'CH-UNKNOWN'), {
+    accountKey: 'CH-UNKNOWN',
+    name: 'CH-UNKNOWN',
+    mapped: false,
+  });
+  // The mapping is a plain object, so its prototype must not read as an entry.
+  assert.equal(accountTargetFor(config, 'constructor').mapped, false);
 });
 
 test('the environment wins over the file on the sensitive values', () => {
@@ -114,8 +127,27 @@ test('a broken config says where it is broken, not how the parser failed', () =>
   // The file exists to be edited, so a typo has to read as a typo.
   assert.throws(
     () => loadConfig(REPO + 'tests/data/test_config_broken.yml', {}),
-    /test_config_broken\.yml is not valid YAML at line 4: /,
+    /test_config_broken\.yml is not valid YAML at line 4, column 1: Map keys must be unique$/,
   );
+});
+
+test('a broken config never echoes the broken line, which may hold the password', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'abt-config-'));
+  try {
+    const path = join(dir, 'config.yml');
+    writeFileSync(path, 'actual_budget:\n  password: "hunter2\n  server_url: x\n');
+    assert.throws(
+      () => loadConfig(path, {}),
+      (error: Error) => {
+        assert.match(error.message, /is not valid YAML at line \d+, column \d+: \S/);
+        assert.doesNotMatch(error.message, /hunter2/);
+        assert.doesNotMatch(error.message, /\n/);
+        return true;
+      },
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('a missing config file is named rather than thrown from fs', () => {
