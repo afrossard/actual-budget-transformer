@@ -210,6 +210,16 @@ test('the probe says why it could not connect', async () => {
   assert.match(failed(probe).hint, /running|reachable/);
 });
 
+test('the probe says when server_url is not an http(s) URL', async () => {
+  // `localhost:5006` parses as scheme `localhost:`, and a bare host not at all.
+  for (const serverUrl of ['localhost:5006', 'actual.example.com', 'ftp://host/']) {
+    const probe = await probeServerVersion(serverUrl);
+    assert.equal(probe.url, serverUrl);
+    assert.equal(failed(probe).failure, 'not an http:// or https:// URL');
+    assert.match(failed(probe).hint, /http:\/\/localhost:5006/);
+  }
+});
+
 test('the probe names a TLS failure in a line, not as an OpenSSL dump', async () => {
   // https:// against a plain HTTP server, as with a wrong scheme in server_url.
   await serving(

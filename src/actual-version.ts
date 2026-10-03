@@ -99,7 +99,25 @@ export async function probeServerVersion(
   serverUrl: string,
   timeoutMs = 10_000,
 ): Promise<ServerVersionProbe> {
-  const url = infoUrl(serverUrl).href;
+  // `localhost:5006` parses with `localhost:` as its scheme; a bare host does
+  // not parse at all.
+  let info: URL | null = null;
+  try {
+    info = infoUrl(serverUrl);
+  } catch {
+    // Reported below, with the address as the user wrote it.
+  }
+  if (info === null || (info.protocol !== 'http:' && info.protocol !== 'https:')) {
+    return {
+      url: serverUrl,
+      version: null,
+      failure: 'not an http:// or https:// URL',
+      hint:
+        'Write server_url (or ACTUAL_BUDGET_URL) in full, with its scheme, such as ' +
+        'http://localhost:5006.',
+    };
+  }
+  const url = info.href;
   const fail = (failure: string, hint: string): ServerVersionProbe => ({
     url,
     version: null,
