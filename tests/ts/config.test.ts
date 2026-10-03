@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { accountTargetFor, loadConfig, requireActualConfig } from '../../src/config.ts';
 
 const REPO = fileURLToPath(new URL('../../', import.meta.url));
@@ -124,8 +127,27 @@ test('a broken config says where it is broken, not how the parser failed', () =>
   // The file exists to be edited, so a typo has to read as a typo.
   assert.throws(
     () => loadConfig(REPO + 'tests/data/test_config_broken.yml', {}),
-    /test_config_broken\.yml is not valid YAML at line 4: /,
+    /test_config_broken\.yml is not valid YAML at line 4, column 1: Map keys must be unique$/,
   );
+});
+
+test('a broken config never echoes the broken line, which may hold the password', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'abt-config-'));
+  try {
+    const path = join(dir, 'config.yml');
+    writeFileSync(path, 'actual_budget:\n  password: "hunter2\n  server_url: x\n');
+    assert.throws(
+      () => loadConfig(path, {}),
+      (error: Error) => {
+        assert.match(error.message, /is not valid YAML at line \d+, column \d+: \S/);
+        assert.doesNotMatch(error.message, /hunter2/);
+        assert.doesNotMatch(error.message, /\n/);
+        return true;
+      },
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('a missing config file is named rather than thrown from fs', () => {

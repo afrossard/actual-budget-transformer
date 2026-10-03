@@ -13,7 +13,7 @@
  * fix it by editing a file.
  */
 import { readFileSync } from 'node:fs';
-import { parse as parseYaml } from 'yaml';
+import { LineCounter, parse as parseYaml, YAMLParseError } from 'yaml';
 import {
   DEFAULT_ACCOUNT_CSV,
   DEFAULT_CARDS_CSV,
@@ -126,14 +126,23 @@ export function loadConfig(
         `cannot read config ${path}: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
+    // Not the parser's pretty error: that quotes the broken line, and the line
+    // may be the password. The bare reason and a position say where to look.
+    const lineCounter = new LineCounter();
     try {
-      raw = (parseYaml(text) as RawConfig | null) ?? {};
+      raw =
+        (parseYaml(text, { prettyErrors: false, lineCounter }) as RawConfig | null) ??
+        {};
     } catch (error) {
-      const line = (error as { linePos?: { line: number }[] }).linePos?.[0]?.line;
-      const where = line === undefined ? '' : ` at line ${line}`;
-      throw new Error(
-        `${path} is not valid YAML${where}: ${error instanceof Error ? error.message.split('\n')[0] : String(error)}`,
-      );
+      if (!(error instanceof YAMLParseError)) throw error;
+      // -1 is the parser saying it has no position for this one.
+      const offset = error.pos[0];
+      let where = '';
+      if (offset >= 0) {
+        const { line, col } = lineCounter.linePos(offset);
+        where = ` at line ${line}, column ${col}`;
+      }
+      throw new Error(`${path} is not valid YAML${where}: ${error.message}`);
     }
   }
 
