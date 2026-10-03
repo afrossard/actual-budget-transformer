@@ -21,17 +21,18 @@ This is the original path and still covers CAMT.053.
 
 ```bash
 npm ci
-ACTUAL_BUDGET_PASSWORD=… npm run import -- -c config.yaml statement.csv
+read -s ACTUAL_BUDGET_PASSWORD && export ACTUAL_BUDGET_PASSWORD # Sets a password without leaving traces in shell history
+ACTUAL_BUDGET_URL=http://localhost:5006 npm run import -- -c config.yaml statement.csv
 ```
 
 It reads the account from the file, reads the account's history from Actual, and classifies every transaction once into one of four buckets:
 
-| Bucket | Meaning |
-| --- | --- |
-| **clean** | nothing in Actual looks like it |
+| Bucket         | Meaning                                                                        |
+| -------------- | ------------------------------------------------------------------------------ |
+| **clean**      | nothing in Actual looks like it                                                |
 | **suspicious** | something does — same amount within a day — but not confidently enough to pair |
-| **skip** | its imported ID is already in Actual; nothing left to do |
-| **locked** | dated on or before the newest reconciled transaction |
+| **skip**       | its imported ID is already in Actual; nothing left to do                       |
+| **locked**     | dated on or before the newest reconciled transaction                           |
 
 It then prints one line per transaction — the Tape — and prompts on **every** row, including the ones it is declining, showing what each matched and why.
 Four answers: **i**mport it, **c**orrect the matched transaction from the bank's data, **l**eave it, or **f**orce a separate transaction. `?` shows the detail and `q` stops the run.
@@ -45,11 +46,11 @@ The account names in `account_names` must match the account names in your budget
 
 Use `--format` to select the output format for file output:
 
-| Flag | Output | Use case |
-|------|--------|----------|
-| `--format csv` (default) | CSV files | Actual Budget CSV import |
-| `--format camt053` | CAMT.053 XML files | Actual Budget CAMT import (preserves transaction references as `imported_id`) |
-| `--format both` | Both CSV and XML | |
+| Flag                     | Output             | Use case                                                                      |
+| ------------------------ | ------------------ | ----------------------------------------------------------------------------- |
+| `--format csv` (default) | CSV files          | Actual Budget CSV import                                                      |
+| `--format camt053`       | CAMT.053 XML files | Actual Budget CAMT import (preserves transaction references as `imported_id`) |
+| `--format both`          | Both CSV and XML   |                                                                               |
 
 Output files are grouped by account and month (e.g. `202507_personal.csv`). Transactions from different input formats for the same account are merged into a single output file. Re-running with overlapping data deduplicates automatically.
 
