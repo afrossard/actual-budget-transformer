@@ -13,6 +13,7 @@ import { ActualGateway } from './actual-gateway.ts';
 import { loadConfig, requireActualConfig } from './config.ts';
 import { createTerminalIo } from './io.ts';
 import { runImport } from './import-run.ts';
+import { terminalWidth } from './tape.ts';
 
 const USAGE = `usage: abt-import [-c <config.yml>] [--no-colour] <statement file>
 
@@ -54,6 +55,7 @@ export async function main(argv: readonly string[]): Promise<number> {
   const io = createTerminalIo();
   const style = {
     colour: !parsed.values['no-colour'] && process.stdout.isTTY === true,
+    width: terminalWidth(process.stdout),
   };
 
   const gateway = new ActualGateway(settings);

@@ -212,19 +212,20 @@ describe('integration: a whole run from a statement file', { skip }, () => {
     const { result, io } = await run(config, path, () => 'l', 1);
     assert.equal(result.outcomes[0]!.row.bucket, 'skip');
     const transcript = io.transcript.join('\n');
+    // Actual title-cases payee names it creates, so match case-insensitively.
+    assert.match(transcript, /imported ID ×2/);
+    assert.match(transcript, /actual \d +2023-01-13 +-186\.65 +EXAMPLE; Paiement UBS/i);
     assert.match(
       transcript,
-      /already in Actual as 2 transactions sharing this imported ID: /,
+      /actual \d +2023-03-01 +-186\.65 +Second copy +imported ID$/im,
     );
-    assert.match(transcript, /2023-01-13 -186.65 "EXAMPLE; Paiement UBS TWINT/);
-    assert.match(transcript, /2023-03-01 -186.65 "Second copy"/);
   });
 
   it('says on the Tape which rows the file held but the parser did not read', async () => {
     const { config } = await arrange('cards-pending', '9659086893219337559');
     const { io } = await run(config, DATA + 'ubs_cards_pending.csv', () => 'l', 3);
     const transcript = io.transcript.join('\n');
-    assert.match(transcript, /row\(s\) in the file were not read as transactions/);
+    assert.match(transcript, /4 rows in the file were not read as transactions/);
     assert.match(transcript, /pending \(not booked yet\)/);
   });
 

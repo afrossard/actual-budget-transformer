@@ -9,7 +9,6 @@
 import {
   BLIND_DUPLICATE_WINDOW_DAYS,
   classify,
-  tally,
   type ActualTransaction,
 } from './classify.ts';
 import { resolveAccount } from './account-resolution.ts';
@@ -67,11 +66,6 @@ export async function runImport(options: RunOptions): Promise<RunResult> {
   const existing = distinctById([...byImportedId, ...nearby]);
 
   const rows = classify(statement.transactions, existing, boundary);
-  const counts = tally(rows);
-  io.write(
-    `classified once: ${counts.clean} clean, ${counts.suspicious} suspicious, ` +
-      `${counts.skip} skip, ${counts.locked} locked`,
-  );
 
   const result = await review({
     gateway,
