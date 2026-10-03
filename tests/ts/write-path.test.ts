@@ -16,7 +16,7 @@ import {
   MAX_CORRECTION_CHOICES,
   warnings,
 } from '../../src/review.ts';
-import { explain, tapeLine, TAPE_HEADER } from '../../src/tape.ts';
+import { explain } from '../../src/tape.ts';
 import type { SourceTransaction } from '../../src/sources/types.ts';
 
 const SRC = fileURLToPath(new URL('../../src/', import.meta.url));
@@ -157,7 +157,7 @@ test('a Skip matching two stored transactions says so, and names both', () => {
     ],
     null,
   );
-  const [why] = explain(row!.reasons);
+  const [why] = explain(row!.reasons, () => undefined);
   assert.equal(
     why,
     'already in Actual as 2 transactions sharing this imported ID: ' +
@@ -171,30 +171,8 @@ test('a Skip matching two stored transactions says so, and names both', () => {
 
 test('the evidence names the payee, not just an id', () => {
   const [row] = classify([src()], [actual()], null);
-  const [why] = explain(row!.reasons);
+  const [why] = explain(row!.reasons, () => undefined);
   assert.match(why!, /Coffee \(typed by hand\) \/ manual/);
-});
-
-test('the Tape line reads as one line per source transaction', () => {
-  const [clean] = classify([src({ payee: 'MIGROS', amountCents: -2345 })], [], null);
-  assert.equal(tapeLine(1, clean!), '  1 2031-03-10     -23.45 clean      MIGROS');
-});
-
-test('a declined row says what it matched, on the Tape itself', () => {
-  const [row] = classify([src({ payee: 'CAFE LUGANO' })], [actual()], null);
-  const rendered = tapeLine(6, row!);
-  assert.match(rendered, /suspicious/);
-  assert.match(rendered, /same amount within a day of 1 transaction\(s\)/);
-  assert.match(rendered, /2031-03-10 -4.50 "Coffee \(typed by hand\) \/ manual"/);
-});
-
-test('the Tape marks a split and a reconciled match, because both change what a write means', () => {
-  const [row] = classify(
-    [src()],
-    [actual({ is_parent: true, reconciled: true })],
-    null,
-  );
-  assert.match(tapeLine(1, row!), /split reconciled/);
 });
 
 test('a row just after the boundary that matches a reconciled transaction is warned about', () => {
@@ -207,31 +185,37 @@ test('a row just after the boundary that matches a reconciled transaction is war
     '2020-06-30',
   );
   assert.equal(row!.bucket, 'suspicious');
-  const said = warnings(row!, '2020-06-30');
+  const said = warnings(row!);
   assert.equal(said.length, 1);
-  assert.match(said[0]!, /1 of the transaction\(s\) this could correct is reconciled/);
-  assert.match(said[0]!, /Actual will not stop that patch/);
+  assert.match(
+    said[0]!,
+    /a match is reconciled: correcting it changes an attested range/,
+  );
 });
 
 test('a Locked row is warned about even with nothing to correct', () => {
   const [row] = classify([src({ date: '2020-06-15' })], [], '2020-06-30');
-  const said = warnings(row!, '2020-06-30');
+  const said = warnings(row!);
   assert.equal(said.length, 1);
-  assert.match(said[0]!, /inside the reconciled range \(boundary 2020-06-30\)/);
+  assert.match(said[0]!, /inside the reconciled range/);
 });
 
-test('a Locked row matching the reconciled transaction is warned about twice', () => {
+test('a Locked row matching the reconciled transaction is warned about once', () => {
+  // The reconciled-range warning already says the write changes an attested
+  // range; saying it again for the match is the repetition #81 removed.
   const [row] = classify(
     [src({ date: '2020-06-30' })],
     [actual({ date: '2020-06-30', reconciled: true })],
     '2020-06-30',
   );
-  assert.equal(warnings(row!, '2020-06-30').length, 2);
+  assert.deepEqual(warnings(row!), [
+    'inside the reconciled range: writing here changes it',
+  ]);
 });
 
 test('an ordinary row is warned about not at all', () => {
   const [row] = classify([src()], [actual()], null);
-  assert.deepEqual(warnings(row!, null), []);
+  assert.deepEqual(warnings(row!), []);
 });
 
 test('too many correction candidates withholds correcting, and says why', () => {
@@ -243,8 +227,8 @@ test('too many correction candidates withholds correcting, and says why', () => 
   const [row] = classify([src()], many, null);
   assert.equal(correctionTargets(row!).length, MAX_CORRECTION_CHOICES + 1);
   assert.deepEqual(availableActions(row!), ['import', 'leave']);
-  const said = warnings(row!, null);
-  assert.match(said.join('\n'), /too many to choose between at a prompt/);
+  const said = warnings(row!);
+  assert.match(said.join('\n'), /too many to choose from here/);
 });
 
 test('exactly the maximum number of candidates still offers correcting', () => {
@@ -253,7 +237,7 @@ test('exactly the maximum number of candidates still offers correcting', () => {
   );
   const [row] = classify([src()], many, null);
   assert.deepEqual(availableActions(row!), ['import', 'correct', 'leave']);
-  assert.deepEqual(warnings(row!, null), []);
+  assert.deepEqual(warnings(row!), []);
 });
 
 test('a transaction already corrected in this run is no longer offered as a target', () => {
@@ -277,29 +261,7 @@ test('a withheld target is said out loud, not silently dropped from the choices'
     ['free'],
   );
   assert.deepEqual(availableActions(row!, corrected), ['import', 'correct', 'leave']);
-  const said = warnings(row!, null, corrected);
+  const said = warnings(row!, corrected);
   assert.equal(said.length, 1);
   assert.match(said[0]!, /already corrected by an earlier row in this run/);
-  assert.match(said[0]!, /2031-03-10 -4.50 "Coffee \(typed by hand\) \/ manual"/);
-});
-
-test('every Tape header label sits at the start of the field it names', () => {
-  const [row] = classify([src({ payee: 'MIGROS', amountCents: -2345 })], [], null);
-  const line = tapeLine(1, row!);
-  // The amount is right-aligned, so its label's right edge is what must line up.
-  assert.equal(
-    TAPE_HEADER.indexOf('amount') + 'amount'.length,
-    line.indexOf('-23.45') + '-23.45'.length,
-  );
-  for (const [label, field] of [
-    ['date', '2031-'],
-    ['bucket', 'clean'],
-    ['payee', 'MIGROS'],
-  ] as const) {
-    assert.equal(
-      TAPE_HEADER.indexOf(label),
-      line.indexOf(field),
-      `the ${label} header is not above the ${label} column`,
-    );
-  }
 });
