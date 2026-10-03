@@ -28,7 +28,11 @@ export const CONFIG_PATH_ENV = 'ACTUAL_BUDGET_TRANSFORMER_CONFIG';
 export type ActualConfig = {
   serverUrl: string;
   password: string;
-  budgetName: string;
+  /**
+   * The budget's Sync ID (`groupId`), from Settings → Show advanced settings.
+   * Not its name: a server can hold two budgets under one name.
+   */
+  syncId: string;
   /** Local SQLite cache. A fresh temp dir per run when unset. */
   dataDir: string | null;
 };
@@ -38,6 +42,12 @@ export type Config = {
   accountNames: Record<string, string>;
   actual: ActualConfig;
   formats: Formats;
+  /**
+   * The file or `ACTUAL_BUDGET_FILE` sets the Python path's `budget_name`,
+   * which this path does not read. Kept so a missing sync ID can say what
+   * replaced it.
+   */
+  hasBudgetName?: boolean;
 };
 
 type RawConfig = {
@@ -155,7 +165,7 @@ export function loadConfig(
   const actual: ActualConfig = {
     serverUrl: env['ACTUAL_BUDGET_URL'] || text(block['server_url']),
     password: env['ACTUAL_BUDGET_PASSWORD'] || text(block['password']),
-    budgetName: env['ACTUAL_BUDGET_FILE'] || text(block['budget_name']),
+    syncId: env['ACTUAL_BUDGET_SYNC_ID'] || text(block['sync_id']),
     dataDir: text(block['data_dir']) || null,
   };
 
@@ -165,7 +175,12 @@ export function loadConfig(
     ubsCardsCsv: cardsCsvFormat(processors['ubs_cards'] ?? {}),
   };
 
-  return { accountNames, actual, formats };
+  return {
+    accountNames,
+    actual,
+    formats,
+    hasBudgetName: Boolean(env['ACTUAL_BUDGET_FILE'] || text(block['budget_name'])),
+  };
 }
 
 /** Fail before touching the server rather than halfway through a run. */
@@ -174,13 +189,19 @@ export function requireActualConfig(config: Config): ActualConfig {
     [
       ['server_url', 'ACTUAL_BUDGET_URL', config.actual.serverUrl],
       ['password', 'ACTUAL_BUDGET_PASSWORD', config.actual.password],
-      ['budget_name', 'ACTUAL_BUDGET_FILE', config.actual.budgetName],
+      ['sync_id', 'ACTUAL_BUDGET_SYNC_ID', config.actual.syncId],
     ] as const
   ).filter(([, , value]) => value === '');
   if (missing.length > 0) {
+    const renamed =
+      config.hasBudgetName && config.actual.syncId === ''
+        ? '. budget_name is not read, because two budgets can share a name: ' +
+          'copy the Sync ID from Settings → Show advanced settings in Actual.'
+        : '';
     throw new Error(
       'actual_budget config incomplete; missing ' +
-        missing.map(([key, envVar]) => `${key} (or ${envVar})`).join(', '),
+        missing.map(([key, envVar]) => `${key} (or ${envVar})`).join(', ') +
+        renamed,
     );
   }
   return config.actual;

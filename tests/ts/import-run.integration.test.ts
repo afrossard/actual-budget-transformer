@@ -46,7 +46,7 @@ describe('integration: a whole run from a statement file', { skip }, () => {
         actual: {
           serverUrl: '',
           password: '',
-          budgetName: '',
+          syncId: '',
           dataDir: null,
         },
         formats: DEFAULT_FORMATS,
@@ -233,7 +233,7 @@ describe('integration: a whole run from a statement file', { skip }, () => {
     async function failure(accountNames: Record<string, string>): Promise<string> {
       const config: Config = {
         accountNames,
-        actual: { serverUrl: '', password: '', budgetName: '', dataDir: null },
+        actual: { serverUrl: '', password: '', syncId: '', dataDir: null },
         formats: DEFAULT_FORMATS,
       };
       let message = '';

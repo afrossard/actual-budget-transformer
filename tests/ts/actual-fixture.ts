@@ -19,6 +19,9 @@
  * real server is that a mock would encode our assumptions instead of checking
  * them.
  */
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { ActualGateway, type GatewaySettings } from '../../src/actual-gateway.ts';
 import type { SourceTransaction } from '../../src/sources/types.ts';
 
@@ -27,12 +30,40 @@ export const SERVER_URL =
 const PASSWORD = process.env['ACTUAL_PASSWORD'] ?? 'test-password';
 const BUDGET_NAME = process.env['ACTUAL_BUDGET_NAME'] ?? 'Test Budget';
 
-export const SETTINGS: GatewaySettings = {
-  serverUrl: SERVER_URL,
-  password: PASSWORD,
-  budgetName: BUDGET_NAME,
-  dataDir: null,
-};
+let cachedSettings: GatewaySettings | null = null;
+
+/**
+ * Settings for the bootstrapped test budget.
+ *
+ * The gateway opens a budget only by sync ID, and the bootstrap cannot choose
+ * one, so the harness looks it up by name - which it may, owning the server.
+ * More than one budget under that name is refused rather than guessed at.
+ */
+export async function testSettings(): Promise<GatewaySettings> {
+  if (cachedSettings) return cachedSettings;
+  const api = await rawApi();
+  const dataDir = mkdtempSync(join(tmpdir(), 'abt-fixture-'));
+  let matches: string[];
+  try {
+    await api.init({ serverURL: SERVER_URL, password: PASSWORD, dataDir });
+    const budgets = await api.getBudgets();
+    matches = [
+      ...new Set(budgets.filter((b) => b.name === BUDGET_NAME).map((b) => b.groupId)),
+    ];
+  } finally {
+    await api.shutdown();
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+  const [syncId] = matches;
+  if (matches.length !== 1 || syncId === undefined) {
+    throw new Error(
+      `expected one budget named ${JSON.stringify(BUDGET_NAME)} on ${SERVER_URL}, ` +
+        `found ${matches.length}. Recreate the server and run \`npm run bootstrap\`.`,
+    );
+  }
+  cachedSettings = { serverUrl: SERVER_URL, password: PASSWORD, syncId, dataDir: null };
+  return cachedSettings;
+}
 
 export async function serverReachable(): Promise<boolean> {
   try {
@@ -71,7 +102,7 @@ export type Session = {
 };
 
 export async function openSession(): Promise<Session> {
-  const gateway = new ActualGateway(SETTINGS);
+  const gateway = new ActualGateway(await testSettings());
   await gateway.open();
   const api = await rawApi();
   return { gateway, api, close: () => gateway.close() };

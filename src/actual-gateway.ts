@@ -23,7 +23,8 @@ import {
 export type GatewaySettings = {
   serverUrl: string;
   password: string;
-  budgetName: string;
+  /** The budget's Sync ID (`groupId`), never its name: names are not unique. */
+  syncId: string;
   /** A fresh temp directory is created and removed per run when null. */
   dataDir: string | null;
 };
@@ -81,15 +82,25 @@ export class ActualGateway {
     });
     this.#api = api;
 
+    // By sync ID, never by name: a server can hold two budgets under one name,
+    // and picking the first would write into whichever happened to list first.
+    const { syncId, serverUrl } = this.#settings;
     const budgets = await api.getBudgets();
-    const budget = budgets.find((b) => b.name === this.#settings.budgetName);
-    if (!budget?.groupId) {
+    if (!budgets.some((b) => b.groupId === syncId)) {
+      // A budget held both locally and on the server lists twice.
+      const available = new Map<string, string>();
+      for (const b of budgets) if (b.groupId) available.set(b.groupId, b.name);
+      const names = [...available].map(
+        ([id, name]) => [id, JSON.stringify(name)] as const,
+      );
+      const width = Math.max(0, ...names.map(([, name]) => name.length));
+      const lines = names.map(([id, name]) => `  ${name.padEnd(width)}  ${id}`);
       throw new Error(
-        `budget ${JSON.stringify(this.#settings.budgetName)} not found on ${this.#settings.serverUrl}. ` +
-          `Available: ${budgets.map((b) => JSON.stringify(b.name)).join(', ') || '(none)'}`,
+        `no budget with sync ID ${JSON.stringify(syncId)} on ${serverUrl}. ` +
+          (lines.length > 0 ? `Available:\n${lines.join('\n')}` : 'It has no budgets.'),
       );
     }
-    await api.downloadBudget(budget.groupId);
+    await api.downloadBudget(syncId);
   }
 
   async close(): Promise<void> {

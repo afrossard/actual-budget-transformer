@@ -20,7 +20,7 @@ const USAGE = `usage: abt-import [-c <config.yml>] [--no-colour] <statement file
       --no-colour  plain output, no ANSI styling
 
 Server settings come from the config's actual_budget block, overridden by
-ACTUAL_BUDGET_URL, ACTUAL_BUDGET_PASSWORD and ACTUAL_BUDGET_FILE.`;
+ACTUAL_BUDGET_URL, ACTUAL_BUDGET_PASSWORD and ACTUAL_BUDGET_SYNC_ID.`;
 
 export async function main(argv: readonly string[]): Promise<number> {
   let parsed;

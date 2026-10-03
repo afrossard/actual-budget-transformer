@@ -39,12 +39,12 @@ test('the environment wins over the file on the sensitive values', () => {
   const config = loadConfig(REPO + 'config.template.yml', {
     ACTUAL_BUDGET_URL: 'http://localhost:5006',
     ACTUAL_BUDGET_PASSWORD: 'from-env',
-    ACTUAL_BUDGET_FILE: 'Test Budget',
+    ACTUAL_BUDGET_SYNC_ID: '0d3a2c1e-sync',
   });
   assert.deepEqual(requireActualConfig(config), {
     serverUrl: 'http://localhost:5006',
     password: 'from-env',
-    budgetName: 'Test Budget',
+    syncId: '0d3a2c1e-sync',
     dataDir: null,
   });
 });
@@ -53,8 +53,35 @@ test('an incomplete config fails before the server is touched, naming what is mi
   const config = loadConfig(REPO + 'config.template.yml', {});
   assert.throws(
     () => requireActualConfig(config),
-    /missing password \(or ACTUAL_BUDGET_PASSWORD\), budget_name/,
+    /missing password \(or ACTUAL_BUDGET_PASSWORD\), sync_id/,
   );
+});
+
+test('a config that still names the budget is told where to find its sync ID', () => {
+  // Names are not unique on a server, so `budget_name` is not read here. A
+  // config written for it has to say what replaced it, not just "missing".
+  const dir = mkdtempSync(join(tmpdir(), 'abt-config-'));
+  try {
+    const path = join(dir, 'config.yml');
+    writeFileSync(
+      path,
+      'actual_budget:\n  server_url: x\n  password: p\n  budget_name: Personal\n',
+    );
+    assert.throws(
+      () => requireActualConfig(loadConfig(path, {})),
+      /missing sync_id \(or ACTUAL_BUDGET_SYNC_ID\)\. budget_name is not read, because two budgets can share a name: copy the Sync ID from Settings → Show advanced settings in Actual\.$/,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a budget named through ACTUAL_BUDGET_FILE gets the same pointer', () => {
+  const config = loadConfig(REPO + 'config.template.yml', {
+    ACTUAL_BUDGET_PASSWORD: 'p',
+    ACTUAL_BUDGET_FILE: 'Personal',
+  });
+  assert.throws(() => requireActualConfig(config), /budget_name is not read/);
 });
 
 test('no config file at all is an incomplete config, not a crash', () => {
