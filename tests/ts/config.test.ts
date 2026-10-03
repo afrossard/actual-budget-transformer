@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
-import { accountNameFor, loadConfig, requireActualConfig } from '../../src/config.ts';
+import { accountTargetFor, loadConfig, requireActualConfig } from '../../src/config.ts';
 
 const REPO = fileURLToPath(new URL('../../', import.meta.url));
 
@@ -13,13 +13,23 @@ test('the shipped template loads', () => {
 
 test('account identifiers match however the bank spaces them', () => {
   const config = loadConfig(REPO + 'tests/data/test_config.yml', {});
-  assert.equal(accountNameFor(config, 'CH9DDD C4D8 456C 5AFF ACD'), 'test_account');
-  assert.equal(accountNameFor(config, '9659086893219337559'), 'test_card');
+  assert.deepEqual(accountTargetFor(config, 'CH9DDD C4D8 456C 5AFF ACD'), {
+    accountKey: 'CH9DDD C4D8 456C 5AFF ACD',
+    name: 'test_account',
+    mapped: true,
+  });
+  assert.equal(accountTargetFor(config, '9659086893219337559').name, 'test_card');
 });
 
-test('an unmapped identifier falls back to itself', () => {
+test('an unmapped identifier falls back to itself, and says it is unmapped', () => {
   const config = loadConfig(REPO + 'tests/data/test_config.yml', {});
-  assert.equal(accountNameFor(config, 'CH-UNKNOWN'), 'CH-UNKNOWN');
+  assert.deepEqual(accountTargetFor(config, 'CH-UNKNOWN'), {
+    accountKey: 'CH-UNKNOWN',
+    name: 'CH-UNKNOWN',
+    mapped: false,
+  });
+  // The mapping is a plain object, so its prototype must not read as an entry.
+  assert.equal(accountTargetFor(config, 'constructor').mapped, false);
 });
 
 test('the environment wins over the file on the sensitive values', () => {

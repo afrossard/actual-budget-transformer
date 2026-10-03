@@ -12,7 +12,8 @@ import {
   tally,
   type ActualTransaction,
 } from './classify.ts';
-import { accountNameFor, type Config } from './config.ts';
+import { resolveAccount } from './account-resolution.ts';
+import { accountTargetFor, type Config } from './config.ts';
 import { parseStatement } from './sources/index.ts';
 import { review, type ReviewIo, type ReviewResult } from './review.ts';
 import type { ActualGateway } from './actual-gateway.ts';
@@ -33,9 +34,11 @@ export async function runImport(options: RunOptions): Promise<RunResult> {
   const { path, config, gateway, io } = options;
 
   const statement = parseStatement(path, config.formats);
-  const accountName = accountNameFor(config, statement.accountKey);
+  const target = accountTargetFor(config, statement.accountKey);
+  const accountName = target.name;
   io.write(
-    `${path}: ${statement.format}, account ${statement.accountKey} -> ${JSON.stringify(accountName)}`,
+    `${path}: ${statement.format}, account ${statement.accountKey}` +
+      (target.mapped ? ` -> ${JSON.stringify(accountName)}` : ''),
   );
 
   if (statement.transactions.length === 0) {
@@ -46,7 +49,7 @@ export async function runImport(options: RunOptions): Promise<RunResult> {
     return { accountName, outcomes: [], stopped: false };
   }
 
-  const account = await gateway.findAccount(accountName);
+  const account = resolveAccount(target, await gateway.listAccounts());
 
   // Three targeted reads instead of the account's whole history (#67), each
   // answering one question the classifier asks. Their union is every stored

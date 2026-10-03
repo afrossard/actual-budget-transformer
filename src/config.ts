@@ -139,7 +139,7 @@ export function loadConfig(
 
   const accountNames: Record<string, string> = {};
   for (const [key, value] of Object.entries(raw.account_names ?? {})) {
-    accountNames[key.replace(/\s/g, '')] = text(value);
+    accountNames[configKey(key)] = text(value);
   }
 
   const block = raw.actual_budget ?? {};
@@ -177,11 +177,32 @@ export function requireActualConfig(config: Config): ActualConfig {
   return config.actual;
 }
 
+/** Which Actual account a statement's identifier points at, and why. */
+export type AccountTarget = {
+  /** The identifier as the statement carries it. */
+  accountKey: string;
+  /** The account's name in Actual. */
+  name: string;
+  /**
+   * False when `account_names` has no entry and `name` is the identifier
+   * itself. The two need opposite fixes when the name is not in the budget -
+   * add a mapping, or correct one - so the error has to know which it is.
+   */
+  mapped: boolean;
+};
+
+/** Whatever the bank's spacing: the config's keys are stored without it. */
+export function configKey(accountKey: string): string {
+  return accountKey.replace(/\s/g, '');
+}
+
 /**
- * The account's name in Actual for a bank identifier. Unmapped identifiers
- * fall back to themselves, which surfaces as "account not found in budget"
- * naming the identifier the file carried.
+ * The account's name in Actual for a bank identifier. An unmapped identifier
+ * falls back to itself, so an account named after it still matches.
  */
-export function accountNameFor(config: Config, accountKey: string): string {
-  return config.accountNames[accountKey.replace(/\s/g, '')] ?? accountKey;
+export function accountTargetFor(config: Config, accountKey: string): AccountTarget {
+  const key = configKey(accountKey);
+  return Object.hasOwn(config.accountNames, key)
+    ? { accountKey, name: config.accountNames[key] ?? accountKey, mapped: true }
+    : { accountKey, name: accountKey, mapped: false };
 }

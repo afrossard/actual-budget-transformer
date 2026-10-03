@@ -228,21 +228,65 @@ describe('integration: a whole run from a statement file', { skip }, () => {
     assert.match(transcript, /pending \(not booked yet\)/);
   });
 
-  it('names the account the file asks for when the budget has no such account', async () => {
-    const config: Config = {
-      accountNames: { CH4200120123A12345678: 'No Such Account' },
-      actual: { serverUrl: '', password: '', budgetName: '', dataDir: null },
-      formats: DEFAULT_FORMATS,
-    };
-    await assert.rejects(
-      () =>
-        runImport({
-          path: DATA + 'ubs_valid.csv',
-          config,
-          gateway: session.gateway,
-          io: createScriptedIo([]),
-        }),
-      /account "No Such Account" not found in budget/,
-    );
+  describe('when the budget has no account to import into', () => {
+    /** The message a run fails with, after asserting it fails. */
+    async function failure(accountNames: Record<string, string>): Promise<string> {
+      const config: Config = {
+        accountNames,
+        actual: { serverUrl: '', password: '', budgetName: '', dataDir: null },
+        formats: DEFAULT_FORMATS,
+      };
+      let message = '';
+      await assert.rejects(
+        () =>
+          runImport({
+            path: DATA + 'ubs_valid.csv',
+            config,
+            gateway: session.gateway,
+            io: createScriptedIo([]),
+          }),
+        (error: Error) => {
+          message = error.message;
+          return true;
+        },
+      );
+      return message;
+    }
+
+    it('says the identifier is not mapped, and shows the line to add', async () => {
+      assert.match(
+        await failure({}),
+        /^CH4200120123A12345678 is not in account_names\. Add this entry to that block in your config:\n\n {2}"CH4200120123A12345678": /,
+      );
+    });
+
+    it('says what the identifier is mapped to, and suggests a near match', async () => {
+      const account = await createRunAccount(session, 'near-match');
+      const message = await failure({
+        CH4200120123A12345678: account.name.toLowerCase(),
+      });
+      assert.match(
+        message,
+        /^account_names maps CH4200120123A12345678 to "ts near-match .*", but the budget has no open account with that name\./,
+      );
+      assert.ok(
+        message.includes(`Did you mean ${JSON.stringify(account.name)}?`),
+        message,
+      );
+    });
+
+    it('says the account is closed rather than missing', async () => {
+      const account = await createRunAccount(session, 'closed');
+      // Actual deletes an account with no transactions instead of closing it.
+      await session.api.addTransactions(account.id, [
+        { date: '2030-01-01', amount: 0 },
+      ]);
+      await session.api.closeAccount(account.id);
+      await session.api.sync();
+      assert.match(
+        await failure({ CH4200120123A12345678: account.name }),
+        /, which exists in the budget but is closed\./,
+      );
+    });
   });
 });
