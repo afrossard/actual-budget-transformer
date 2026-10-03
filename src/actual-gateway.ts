@@ -65,8 +65,8 @@ export class ActualGateway {
   }
 
   async open(): Promise<void> {
-    const serverVersion = await probeServerVersion(this.#settings.serverUrl);
-    assertVersionCompatible(installedApiVersion(), serverVersion);
+    const server = await probeServerVersion(this.#settings.serverUrl);
+    assertVersionCompatible(installedApiVersion(), server);
 
     let dataDir = this.#settings.dataDir;
     if (dataDir === null) {
