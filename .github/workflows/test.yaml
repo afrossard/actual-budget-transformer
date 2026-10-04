@@ -22,7 +22,7 @@ jobs:
     # ephemeral here, which is exactly the disposable budget they want.
     services:
       actual-server:
-        image: actualbudget/actual-server:26.9.0
+        image: actualbudget/actual-server:26.10.0
         ports:
           - 5006:5006
 
