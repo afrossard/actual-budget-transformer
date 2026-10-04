@@ -38,7 +38,7 @@ services:
 
   actual-server:
     profiles: ["actual"]
-    image: actualbudget/actual-server:${ACTUAL_SERVER_VERSION:-26.9.0}
+    image: actualbudget/actual-server:26.9.0
     ports:
       - "5006:5006"
     tmpfs:

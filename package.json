@@ -14,6 +14,7 @@
     "format": "prettier --write 'src/**/*.ts' 'scripts/**/*.ts' 'tests/ts/**/*.ts' eslint.config.js",
     "format:check": "prettier --check 'src/**/*.ts' 'scripts/**/*.ts' 'tests/ts/**/*.ts' eslint.config.js",
     "test": "node --test --test-concurrency=1 'tests/ts/**/*.test.ts'",
+    "check:node": "node scripts/check-node-follows-actual.ts",
     "bootstrap": "ACTUAL_DATA_DIR=/tmp/actual-data node scripts/bootstrap_test_budget.ts"
   },
   "repository": {
