@@ -1,4 +1,8 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.12"
+# dependencies = []
+# ///
 """Anonymize a UBS account CSV transaction file for use as test data.
 
 Replaces sensitive fields (account number, IBAN, transaction reference,
@@ -6,7 +10,7 @@ and description/notes columns) with deterministic fakes while preserving
 dates, amounts, balances, currencies, and CSV structure.
 
 Usage:
-    python scripts/anonymize_ubs_csv.py input.csv output.csv
+    uv run --script scripts/anonymize_ubs_csv.py input.csv output.csv
 
 The salt is read from the ``ANONYMIZE_SALT`` environment variable, or prompted
 interactively (not echoed). To set it without it appearing in shell history:

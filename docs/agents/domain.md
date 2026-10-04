@@ -11,7 +11,7 @@ If any of these files don't exist, **proceed silently**. Don't flag their absenc
 
 ## File structure
 
-This is a single-context repo (one Python package, `src/actual_budget_transformer/`):
+This is a single-context repo (one TypeScript codebase, `src/`):
 
 ```
 /
@@ -19,7 +19,7 @@ This is a single-context repo (one Python package, `src/actual_budget_transforme
 ├── docs/
 │   ├── adr/                   ← canonical home for new ADRs (0001-…)
 │   └── archive/               ← original ADRs (adr-001 … adr-007) + design notes
-└── src/actual_budget_transformer/
+└── src/
 ```
 
 ## Use the glossary's vocabulary

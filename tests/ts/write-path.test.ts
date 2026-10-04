@@ -16,22 +16,11 @@ import type { SourceTransaction } from '../../src/sources/types.ts';
 
 const SRC = fileURLToPath(new URL('../../src/', import.meta.url));
 
-/**
- * The TypeScript CLI's own modules.
- *
- * `src/actual_budget_transformer/` is skipped: it is the Python package, whose
- * `bridge/actual_api_bridge.ts` does call `importTransactions`. That path keeps
- * working until the TypeScript CLI reaches parity on both CSV inputs, and then
- * goes away in one commit.
- */
-const PYTHON_PACKAGE = 'actual_budget_transformer';
-
+/** Every module under `src/`. */
 function sourceFiles(dir = SRC): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
     entry.isDirectory()
-      ? entry.name === PYTHON_PACKAGE
-        ? []
-        : sourceFiles(`${dir}${entry.name}/`)
+      ? sourceFiles(`${dir}${entry.name}/`)
       : entry.name.endsWith('.ts')
         ? [`${dir}${entry.name}`]
         : [],

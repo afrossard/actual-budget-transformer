@@ -52,4 +52,4 @@ if [ ! -d "$PROJECT_DIR/node_modules/@actual-app" ]; then
 fi
 
 # Run the TypeScript bootstrap script
-npx --prefix "$PROJECT_DIR" tsx "$SCRIPT_DIR/bootstrap_test_budget.ts"
+node "$SCRIPT_DIR/bootstrap_test_budget.ts"

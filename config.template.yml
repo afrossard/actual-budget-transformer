@@ -1,16 +1,18 @@
 # Actual Budget Transformer Configuration Template
-# Copy this file to config.yml and fill in your actual values
+# Copy this file to config.yaml (git-ignored) and fill in your actual values
 
-# Map account identifiers (IBANs, card numbers) to friendly names.
-# Used across all processors for output filenames.
+# Map account identifiers (IBANs, card numbers) to the account's name in your
+# Actual budget. An unmapped identifier is looked up as the name itself.
 account_names:
   "CH0000000000": "personal_checking"
   "CH1111111111": "savings"
   "1234567890123456": "personal_card"
   "6543210987654321": "partner_card"
 
-# Per-format settings. Read by BOTH the TypeScript import CLI and the Python
-# file-output path, which is why the schema is shared.
+# Per-format settings.
+#
+# Keys marked "fallback only" are read only by the retired file-output image
+# (see README), which fails without them. The import CLI ignores them.
 #
 # These are settings rather than constants on purpose: UBS changes its exports
 # without announcing it, and the column labels are in the language of your
@@ -24,7 +26,7 @@ processors:
       encoding: "utf-8-sig"
       separator: ";"
       header_rows: 8
-      expected_columns: 15
+      expected_columns: 15 # fallback only
 
     # Expected structure
     expected_header_labels:
@@ -52,7 +54,7 @@ processors:
       - "Description2"
       - "Description3"
       - "Notes de bas de page"
-      - "Unnamed: 14"
+      - "Unnamed: 14" # fallback only: pandas' name for the empty last column
 
     # Date format in the CSV
     date_format: "%Y-%m-%d" # ISO format YYYY-MM-DD
@@ -97,37 +99,22 @@ processors:
       - "Montant"
       - "Monnaie originale"
 
-  # CAMT.053 Processor settings
-  camt053: {}
-
-# Direct import to a self-hosted Actual Budget server (used with `--format actual`).
-# Account names in your Actual budget MUST match the values in `account_names`
-# above (or, equivalently, the `output_prefix` each processor produces).
+# The self-hosted Actual Budget server to import into.
 #
 # Sensitive values can be sourced from environment variables instead of this
 # file (preferred for shared / committed configs):
 #   ACTUAL_BUDGET_URL       overrides server_url
 #   ACTUAL_BUDGET_PASSWORD  overrides password
 #   ACTUAL_BUDGET_SYNC_ID   overrides sync_id
-#   ACTUAL_BUDGET_FILE      overrides budget_name (Python path only)
 actual_budget:
   server_url: "http://actual-server:5006"
   password: "" # set via ACTUAL_BUDGET_PASSWORD
-  # The budget's Sync ID: Settings → Show advanced settings in Actual. The
-  # import CLI reads only this, because two budgets can share a name.
+  # The budget's Sync ID: Settings → Show advanced settings in Actual. Not its
+  # name, because two budgets can share a name.
   sync_id: ""
-  # The budget's name in the UI (e.g. "Personal"). Read only by the Python
-  # `--format actual` path, which is being removed (#41).
-  budget_name: ""
   # Local SQLite cache. Optional — a fresh temp dir is used per run if unset.
   # data_dir: "/var/lib/actual-budget-transformer/data"
-  # Category assigned to source rows that look like duplicates of existing
-  # transactions (ADR-006). Must already exist in the budget.
-  review_category: "To Review"
-  # Per-batch ceiling on suspicious tx (ADR-002). Above this, the whole
-  # account is stopped so the user can resolve the small recent slice.
-  suspicious_threshold: 5
 
-# Global settings
+# Fallback only: the date format in the file-output image's filenames.
 output:
-  date_format: "%Y%m" # Format for date in output filenames
+  date_format: "%Y%m"

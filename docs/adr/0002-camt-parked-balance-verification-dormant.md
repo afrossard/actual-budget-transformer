@@ -1,6 +1,11 @@
 # CAMT.053 parked; balance verification dormant
 
-**Status:** accepted (2026-06-15)
+**Status:** accepted (2026-06-15); amended 2026-10-04
+
+> **Amended by #41 (2026-10-04).** The Python package is deleted, and with it the CAMT.053 code and ADR-005's balance-verification machinery that this ADR kept in place.
+> CAMT.053 stays parked, and balance correctness still falls to manual reconciliation.
+> What no longer holds is the *Reversible* consequence below: unparking CAMT, or verifying balances (#57), now means building it in TypeScript rather than re-activating dormant code.
+> The last Python image still reads and writes CAMT.053 as a file-output fallback (see README).
 
 The active direct-import workflow is UBS CSV only (account + cards). CAMT.053 is **parked** — the user no longer downloads it (too annoying). Its code stays in place but is off the prod-readiness path. As a direct consequence, **inline balance verification (ADR-005's second half) is dormant**: `BalanceCheckpoint`s were only ever produced from CAMT CLBD, and the UBS account CSV — which used to carry a running balance — now delivers that column as nulls, so no active input path yields a checkpoint. Balance correctness therefore falls to **manual reconciliation** in Actual.
 

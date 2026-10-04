@@ -2,7 +2,7 @@
  * Bootstrap a test budget on a fresh Actual Budget server.
  *
  * Usage:
- *   ACTUAL_DATA_DIR=/tmp/actual-data npx tsx scripts/bootstrap_test_budget.ts
+ *   ACTUAL_DATA_DIR=/tmp/actual-data node scripts/bootstrap_test_budget.ts
  *
  * Environment:
  *   ACTUAL_SERVER_URL  - server URL (default: http://actual-server:5006)

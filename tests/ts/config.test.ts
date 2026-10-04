@@ -132,15 +132,26 @@ test('a partly-specified processor block keeps the defaults for the rest', () =>
   );
 });
 
-test("the Python path's trailing pandas placeholder column is ignored", () => {
-  // `expected_transaction_labels` ends with "Unnamed: 14" in the shared config,
-  // which names nothing. One config file has to serve both readers.
-  const config = loadConfig(REPO + 'config.template.yml', {});
-  assert.equal(config.formats.ubsAccountCsv.transactionColumns.length, 14);
-  assert.equal(
-    config.formats.ubsAccountCsv.transactionColumns.at(-1),
-    'Notes de bas de page',
-  );
+test('a trailing pandas placeholder column is ignored', () => {
+  // The retired file-output image needs `expected_transaction_labels` to end
+  // with "Unnamed: 14", which names nothing here. A config that serves both
+  // has to load as it stands.
+  const dir = mkdtempSync(join(tmpdir(), 'abt-config-'));
+  try {
+    const path = join(dir, 'config.yml');
+    writeFileSync(
+      path,
+      'processors:\n  ubs_csv:\n    expected_transaction_labels:\n' +
+        '      - "Date de transaction"\n      - "Notes de bas de page"\n' +
+        '      - "Unnamed: 14"\n',
+    );
+    assert.deepEqual(loadConfig(path, {}).formats.ubsAccountCsv.transactionColumns, [
+      'Date de transaction',
+      'Notes de bas de page',
+    ]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('an unusable encoding is rejected by name rather than guessed', () => {

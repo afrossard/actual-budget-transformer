@@ -1,6 +1,6 @@
 /**
- * Configuration: the same `config.yml` the file-output path already uses, and
- * the same schema, so one file serves both.
+ * Configuration: the user's `config.yml`, in the schema the retired Python
+ * package read, so an existing file keeps working.
  *
  * Three blocks are read. `account_names` maps a bank identifier to the
  * account's name in Actual, `actual_budget` says where the server is, and
@@ -43,9 +43,9 @@ export type Config = {
   actual: ActualConfig;
   formats: Formats;
   /**
-   * The file or `ACTUAL_BUDGET_FILE` sets the Python path's `budget_name`,
-   * which this path does not read. Kept so a missing sync ID can say what
-   * replaced it.
+   * The file or `ACTUAL_BUDGET_FILE` sets `budget_name`, which the retired
+   * Python package read and this does not. Kept so a missing sync ID can say
+   * what replaced it.
    */
   hasBudgetName?: boolean;
 };
@@ -58,9 +58,9 @@ type RawConfig = {
 
 function strings(value: unknown, fallback: string[]): string[] {
   if (!Array.isArray(value)) return fallback;
-  // The Python path's list carries a trailing pandas placeholder for the
-  // statement's empty last column ("Unnamed: 14"). It names nothing, so drop it
-  // rather than make the user delete it from a config that has to serve both.
+  // The retired file-output image needs this list to end with a pandas
+  // placeholder for the statement's empty last column ("Unnamed: 14"), so a
+  // config that serves both carries it. It names nothing here, so drop it.
   return value
     .map((v) => text(v))
     .filter((name) => name !== '' && !/^Unnamed:\s*\d+$/.test(name));

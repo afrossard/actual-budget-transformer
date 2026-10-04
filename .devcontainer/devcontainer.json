@@ -38,10 +38,8 @@
         "EditorConfig.EditorConfig",
         "esbenp.prettier-vscode",
         "eamodio.gitlens",
-        "charliermarsh.ruff",
         "mhutchie.git-graph",
         "donjayamanne.githistory",
-        "ms-toolsai.jupyter",
         "ms-azuretools.vscode-containers"
       ]
     }

@@ -24,10 +24,10 @@ export const FORMAT = 'ubs-account-csv';
 /**
  * Field positions within the transaction table.
  *
- * Positional, like the Python path, which renames the columns by position too.
- * So a column the bank *renames* is handled by editing the configured names,
- * while a column it *reorders* breaks both paths equally - no regression, and
- * the preamble check fails loudly rather than reading the wrong field.
+ * Positional, as the retired Python package was. So a column the bank
+ * *renames* is handled by editing the configured names, while a column it
+ * *reorders* makes the preamble check fail loudly rather than read the wrong
+ * field.
  */
 const COL = {
   date: 0,
