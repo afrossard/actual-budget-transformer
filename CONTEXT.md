@@ -1,6 +1,7 @@
 # Actual Budget Transformer
 
-Transforms bank statement files into a form Actual Budget can ingest. Two output paths: CSV/XML files for manual import, and **direct import** straight into a self-hosted Actual server. The direct-import path is governed by conservative-automation principles (must never create a mess harder to clean up than doing it by hand).
+Imports bank statement files straight into a self-hosted Actual Budget server, one account at a time, writing nothing without a confirmation for that statement transaction.
+It is governed by conservative-automation principles: it must never create a mess harder to clean up than doing it by hand.
 
 ## Language
 
@@ -11,7 +12,10 @@ A transaction as a bank statement file (CAMT.053, UBS CSV) states it: the bank's
 _Avoid_: source transaction, row, record, entry
 
 **Imported ID**:
-The stable identifier attached to each statement transaction so re-runs are idempotent. The bank reference when present; otherwise a deterministic hash of `(date, amount, payee, notes)`. Matches Actual's `imported_id` dedup key.
+The identifier attached to each statement transaction so a later run pairs it with what an earlier run wrote; stored as Actual's `imported_id`.
+The bank's reference where the statement carries one.
+Blank where a format that normally carries one did not, because a later export will carry the real one and a minted identifier would never match it.
+Minted deterministically only where the bank never supplies one, as on the UBS cards CSV.
 _Avoid_: dedup key, hash, fingerprint
 
 ### Actual side
