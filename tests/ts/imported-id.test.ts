@@ -2,7 +2,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   contentImportedId,
-  forcedImportedId,
   mintFromParts,
   MINTED_PREFIX,
 } from '../../src/imported-id.ts';
@@ -34,53 +33,16 @@ test('minting is reproducible and content-sensitive', () => {
   );
 });
 
-test('forcing builds on the bank reference when there is one', () => {
-  const withRef = {
-    ...tx,
-    importedId: 'T-0004',
-    importedIdOrigin: 'bank-reference' as const,
-  };
-  assert.equal(forcedImportedId(withRef, []), 'T-0004~dup1');
-});
-
-test('forcing builds on the content hash when there is no reference', () => {
-  assert.equal(forcedImportedId(tx, []), `${contentImportedId(tx)}~dup1`);
-});
-
-test('forcing takes the lowest copy index the account does not hold', () => {
-  const withRef = {
-    ...tx,
-    importedId: 'T-0004',
-    importedIdOrigin: 'bank-reference' as const,
-  };
-  assert.equal(forcedImportedId(withRef, ['T-0004', 'T-0004~dup1']), 'T-0004~dup2');
-  assert.equal(
-    forcedImportedId(withRef, ['T-0004', 'T-0004~dup1', 'T-0004~dup2']),
-    'T-0004~dup3',
-  );
-});
-
-test('a re-run does not force a second copy, because the base ID is the match', () => {
-  // After forcing once, Actual holds T-0004 and T-0004~dup1. The next run sees
-  // the row's own T-0004 and reports Skip; nothing re-forces on its own.
-  const withRef = {
-    ...tx,
-    importedId: 'T-0004',
-    importedIdOrigin: 'bank-reference' as const,
-  };
-  assert.equal(forcedImportedId(withRef, ['T-0004', 'T-0004~dup1']), 'T-0004~dup2');
-});
-
 test('a separator inside a field cannot collide two different transactions', () => {
   // A plain join on "|" flattens ['A|B','C'] and ['A','B|C'] to the same string,
   // so two different transactions would mint one imported ID - and the second
-  // would then come back as Skip, "already in Actual", on a later run.
+  // would then pair with the first, "already in Actual", on a later run.
   assert.notEqual(mintFromParts(['A|B', 'C']), mintFromParts(['A', 'B|C']));
   assert.notEqual(mintFromParts(['', 'A']), mintFromParts(['A', '']));
   assert.notEqual(mintFromParts(['A"B']), mintFromParts(['A\\"B']));
 });
 
-test('a separator inside a payee cannot collide two source transactions', () => {
+test('a separator inside a payee cannot collide two statement transactions', () => {
   const base = {
     date: '2031-03-20',
     amountCents: -1990,

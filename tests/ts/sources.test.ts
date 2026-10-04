@@ -196,7 +196,7 @@ test('an unreadable amount is reported with its line, and the rest of the file s
 
 test('an account row with a blank date is dropped, not silently discarded', () => {
   // A row can carry a real amount and reference yet have no date - that is a
-  // fact worth a Tape line, unlike a genuinely blank trailing line.
+  // fact worth a line in the statement report, unlike a genuinely blank trailing line.
   const statement = accountCsv.parse(DATA + 'ubs_account_blank_date.csv');
   assert.deepEqual(
     statement.transactions.map((t) => t.payee),

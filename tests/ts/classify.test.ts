@@ -1,6 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classify, type ActualTransaction } from '../../src/classify.ts';
+import {
+  classify,
+  tally,
+  toFixInActual,
+  type ActualTransaction,
+  type Classified,
+} from '../../src/classify.ts';
 import type { SourceTransaction } from '../../src/sources/types.ts';
 
 let line = 0;
@@ -33,107 +39,211 @@ function actual(over: Partial<ActualTransaction> = {}): ActualTransaction {
   };
 }
 
-test('a source transaction nothing matches is Clean', () => {
-  const [row] = classify([src()], [], null);
-  assert.equal(row!.bucket, 'clean');
+/** Each statement transaction's pair, by Actual id, or null when unpaired. */
+function pairs(classified: readonly Classified[]): (string | null)[] {
+  return classified.map((c) => c.pair?.actual.id ?? null);
+}
+
+test('a statement transaction nothing in Actual is alike to is unpaired', () => {
+  const [one] = classify([src()], [], null);
+  assert.equal(one!.pair, null);
+  assert.deepEqual(one!.lookalikes, []);
+  assert.equal(one!.repeatOf, null);
+  assert.equal(one!.inReconciledPeriod, false);
+});
+
+test('each statement transaction is numbered by its position in the file', () => {
+  const classified = classify([src(), src(), src()], [], null);
   assert.deepEqual(
-    row!.reasons.map((r) => r.kind),
-    ['no-match'],
+    classified.map((c) => c.number),
+    [1, 2, 3],
   );
 });
 
-test('an imported ID already in Actual is Skip, and names the row it matched', () => {
-  const stored = actual({ imported_id: 'T-BANK-1', id: 'stored-1' });
-  const [row] = classify([src({ importedId: 'T-BANK-1' })], [stored], null);
-  assert.equal(row!.bucket, 'skip');
-  const [reason] = row!.reasons;
-  assert.ok(reason);
-  assert.equal(reason.kind, 'already-imported');
-  assert.deepEqual(
-    reason.matched.map((t) => t.id),
-    ['stored-1'],
-  );
+test('a shared imported ID pairs, wherever the Actual transaction is dated', () => {
+  // The cards parser dates a purchase by `Date d'achat` while the bank books it
+  // weeks later, so re-dating it in Actual moves it a long way from where this
+  // tool wrote it. Pairing by imported ID must not care.
+  const moved = actual({ date: '2031-06-30', imported_id: 'T-FAR', id: 'moved' });
+  const [one] = classify([src({ importedId: 'T-FAR' })], [moved], null);
+  assert.equal(one!.pair?.by, 'imported-id');
+  assert.equal(one!.pair.actual.id, 'moved');
 });
 
-test('a blank imported ID never matches a blank stored one', () => {
-  // Actual rows entered by hand have no imported_id. A reference-less source
-  // row must not be silently paired with one of them.
-  const handEntry = actual({ imported_id: null });
-  const [row] = classify(
+test('a blank imported ID never pairs with a blank Actual one', () => {
+  // Typed by hand, an Actual transaction has no imported ID. A statement
+  // transaction without one must pair on amount and date or not at all.
+  const typed = actual({ imported_id: null, amount: -9999 });
+  const [one] = classify(
     [src({ importedId: '', importedIdOrigin: 'absent', amountCents: -1990 })],
-    [handEntry],
+    [typed],
     null,
   );
-  assert.notEqual(row!.bucket, 'skip');
+  assert.equal(one!.pair, null);
 });
 
-test('same amount within one day is Suspicious, and carries every candidate', () => {
-  const near = actual({ date: '2031-03-09', amount: -450, id: 'hand-1' });
-  const also = actual({ date: '2031-03-11', amount: -450, id: 'hand-2' });
-  const far = actual({ date: '2031-03-13', amount: -450, id: 'hand-3' });
-  const other = actual({ date: '2031-03-10', amount: -999, id: 'hand-4' });
-  const [row] = classify([src()], [near, also, far, other], null);
-  assert.equal(row!.bucket, 'suspicious');
-  const reason = row!.reasons.find((r) => r.kind === 'same-amount-within-one-day');
-  assert.ok(reason);
+test('the same amount within one day pairs; two days apart does not', () => {
+  const classified = classify(
+    [src({ date: '2031-03-10' }), src({ date: '2031-03-20' })],
+    [
+      actual({ date: '2031-03-11', id: 'next-day' }),
+      actual({ date: '2031-03-22', id: 'two-days-on' }),
+    ],
+    null,
+  );
+  assert.deepEqual(pairs(classified), ['next-day', null]);
+  assert.equal(classified[0]!.pair?.by, 'amount-and-date');
+});
+
+test('a different amount never pairs, however close the date', () => {
+  const [one] = classify([src()], [actual({ amount: -451 })], null);
+  assert.equal(one!.pair, null);
+});
+
+test('two different bank references never pair, however alike', () => {
+  // The bank gave them different references, so they are two transactions: a
+  // second coffee the day after one already imported must reach review.
+  const imported = actual({
+    imported_id: 'REF-A',
+    id: 'yesterday',
+    date: '2031-03-09',
+  });
+  const [one] = classify([src({ importedId: 'REF-B' })], [imported], null);
+  assert.equal(one!.pair, null);
+  // Still shown, so the human can tell the two apart.
   assert.deepEqual(
-    reason.candidates.map((c) => c.id),
-    ['hand-1', 'hand-2'],
+    one!.lookalikes.map((l) => [l.actual.id, l.of, l.role]),
+    [['yesterday', null, 'other-reference']],
   );
 });
 
-test('a candidate that already holds a different imported ID still counts', () => {
-  // The cards occurrence counter shifts across overlapping exports, so the
-  // same purchase can arrive under a new reference. Our own amount+date check
-  // is the only thing that catches it.
-  const reExported = actual({ date: '2031-03-10', imported_id: 'OLD-REF', id: 'prev' });
-  const [row] = classify([src({ importedId: 'NEW-REF' })], [reExported], null);
-  assert.equal(row!.bucket, 'suspicious');
+test('a minted imported ID that differs still pairs on amount and date', () => {
+  // The cards occurrence counter shifts across overlapping exports, so the same
+  // purchase can arrive under a new minted ID.
+  const minted = { importedIdOrigin: 'minted' as const };
+  const reExported = actual({ imported_id: 'abt1-0000000000000001', id: 'prev' });
+  const [one] = classify(
+    [src({ ...minted, importedId: 'abt1-0000000000000002' })],
+    [reExported],
+    null,
+  );
+  assert.equal(one!.pair?.actual.id, 'prev');
 });
 
-test('dated on or before the boundary is Locked', () => {
-  const rows = classify(
+test('a bank reference pairs with an Actual transaction holding a minted or no ID', () => {
+  const classified = classify(
+    [src({ importedId: 'REF-B' }), src({ importedId: 'REF-C', date: '2031-03-20' })],
+    [
+      actual({ imported_id: 'abt1-0000000000000001', id: 'minted' }),
+      actual({ imported_id: null, id: 'typed', date: '2031-03-20' }),
+    ],
+    null,
+  );
+  assert.deepEqual(pairs(classified), ['minted', 'typed']);
+});
+
+test('pairing is one to one: of two identical, one pairs and the other is reviewed', () => {
+  const twin = { importedId: '', importedIdOrigin: 'absent' as const };
+  const classified = classify(
+    [src(twin), src(twin)],
+    [actual({ id: 'only-one' })],
+    null,
+  );
+  assert.deepEqual(pairs(classified), ['only-one', null]);
+  // The unpaired one says which statement transaction took its lookalike.
+  assert.deepEqual(
+    classified[1]!.lookalikes.map((l) => [l.actual.id, l.of]),
+    [['only-one', 1]],
+  );
+});
+
+test('of five identical transactions with two in Actual, two pair and three are reviewed', () => {
+  // ADR 0003: the group no longer goes to review as a whole.
+  const classified = classify(
+    Array.from({ length: 5 }, () =>
+      src({ importedId: '', importedIdOrigin: 'absent' }),
+    ),
+    [actual({ id: 'a' }), actual({ id: 'b' })],
+    null,
+  );
+  assert.equal(tally(classified).paired, 2);
+  assert.equal(tally(classified).toReview, 3);
+});
+
+test('the same day is preferred over a day apart', () => {
+  const [one] = classify(
+    [src({ date: '2031-03-10' })],
+    [actual({ date: '2031-03-09', id: 'day-before' }), actual({ id: 'same-day' })],
+    null,
+  );
+  assert.equal(one!.pair?.actual.id, 'same-day');
+});
+
+test('the same day is preferred even for one listed after a day-off lookalike', () => {
+  const classified = classify(
+    [src({ date: '2031-03-10' }), src({ date: '2031-03-09' })],
+    [actual({ date: '2031-03-09', id: 'typed' })],
+    null,
+  );
+  assert.deepEqual(pairs(classified), [null, 'typed']);
+});
+
+test('pairing finds the most pairs when every entry in Actual is a day late', () => {
+  // Typed by hand on the booking date, each a day after the bank's own date.
+  // Pairing the 11th with the same-day entry first would leave the 10th with
+  // nothing and review a transaction Actual already holds.
+  const classified = classify(
+    ['2031-03-10', '2031-03-11', '2031-03-12'].map((date) => src({ date })),
+    ['2031-03-11', '2031-03-12', '2031-03-13'].map((date) =>
+      actual({ date, id: `typed-${date}` }),
+    ),
+    null,
+  );
+  assert.deepEqual(pairs(classified), [
+    'typed-2031-03-11',
+    'typed-2031-03-12',
+    'typed-2031-03-13',
+  ]);
+});
+
+test('an imported ID pair takes its Actual transaction before any amount pair can', () => {
+  // The first statement transaction is a lookalike of the second's
+  // counterpart, and comes first in the file; the imported ID still wins.
+  const held = actual({ imported_id: 'T-HELD', id: 'held' });
+  const classified = classify(
+    [src({ importedId: 'T-OTHER' }), src({ importedId: 'T-HELD' })],
+    [held],
+    null,
+  );
+  assert.deepEqual(pairs(classified), [null, 'held']);
+  assert.deepEqual(
+    classified[0]!.lookalikes.map((l) => l.of),
+    [2],
+  );
+});
+
+test('dates decide nothing: an unpaired one in the reconciled period is still reviewed', () => {
+  // Reported from a real run: two transactions deleted from Actual, on the
+  // same day as the last reconciled one, were set aside as "locked".
+  const classified = classify(
     [
       src({ date: '2020-06-14' }),
-      src({ date: '2020-06-15' }),
+      src({ date: '2020-06-15', amountCents: -100 }),
       src({ date: '2020-06-16' }),
     ],
-    [],
+    [actual({ date: '2020-06-15', amount: -100, reconciled: true, id: 'attested' })],
     '2020-06-15',
   );
+  assert.deepEqual(pairs(classified), [null, 'attested', null]);
   assert.deepEqual(
-    rows.map((r) => r.bucket),
-    ['locked', 'locked', 'clean'],
-  );
-  const reason = rows[0]!.reasons.find((r) => r.kind === 'inside-reconciled-range');
-  assert.ok(reason);
-  assert.equal(reason.boundary, '2020-06-15');
-});
-
-test('Locked still carries the match evidence a write would touch', () => {
-  const stored = actual({ date: '2020-06-15', amount: -450, id: 'locked-match' });
-  const [row] = classify([src({ date: '2020-06-15' })], [stored], '2020-06-30');
-  assert.equal(row!.bucket, 'locked');
-  assert.deepEqual(
-    row!.reasons.map((r) => r.kind),
-    ['inside-reconciled-range', 'same-amount-within-one-day'],
+    classified.map((c) => c.inReconciledPeriod),
+    [true, true, false],
   );
 });
 
-test('Skip wins over Locked, so a re-run of an old file stays quiet', () => {
-  const stored = actual({ date: '2020-06-15', imported_id: 'T-OLD' });
-  const [row] = classify(
-    [src({ date: '2020-06-15', importedId: 'T-OLD' })],
-    [stored],
-    '2020-06-30',
-  );
-  assert.equal(row!.bucket, 'skip');
-});
-
-test('a source row repeated inside one file is Suspicious, not a silent drop', () => {
-  // Two real purchases with identical attributes and no bank reference. The
-  // bank's file says two, so the second must reach the human rather than be
-  // absorbed by our own dedup.
+test('a statement transaction repeated in one file names the first, and both are reviewed', () => {
+  // The bank's file is authoritative on the count, so the second must reach
+  // the human rather than be absorbed by our own dedup.
   const twin = {
     importedId: '',
     importedIdOrigin: 'absent' as const,
@@ -142,100 +252,119 @@ test('a source row repeated inside one file is Suspicious, not a silent drop', (
     payee: 'PHARMACIE CENTRALE',
     notes: '',
   };
-  const rows = classify(
-    [src({ ...twin, sourceLine: 11 }), src({ ...twin, sourceLine: 12 })],
-    [],
-    null,
+  const classified = classify([src(), src(twin), src(twin)], [], null);
+  assert.deepEqual(
+    classified.map((c) => c.repeatOf),
+    [null, null, 2],
   );
-  assert.equal(rows[0]!.bucket, 'clean');
-  assert.equal(rows[1]!.bucket, 'suspicious');
-  const reason = rows[1]!.reasons.find((r) => r.kind === 'repeated-in-this-file');
-  assert.ok(reason);
-  assert.equal(reason.firstSeenLine, 11);
+  assert.deepEqual(pairs(classified), [null, null, null]);
 });
 
-test('classification does not shift as earlier rows are confirmed', () => {
+test('the pairs do not shift as earlier statement transactions are imported', () => {
   // Classify once per batch: five equal-amount consecutive days, with Actual
-  // already holding one on 03-09. Only the 03-10 row is near it, and nothing
-  // the human does to 03-10 may make 03-11 suspicious.
-  const stored = actual({ date: '2031-03-09', amount: -450, id: 'hand-coffee' });
-  const days = ['2031-03-10', '2031-03-11', '2031-03-12', '2031-03-13', '2031-03-14'];
-  const rows = classify(
-    days.map((date) => src({ date })),
-    [stored],
+  // already holding one on 03-09. Only the 03-10 one is near it.
+  const classified = classify(
+    ['2031-03-10', '2031-03-11', '2031-03-12', '2031-03-13', '2031-03-14'].map((date) =>
+      src({ date }),
+    ),
+    [actual({ date: '2031-03-09', id: 'typed' })],
     null,
   );
+  assert.deepEqual(pairs(classified), ['typed', null, null, null, null]);
   assert.deepEqual(
-    rows.map((r) => r.bucket),
-    ['suspicious', 'clean', 'clean', 'clean', 'clean'],
+    classified.map((c) => c.lookalikes.length),
+    [0, 0, 0, 0, 0],
   );
 });
 
 test('classify never mutates its inputs', () => {
-  const sources = [src()];
-  const existing = [actual()];
+  const sources = [src(), src()];
+  const existing = [actual(), actual({ imported_id: 'X' })];
   const snapshot = JSON.stringify({ sources, existing });
   classify(sources, existing, '2020-01-01');
   assert.equal(JSON.stringify({ sources, existing }), snapshot);
 });
 
-test('the row paired by imported ID is not also listed as a blind duplicate', () => {
-  // Otherwise a Skip's evidence names the same transaction twice.
-  const stored = actual({ imported_id: 'T-X', id: 'stored-x' });
-  const [row] = classify([src({ importedId: 'T-X' })], [stored], null);
-  assert.equal(row!.bucket, 'skip');
+test('a pair whose amounts differ is something to fix in Actual', () => {
+  const classified = classify(
+    [src({ importedId: 'T-X', amountCents: -7500 })],
+    [actual({ imported_id: 'T-X', amount: -8000, id: 'stored' })],
+    null,
+  );
+  assert.equal(classified[0]!.pair?.actual.id, 'stored');
+  assert.deepEqual(toFixInActual(classified[0]!), [
+    { kind: 'amount-differs', actualAmount: -8000 },
+  ]);
+});
+
+test('two Actual transactions sharing one imported ID are something to fix in Actual', () => {
+  // Actual has no uniqueness constraint on imported_id, so this is reachable,
+  // and it is the corruption this tool exists to prevent.
+  const first = actual({ imported_id: 'SHARED', id: 'first', date: '2031-08-01' });
+  const second = actual({ imported_id: 'SHARED', id: 'second', date: '2031-08-02' });
+  const classified = classify([src({ importedId: 'SHARED' })], [first, second], null);
+  assert.equal(classified[0]!.pair?.actual.id, 'first');
+  assert.deepEqual(toFixInActual(classified[0]!), [
+    { kind: 'imported-id-shared', holders: [first, second] },
+  ]);
+});
+
+test('a second holder of an imported ID is never paired on amount and date', () => {
+  // Pairing it with another statement transaction would hide the duplicate.
+  const first = actual({ imported_id: 'SHARED', id: 'first' });
+  const second = actual({ imported_id: 'SHARED', id: 'second' });
+  const classified = classify(
+    [src({ importedId: 'SHARED' }), src({ importedId: 'OTHER' })],
+    [first, second],
+    null,
+  );
+  assert.deepEqual(pairs(classified), ['first', null]);
+});
+
+test('a reference the bank itself repeats pairs each copy, and is nothing to fix', () => {
+  const classified = classify(
+    [src({ importedId: 'TWICE' }), src({ importedId: 'TWICE' })],
+    [
+      actual({ imported_id: 'TWICE', id: 'a' }),
+      actual({ imported_id: 'TWICE', id: 'b' }),
+    ],
+    null,
+  );
+  assert.deepEqual(pairs(classified), ['a', 'b']);
+  assert.deepEqual(classified.flatMap(toFixInActual), []);
+});
+
+test('a pair made on amount and date is nothing to fix', () => {
+  const [one] = classify([src()], [actual({ date: '2031-03-11' })], null);
+  assert.deepEqual(toFixInActual(one!), []);
+});
+
+test('a second holder of an imported ID is a lookalike as a duplicate, not as a pair', () => {
+  const first = actual({ imported_id: 'X', id: 'first', date: '2031-06-30' });
+  const second = actual({ imported_id: 'X', id: 'second' });
+  const classified = classify(
+    [src({ importedId: 'X' }), src({ importedId: 'OTHER' })],
+    [first, second],
+    null,
+  );
   assert.deepEqual(
-    row!.reasons.map((r) => r.kind),
-    ['already-imported'],
+    classified[1]!.lookalikes.map((l) => [l.actual.id, l.of, l.role]),
+    [['second', 1, 'extra-holder']],
   );
 });
 
-test('a different transaction on the same day is still a blind duplicate of a Skip', () => {
-  const paired = actual({ imported_id: 'T-X', id: 'stored-x' });
-  const other = actual({ imported_id: null, id: 'stored-y' });
-  const [row] = classify([src({ importedId: 'T-X' })], [paired, other], null);
-  assert.equal(row!.bucket, 'skip');
-  const reason = row!.reasons.find((r) => r.kind === 'same-amount-within-one-day');
-  assert.deepEqual(
-    reason?.kind === 'same-amount-within-one-day' && reason.candidates.map((c) => c.id),
-    ['stored-y'],
-  );
-});
-
-test('an imported ID is recognised however far the transaction has been moved', () => {
-  // The cards parser dates a purchase by `Date d'achat` while the bank books it
-  // weeks later, so someone re-dating it in Actual to its booking date puts it a
-  // long way from where this tool wrote it. Matching by ID must not care.
-  const moved = actual({ date: '2031-06-30', imported_id: 'T-FAR', id: 'moved' });
-  const [row] = classify(
-    [src({ date: '2031-03-10', importedId: 'T-FAR' })],
+test('the holder of its own imported ID, paired with an earlier copy, is a lookalike', () => {
+  // The bank lists reference X twice and Actual holds one, re-dated far away.
+  // The second copy must not be told nothing in Actual holds X.
+  const moved = actual({ imported_id: 'X', id: 'moved', date: '2031-06-30' });
+  const classified = classify(
+    [src({ importedId: 'X' }), src({ importedId: 'X' })],
     [moved],
     null,
   );
-  assert.equal(row!.bucket, 'skip');
-});
-
-test('two stored transactions sharing an imported ID are both named, not collapsed', () => {
-  // Actual has no uniqueness constraint on imported_id, so this state is
-  // reachable, and it is exactly the corruption this tool exists to prevent.
-  // Reporting only one of them would let the human decline on half the facts.
-  const first = actual({ imported_id: 'SHARED-ID', id: 'first', date: '2031-08-01' });
-  const second = actual({ imported_id: 'SHARED-ID', id: 'second', date: '2031-08-02' });
-  const [row] = classify([src({ importedId: 'SHARED-ID' })], [first, second], null);
-  assert.equal(row!.bucket, 'skip');
-  const reason = row!.reasons.find((r) => r.kind === 'already-imported');
+  assert.equal(classified[1]!.pair, null);
   assert.deepEqual(
-    reason?.kind === 'already-imported' && reason.matched.map((t) => t.id),
-    ['first', 'second'],
-  );
-});
-
-test('neither of two rows sharing an imported ID is also listed as a blind duplicate', () => {
-  const first = actual({ imported_id: 'SHARED-ID', id: 'first' });
-  const second = actual({ imported_id: 'SHARED-ID', id: 'second' });
-  const [row] = classify([src({ importedId: 'SHARED-ID' })], [first, second], null);
-  assert.deepEqual(
-    row!.reasons.map((r) => r.kind),
-    ['already-imported'],
+    classified[1]!.lookalikes.map((l) => [l.actual.id, l.of, l.role]),
+    [['moved', 1, 'pair']],
   );
 });

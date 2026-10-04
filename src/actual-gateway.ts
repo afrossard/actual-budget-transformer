@@ -7,8 +7,9 @@
  * imported ID — which merges instead of adding, and on a merge writes neither
  * the bank's amount nor the bank's date while always stamping its own imported
  * ID. Two matchers competing over one decision caused every surprise in #38.
- * This tool classifies, so it reads, adds, and patches: `getTransactions`,
- * `addTransactions`, `updateTransaction`.
+ * This tool pairs, so it reads and adds: `getTransactions`, `aqlQuery`,
+ * `addTransactions`. It never patches an Actual transaction: a paired one is
+ * already in Actual, and nothing is written for it.
  */
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -38,14 +39,6 @@ export type NewTransaction = {
   payee: string;
   notes: string;
   importedId: string;
-};
-
-/** The fields a correction may patch. Never the amount — see `correct`. */
-export type Patch = {
-  date?: string | undefined;
-  notes?: string | undefined;
-  payeeName?: string | undefined;
-  importedId?: string | undefined;
 };
 
 type Api = typeof import('@actual-app/api');
@@ -80,7 +73,8 @@ export class ActualGateway {
       password: this.#settings.password,
       dataDir,
       // The api otherwise logs its own progress - "Syncing since ...", "Got
-      // messages from server 0" - to stdout, in between the Tape's lines (#81).
+      // messages from server 0" - to stdout, in between the statement report's
+      // lines (#81).
       // Its warnings and errors go to stderr regardless.
       verbose: false,
     });
@@ -164,16 +158,18 @@ export class ActualGateway {
   }
 
   /**
-   * The reconciliation boundary: the date of the account's newest reconciled
+   * The reconciled-through date: the date of the account's newest reconciled
    * transaction, or null if it has none.
    *
-   * Actual has no such field, so it is derived - and from every row whatever
-   * its date, because a lower boundary means a row inside an attested range is
-   * not classified as if it were. The parts of a split are counted as well as
-   * its parent: Actual dates them alike, and should only one side carry the
-   * flag, the higher boundary is the safe error.
+   * Actual has no such field (its `last_reconciled` records when the reconcile
+   * flow was last completed, not up to which date), so it is derived - and
+   * from every transaction whatever its date, because a date too early would
+   * leave out the warning on a statement transaction in the reconciled period.
+   * The parts of a split are counted as well as its parent: Actual dates them
+   * alike, and should only one side carry the flag, the later date is the safe
+   * error.
    */
-  async reconciliationBoundary(accountId: string): Promise<string | null> {
+  async reconciledThroughDate(accountId: string): Promise<string | null> {
     const api = this.#require();
     const result = (await api.aqlQuery(
       api
@@ -194,9 +190,9 @@ export class ActualGateway {
    * Unbounded in date because an imported ID has to be recognised wherever the
    * transaction now sits: the cards parser dates a purchase by `Date d'achat`
    * while the bank books it weeks later, so re-dating it in Actual moves it a
-   * long way from where this tool wrote it, and a missed ID turns the row into
-   * a Clean that claims nothing in Actual looks like it. Bounded in rows
-   * instead, which is what makes it cheap (#67).
+   * long way from where this tool wrote it, and a missed ID sends the
+   * statement transaction to review as if Actual did not hold it. Bounded in
+   * rows instead, which is what makes it cheap (#67).
    *
    * Every holder comes back, not one per ID: Actual does not enforce uniqueness.
    */
@@ -249,23 +245,6 @@ export class ActualGateway {
     }));
   }
 
-  /** The payee's own name, so the Tape can show it rather than a raw string. */
-  async payeeName(payeeId: string | null | undefined): Promise<string | null> {
-    if (!payeeId) return null;
-    return (await this.#payees()).get(payeeId) ?? null;
-  }
-
-  /** The id of the payee with this name, creating it if the budget has none. */
-  async resolvePayeeId(name: string): Promise<string> {
-    const payees = await this.#payees();
-    for (const [id, existing] of payees) {
-      if (existing === name) return id;
-    }
-    const id = await this.#require().createPayee({ name });
-    payees.set(id, name);
-    return id;
-  }
-
   async #payees(): Promise<Map<string, string>> {
     if (this.#payeeNames === null) {
       const rows = await this.#require().getPayees();
@@ -289,40 +268,9 @@ export class ActualGateway {
       },
     ]);
     // `payee_name` makes Actual resolve or create the payee server-side, so the
-    // cached list is now behind. Keeping it would make a later correction on the
-    // same payee miss the one that was just created and create a second payee
-    // with the same name.
+    // cached list is now behind, and a later read would show the new
+    // transaction's payee as its raw imported name.
     this.#payeeNames = null;
-  }
-
-  /**
-   * Patch an existing transaction's fields. Never its amount: patching a split
-   * parent's amount would leave the parts no longer summing to it, and what to
-   * do when the bank disagrees on the amount is deliberately undecided (#49).
-   *
-   * Note that Actual enforces nothing here — `updateTransaction` patches a
-   * reconciled transaction without complaint and leaves `reconciled` true. The
-   * guard against writing inside the reconciled range is this tool's own, and
-   * lives in the review loop.
-   */
-  async correct(transactionId: string, patch: Patch): Promise<void> {
-    const fields: Record<string, unknown> = {};
-    if (patch.date !== undefined) fields['date'] = patch.date;
-    if (patch.notes !== undefined) fields['notes'] = patch.notes;
-    if (patch.importedId !== undefined) fields['imported_id'] = patch.importedId;
-    if (patch.payeeName !== undefined) {
-      // A blank name would resolve to a newly created payee called "", which
-      // stays in the budget for good. The caller omits a payee it does not have.
-      if (patch.payeeName === '') {
-        throw new Error('refusing to set a blank payee; omit payeeName instead');
-      }
-      // Both: the payee link is what the UI shows, and `imported_payee` is the
-      // raw name the bank wrote, which is what Actual's own import would set.
-      fields['payee'] = await this.resolvePayeeId(patch.payeeName);
-      fields['imported_payee'] = patch.payeeName;
-    }
-    if (Object.keys(fields).length === 0) return;
-    await this.#require().updateTransaction(transactionId, fields);
   }
 
   async sync(): Promise<void> {

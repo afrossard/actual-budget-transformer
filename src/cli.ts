@@ -4,8 +4,8 @@
  * transaction, and write only what the human confirms.
  *
  * One account at a time, one file at a time. A re-run of the same file is the
- * resume mechanism: everything already written comes back as Skip, so there is
- * no cursor to keep.
+ * resume mechanism: everything already written pairs and is not asked about
+ * again, so there is no cursor to keep.
  */
 import { realpathSync } from 'node:fs';
 import { parseArgs } from 'node:util';
@@ -13,7 +13,7 @@ import { ActualGateway } from './actual-gateway.ts';
 import { loadConfig, requireActualConfig } from './config.ts';
 import { createTerminalIo } from './io.ts';
 import { runImport } from './import-run.ts';
-import { terminalWidth } from './tape.ts';
+import { terminalWidth } from './statement-report.ts';
 
 const USAGE = `usage: abt-import [-c <config.yml>] [--no-colour] <statement file>
 
