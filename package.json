@@ -2,7 +2,7 @@
   "name": "actual-budget-transformer",
   "version": "0.1.0",
   "private": true,
-  "description": "CLI tool that transforms bank statements into Actual Budget imports",
+  "description": "CLI that imports bank statements into a self-hosted Actual Budget server, asking about every transaction",
   "type": "module",
   "engines": {
     "node": ">=22.18.0"
@@ -21,7 +21,7 @@
     "type": "git",
     "url": "git+https://github.com/afrossard/actual-budget-transformer.git"
   },
-  "license": "ISC",
+  "license": "Unlicense",
   "dependencies": {
     "@actual-app/api": "26.9.0",
     "csv-parse": "^7.0.3",
