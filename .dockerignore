@@ -1,0 +1,7 @@
+# The image needs package.json, package-lock.json and src/ only. Everything
+# else stays out of the build context, above all config.yaml and the statement
+# files under tmp/, which hold the user's own data.
+*
+!package.json
+!package-lock.json
+!src/
