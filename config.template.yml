@@ -1,14 +1,23 @@
 # Actual Budget Transformer Configuration Template
-# Copy this file to config.yml and fill in your actual values
+# Copy this file to config.yaml (git-ignored) and fill in your actual values
 
-# Map account identifiers (IBANs, card numbers) to friendly names.
-# Used across all processors for output filenames.
+# Map account identifiers (IBANs, card numbers) to the account's name in your
+# Actual budget. An unmapped identifier is looked up as the name itself.
 account_names:
   "CH0000000000": "personal_checking"
   "CH1111111111": "savings"
   "1234567890123456": "personal_card"
   "6543210987654321": "partner_card"
 
+# Per-format settings.
+#
+# Keys marked "fallback only" are read only by the retired file-output image
+# (see README), which fails without them. The import CLI ignores them.
+#
+# These are settings rather than constants on purpose: UBS changes its exports
+# without announcing it, and the column labels are in the language of your
+# e-banking, so they change when that setting changes. If an import stops
+# recognising your file, correct the labels here - you do not need a new release.
 processors:
   # UBS CSV Transaction Processor settings
   ubs_csv:
@@ -17,7 +26,7 @@ processors:
       encoding: "utf-8-sig"
       separator: ";"
       header_rows: 8
-      expected_columns: 15
+      expected_columns: 15 # fallback only
 
     # Expected structure
     expected_header_labels:
@@ -45,7 +54,7 @@ processors:
       - "Description2"
       - "Description3"
       - "Notes de bas de page"
-      - "Unnamed: 14"
+      - "Unnamed: 14" # fallback only: pandas' name for the empty last column
 
     # Date format in the CSV
     date_format: "%Y-%m-%d" # ISO format YYYY-MM-DD
@@ -80,15 +89,32 @@ processors:
     # Columns used to generate a stable transaction reference (hash).
     # Use original-currency fields rather than converted amounts, which
     # can shift between exports due to exchange rate changes.
+    #
+    # WARNING: changing these changes every minted reference, so card
+    # transactions already imported stop matching and come back as new.
+    # Change them on a fresh account, or expect to resolve duplicates by hand.
     reference_columns:
       - "Date d'achat"
       - "Texte comptable"
       - "Montant"
       - "Monnaie originale"
 
-  # CAMT.053 Processor settings
-  camt053: {}
+# The self-hosted Actual Budget server to import into.
+#
+# Sensitive values can be sourced from environment variables instead of this
+# file (preferred for shared / committed configs):
+#   ACTUAL_BUDGET_URL       overrides server_url
+#   ACTUAL_BUDGET_PASSWORD  overrides password
+#   ACTUAL_BUDGET_SYNC_ID   overrides sync_id
+actual_budget:
+  server_url: "http://actual-server:5006"
+  password: "" # set via ACTUAL_BUDGET_PASSWORD
+  # The budget's Sync ID: Settings → Show advanced settings in Actual. Not its
+  # name, because two budgets can share a name.
+  sync_id: ""
+  # Local SQLite cache. Optional — a fresh temp dir is used per run if unset.
+  # data_dir: "/var/lib/actual-budget-transformer/data"
 
-# Global settings
+# Fallback only: the date format in the file-output image's filenames.
 output:
-  date_format: "%Y%m" # Format for date in output filenames
+  date_format: "%Y%m"

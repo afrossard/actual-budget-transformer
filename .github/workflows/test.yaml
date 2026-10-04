@@ -2,24 +2,108 @@ name: Test
 on:
   push:
     branches: [main]
+  # Long-lived feature branches are PR targets too, so a PR into one gets the
+  # same checks a PR into main gets. Without this a branch can accumulate dozens
+  # of commits without ever being built, which is how the `ruff format` drift on
+  # `feature/direct-actual-import` survived.
+  #
+  # `push` stays on main alone: a branch with an open PR would otherwise be built
+  # twice for every commit.
   pull_request:
-    branches: [main]
+    branches: [main, "feature/**"]
 
 jobs:
-  test:
+  typescript:
     runs-on: ubuntu-latest
+
+    # The integration and characterization tests run against a real Actual
+    # server on purpose: they exist because Actual's behaviour is surprising, so
+    # a mock would encode our assumptions rather than check them. `/data` is
+    # ephemeral here, which is exactly the disposable budget they want.
+    services:
+      actual-server:
+        image: actualbudget/actual-server:26.9.0
+        ports:
+          - 5006:5006
+
+    env:
+      ACTUAL_SERVER_URL: http://localhost:5006
+
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          # Actual's own .nvmrc, copied into ours - see AGENTS.md.
+          node-version-file: .nvmrc
+          cache: npm
 
-      - name: Check linting
-        run: uv run ruff check src/ tests/
+      - name: Install dependencies
+        run: npm ci
 
       - name: Check formatting
-        run: uv run ruff format --check src/ tests/
+        run: npm run format:check
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Wait for the Actual server
+        run: |
+          for _ in $(seq 1 30); do
+            if curl -sf http://localhost:5006/info >/dev/null; then
+              curl -s http://localhost:5006/info
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Actual server did not become healthy" >&2
+          exit 1
+
+      - name: Bootstrap the test budget
+        run: npm run bootstrap
 
       - name: Run tests
-        run: uv run pytest
+        run: npm test
+
+  container:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # amd64 only and never pushed: publishing is the manual
+      # prod-container-build workflow's job.
+      - name: Build the image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ./Containerfile
+          platforms: linux/amd64
+          load: true
+          tags: abt:ci
+
+      # With no arguments the CLI must print its usage and fail. An entry point
+      # that never calls main() - `invokedDirectly()` answering false, as it
+      # does in a CJS bundle - exits 0 having done nothing, and this is what
+      # catches it.
+      - name: Run the image with no arguments
+        run: |
+          set +e
+          docker run --rm abt:ci 2>stderr.txt
+          status=$?
+          set -e
+          cat stderr.txt
+          if [ "$status" -eq 0 ]; then
+            echo "expected a non-zero exit, got 0" >&2
+            exit 1
+          fi
+          grep -q '^usage: abt-import' stderr.txt

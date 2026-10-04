@@ -1,4 +1,4 @@
-# CLI program to transform bank statements into formats understood by Actual Budget
+# CLI program to import bank statements into Actual Budget
 
 See [Actual Budget](https://actualbudget.org/)
 
@@ -7,70 +7,80 @@ See [Actual Budget](https://actualbudget.org/)
 - UBS Switzerland e-banking
   - Account transactions CSV files
   - Credit card transactions CSV files (pending transactions are automatically skipped)
-- CAMT.053 (ISO 20022 XML bank statements)
 
-## Output formats
-
-Use `--format` to select the output format:
-
-| Flag | Output | Use case |
-|------|--------|----------|
-| `--format csv` (default) | CSV files | Actual Budget CSV import |
-| `--format camt053` | CAMT.053 XML files | Actual Budget CAMT import (preserves transaction references as `imported_id`) |
-| `--format both` | Both CSV and XML | |
-
-Output files are grouped by account and month (e.g. `202507_personal.csv`). Transactions from different input formats for the same account are merged into a single output file. Re-running with overlapping data deduplicates automatically.
-
-## Usage
-
-### Development setup
+## Direct import
 
 ```bash
-uv sync       # install dependencies
-uv run pytest # run tests
+npm ci
+read -s ACTUAL_BUDGET_PASSWORD && export ACTUAL_BUDGET_PASSWORD # Sets a password without leaving traces in shell history
+ACTUAL_BUDGET_URL=http://localhost:5006 npm run import -- -c config.yaml statement.csv
 ```
 
-A convenience script is also available that clears `tmp/output_files/` and processes all files from `tmp/input_files/`:
+It reads the account from the file, reads from Actual what each statement transaction could pair with, and pairs each one once.
+A pair is the Actual transaction that shares its imported ID, or failing that one with the same amount within a day, unless the two carry different bank references; each Actual transaction pairs at most once.
+
+A paired statement transaction is already in Actual, so it is never asked about and nothing is written for it.
+It then prints a statement report: how many are already in Actual, the pairs Actual needs fixed (an amount that differs, or two transactions holding one imported ID), and one line per statement transaction to review.
+Only the unpaired ones are reviewed, whatever their date; one dated in your reconciled period carries a warning, because importing it changes a reconciled balance.
+Two answers: **i**mport it or **l**eave it. `?` shows the detail and `q` stops the run.
+
+Nothing is written without an answer for that transaction, nothing in Actual is ever changed, and re-running the same file has nothing left to review - which is also how an interrupted run resumes.
+
+Server settings come from the config's `actual_budget` block, overridden by `ACTUAL_BUDGET_URL`, `ACTUAL_BUDGET_PASSWORD` and `ACTUAL_BUDGET_SYNC_ID`.
+The budget is identified by its Sync ID, found in Actual under *Settings → Show advanced settings*, because two budgets on one server can share a name.
+*Reset sync* in Actual gives the budget a new Sync ID, so update `sync_id` after using it; until then the import stops and lists the budgets with their current IDs.
+The account names in `account_names` must match the account names in your budget.
+
+## Running the image
+
+`ghcr.io/afrossard/actual-budget-transformer:main` carries the same CLI, so Node and `npm ci` are not needed.
+`scripts/abt-import` runs it under [msb](https://github.com/superradcompany/microsandbox), with the config and the statement mounted read-only:
 
 ```bash
-bash process_transactions.sh
+read -s ACTUAL_BUDGET_PASSWORD && export ACTUAL_BUDGET_PASSWORD
+scripts/abt-import -c config.yaml statement.csv
 ```
 
-### Installation
+With docker instead, `-it` gives the prompts a terminal and `--init` lets Ctrl-C through:
 
-Inspiration available in `./devcontainer` or `./Containerfile`.
+```bash
+docker run --rm -it --init \
+ --user "$(id -u):$(id -g)" \
+ -v "$PWD/config.yaml":/abt/config.yaml:ro \
+ -v "$PWD/statement.csv":/abt/statement/statement.csv:ro \
+ -e ACTUAL_BUDGET_PASSWORD \
+ ghcr.io/afrossard/actual-budget-transformer:main \
+ -c /abt/config.yaml /abt/statement/statement.csv
+```
 
-### Config file
+Inside the container `localhost` is the container itself, so `server_url` must name the server's host as the container sees it.
 
-Create a new `config.yaml` based on `config.template.yml`.
+## Config file
 
-Optional: edit the top-level `account_names` section to map your IBANs and card numbers to friendly names. These names are used across all processors and in output filenames.
+Create a new `config.yaml` based on `config.template.yml`, and pass it with `-c` or `ACTUAL_BUDGET_TRANSFORMER_CONFIG`.
 
-### CLI
+## Development
 
-`python -m actual_budget_transformer.main -f <INPUT> -o <OUTPUT_DIR> -c <CONFIG_FILE> --format <FORMAT> -v`
+```bash
+npm ci
+npm run typecheck
+npm run lint
+npm test # integration tests skip themselves without a test server
+```
 
-- `INPUT`: path to input file or directory. Any file will be opened and scanned. Supported files are processed, others are ignored. Files can contain overlapping date ranges — the transformer detects duplicates and only outputs unique transactions.
-- `OUTPUT_DIR`: location for output files. Transactions are grouped by account and month (e.g. `202507_personal.csv`). Account names are configured in the config file; IBANs and card numbers are used as fallback.
-- `CONFIG_FILE`: path to config file.
-- `FORMAT`: `csv` (default), `camt053`, or `both`.
+## File output (retired)
 
-### Running with Docker
-
-The following commands allow you to run the application using Docker. They are designed to work both when run directly on your host machine and from within the provided Dev Container.
-
-> **Note on paths:** The commands use `${LOCAL_WORKSPACE_FOLDER:-$PWD}` to correctly resolve the project's path.
->
-> - Inside the Dev Container, `LOCAL_WORKSPACE_FOLDER` is automatically set to the project's path on your host machine.
-> - Outside the Dev Container, it falls back to `$PWD` (the current working directory).
+Earlier versions wrote CSV and CAMT.053 files to import through Actual's own dialog, and also read CAMT.053.
+That Python program has been removed from this repository.
+Its last image is kept as a fallback, pinned by digest:
 
 ```bash
 docker run --rm -it \
  --user "$(id -u):$(id -g)" \
- -v "${LOCAL_WORKSPACE_FOLDER:-$PWD}/tmp/input_files":/app/input \
- -v "${LOCAL_WORKSPACE_FOLDER:-$PWD}/tmp/output_files":/app/output \
- -v "${LOCAL_WORKSPACE_FOLDER:-$PWD}/config.yaml":/app/config.yaml \
- ghcr.io/afrossard/actual-budget-transformer-main:main \
+ -v "$PWD/tmp/input_files":/app/input:ro \
+ -v "$PWD/tmp/output_files":/app/output \
+ -v "$PWD/config.yaml":/app/config.yaml:ro \
+ ghcr.io/afrossard/actual-budget-transformer-main@sha256:89a73600137963c83b31a73f751b84c7cf4824150d52a3c61f9168f02a2043e8 \
  -f /app/input \
  -o /app/output \
  -c /app/config.yaml \
@@ -78,45 +88,14 @@ docker run --rm -it \
  -v
 ```
 
-Or with local build
-
-`docker build -f Containerfile -t actual-budget-transformer:latest .`
-
-```bash
-docker run --rm -it \
- --user "$(id -u):$(id -g)" \
- -v "${LOCAL_WORKSPACE_FOLDER:-$PWD}/tmp/input_files":/app/input \
- -v "${LOCAL_WORKSPACE_FOLDER:-$PWD}/tmp/output_files":/app/output \
- -v "${LOCAL_WORKSPACE_FOLDER:-$PWD}/config.yaml":/app/config.yaml \
- actual-budget-transformer:latest \
- -f /app/input \
- -o /app/output \
- -c /app/config.yaml \
- --format csv \
- -v
-```
-
-If you need to debug the container, for instance to check the volume mounts, you can get an interactive shell inside it by overriding the entrypoint:
-
-```bash
-docker run --rm -it \
- --user "$(id -u):$(id -g)" \
- -v "${LOCAL_WORKSPACE_FOLDER:-$PWD}/tmp/input_files":/app/input \
- -v "${LOCAL_WORKSPACE_FOLDER:-$PWD}/tmp/output_files":/app/output \
- -v "${LOCAL_WORKSPACE_FOLDER:-$PWD}/config.yaml":/app/config.yaml \
- --entrypoint /bin/bash \
- actual-budget-transformer:latest
-```
-
-## Known limitations
-
-- **Don't mix input formats for the same account**: CAMT and CSV exports from the same bank account use different languages (e.g. French vs English), merchant names, and reference schemes. The deduplication logic cannot reliably match the same transaction across formats. Pick one input format per account.
-
-- **Actual Budget CAMT import preview**: When importing generated CAMT.053 files into Actual Budget, the import dialog may not show the duplicate-detection preview (matched/skipped transactions) that CSV import shows. This is a [bug in Actual Budget's import UI](https://github.com/actualbudget/actual/blob/master/packages/desktop-client/src/components/modals/ImportTransactionsModal/ImportTransactionsModal.tsx) where CAMT files are not treated as pre-parsed for date handling in the preview path. The transactions themselves import correctly with proper `imported_id` for deduplication.
+`--format` takes `csv` (default), `camt053` or `both`.
+Output files are grouped by account and month (e.g. `202507_personal.csv`), and re-running with overlapping input deduplicates.
 
 ## Test data
 
 Real bank statement files can be anonymized before committing as test fixtures using the provided scripts. They replace sensitive fields with deterministic fakes (same input → same output) while preserving amounts, dates, and structure.
+
+They are standalone Python scripts with no dependencies, run by [uv](https://docs.astral.sh/uv/).
 
 ### Salt setup
 
@@ -124,7 +103,7 @@ The scripts require a secret salt to make the hashes irreversible. Generate one 
 
 ```bash
 # Generate a strong salt (copy the output to a password manager)
-python -c "import secrets; print(secrets.token_hex(32))"
+uv run --no-project python -c "import secrets; print(secrets.token_hex(32))"
 
 # Set it for the current shell session (not saved to history)
 read -s ANONYMIZE_SALT && export ANONYMIZE_SALT
@@ -138,7 +117,7 @@ Replaces IBANs, names, addresses, postal codes, BIC codes, and remittance text. 
 
 ```bash
 for f in /path/to/real/exports/*.xml; do
-    python scripts/anonymize_camt.py "$f" tests/data/
+    uv run --script scripts/anonymize_camt.py "$f" tests/data/
 done
 ```
 
@@ -147,7 +126,7 @@ done
 Replaces account number, card number, cardholder name, merchant names, and sector. Footer/summary lines are preserved as-is.
 
 ```bash
-python scripts/anonymize_ubs_cards.py /path/to/real/cards.csv tests/data/ubs_cards_valid.csv
+uv run --script scripts/anonymize_ubs_cards.py /path/to/real/cards.csv tests/data/ubs_cards_valid.csv
 ```
 
 ### UBS account CSV files
@@ -155,11 +134,5 @@ python scripts/anonymize_ubs_cards.py /path/to/real/cards.csv tests/data/ubs_car
 Replaces account number, IBAN, transaction reference, and description fields.
 
 ```bash
-python scripts/anonymize_ubs_csv.py /path/to/real/account.csv tests/data/ubs_valid.csv
+uv run --script scripts/anonymize_ubs_csv.py /path/to/real/account.csv tests/data/ubs_valid.csv
 ```
-
-## Debug
-
-### Docker multi-stage build
-
-`docker build -f Containerfile --target builder -t actual-budget-transformer-builder-stage:latest .`

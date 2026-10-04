@@ -1,4 +1,8 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.12"
+# dependencies = []
+# ///
 """Anonymize a CAMT.053 XML file for use as test data.
 
 Replaces sensitive fields (IBANs, names, addresses, remittance text, reference
@@ -9,8 +13,8 @@ dates, currencies, and XML structure intact.
 IBANs found in the input filename are also replaced in the output filename.
 
 Usage:
-    python scripts/anonymize_camt.py input.xml output_dir/
-    python scripts/anonymize_camt.py input.xml output.xml
+    uv run --script scripts/anonymize_camt.py input.xml output_dir/
+    uv run --script scripts/anonymize_camt.py input.xml output.xml
 
 The salt is read from the ``ANONYMIZE_SALT`` environment variable, or prompted
 interactively (not echoed). To set it without it appearing in shell history:

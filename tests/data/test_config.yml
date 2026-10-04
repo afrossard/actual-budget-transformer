@@ -8,7 +8,6 @@ processors:
       encoding: "utf-8-sig"
       separator: ";"
       header_rows: 8
-      expected_columns: 15
 
     expected_header_labels:
       - "Numéro de compte:"
@@ -35,7 +34,6 @@ processors:
       - "Description2"
       - "Description3"
       - "Notes de bas de page"
-      - "Unnamed: 14"
 
     date_format: "%Y-%m-%d"
 
@@ -67,8 +65,3 @@ processors:
       - "Texte comptable"
       - "Montant"
       - "Monnaie originale"
-
-  camt053: {}
-
-output:
-  date_format: "%Y%m"

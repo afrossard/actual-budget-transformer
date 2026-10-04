@@ -1,0 +1,36 @@
+{
+  "name": "actual-budget-transformer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "CLI tool that transforms bank statements into Actual Budget imports",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "import": "node src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write 'src/**/*.ts' 'scripts/**/*.ts' 'tests/ts/**/*.ts' eslint.config.js",
+    "format:check": "prettier --check 'src/**/*.ts' 'scripts/**/*.ts' 'tests/ts/**/*.ts' eslint.config.js",
+    "test": "node --test --test-concurrency=1 'tests/ts/**/*.test.ts'",
+    "bootstrap": "ACTUAL_DATA_DIR=/tmp/actual-data node scripts/bootstrap_test_budget.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/afrossard/actual-budget-transformer.git"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "@actual-app/api": "26.9.0",
+    "csv-parse": "^7.0.3",
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "eslint": "^10.11.0",
+    "prettier": "^3.8.2",
+    "typescript": "^6.0.2",
+    "typescript-eslint": "^8.71.0"
+  }
+}

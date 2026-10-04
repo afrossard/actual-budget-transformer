@@ -1,61 +1,43 @@
-# The builder image, used to build the virtual environment
-FROM python:3.14-slim-trixie AS builder
+# The import CLI, run as `node src/cli.ts` - there is no build step, because
+# Node strips the types itself.
+#
+# This follows Actual's own default image (actual-server is built from
+# node:<major>-bookworm-slim): a production-only install, `node_modules`
+# shipped whole, no bundler. Bundling does not work against Actual's CJS graph
+# today, and better-sqlite3 is a native addon that could never be bundled (#61).
+#
+# The Node version is Actual's, from `.nvmrc`; a unit test fails when the two
+# disagree (AGENTS.md, "Versions: follow Actual").
 
-# Install UV
-COPY --from=ghcr.io/astral-sh/uv:0.11.3 /uv /uvx /bin/
+# The builder holds npm's cache and anything an install script leaves behind.
+FROM node:24.18.1-trixie-slim AS builder
 
-# Enable bytecode compilation
-ENV UV_COMPILE_BYTECODE=1
+ARG TARGETPLATFORM
 
-# Copy from the cache instead of linking since it's a mounted volume
-ENV UV_LINK_MODE=copy
-
-# Disable Python downloads, because we want to use the system interpreter
-# across both images.
-ENV UV_PYTHON_DOWNLOADS=0
-
-# Install the project into `/app`
 WORKDIR /app
 
-# Install the project's dependencies using the lockfile and settings
-# for optimal image build caching
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-${TARGETPLATFORM} \
-  --mount=type=bind,source=uv.lock,target=uv.lock \
-  --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-  uv sync \
-  --locked \
-  --no-dev \
-  --no-editable \
-  --no-install-project
+RUN --mount=type=cache,target=/root/.npm,id=npm-${TARGETPLATFORM} \
+  --mount=type=bind,source=package.json,target=package.json \
+  --mount=type=bind,source=package-lock.json,target=package-lock.json \
+  npm ci --omit=dev
 
-# Copy the project sources into the intermediate image
-COPY src /app
+FROM node:24.18.1-trixie-slim
 
-# Sync the project (no cache mount — ensures fresh source is always installed)
-RUN --mount=type=bind,source=uv.lock,target=uv.lock \
-  --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-  uv sync \
-  --locked \
-  --no-dev \
-  --no-editable
+ENV NODE_ENV=production
 
-# The runtime image, used to just run the code provided its virtual environment
-FROM python:3.14-slim-trixie AS runtime
-
-# Setup a non-root user
-RUN groupadd --system --gid 999 app \
-  && useradd --system --gid 999 --uid 999 --create-home app
-
-# Copy the environment, but not the source code
-COPY --from=builder --chown=app:app /app/.venv /app/.venv
-
-# Place executables in the environment at the front of the path
-ENV PATH="/app/.venv/bin:$PATH"
-
-# Use the non-root user to run our application
-USER app
-
-# Use `/app` as the working directory
 WORKDIR /app
 
-ENTRYPOINT ["python", "-m", "actual_budget_transformer.main"]
+# Owned by root: readable by whichever user runs it, writable by none.
+COPY --from=builder /app/node_modules ./node_modules
+COPY package.json ./
+COPY src ./src
+
+# The image's own non-root `node` user, numeric so a runtime can check it is
+# not root without resolving a name. `--user "$(id -u):$(id -g)"` overrides it,
+# which works because nothing above is writable or needs to be: the gateway
+# downloads the budget into a fresh directory under /tmp.
+USER 1000:1000
+
+# No init: this is a short interactive process, not a server. Under msb `node`
+# is not PID 1; under docker, `docker run --init` is what lets Ctrl-C through.
+ENTRYPOINT ["node", "src/cli.ts"]
