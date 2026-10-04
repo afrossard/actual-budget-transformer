@@ -53,7 +53,7 @@ Four pins move together, and they all follow whatever Actual is on. When upgradi
 Renovate is configured to keep this rule (#97), and nothing else has to be remembered:
 
 - **One grouped `Actual` PR per release** (`renovate.json`) moves the api and both server lines together, so the api never lands ahead of the server.
-  It is titled `feat(deps): require Actual server <version> or newer`, so it cuts a release whose notes say which server the image needs (#87).
+  It is titled `feat(deps): require actual server <version> or newer`, so it cuts a release whose notes say which server the image needs (#87).
   The compose line is a literal tag for that reason: Renovate extracts nothing from a `${VAR:-default}` image.
 - **Renovate's Node updates are off** for `.nvmrc` and the Containerfile, because it would propose Node's latest and cannot read Actual's `.nvmrc`.
 - **The `node-follows-actual` check** (`npm run check:node`, a job in `test.yaml`) fetches Actual's `.nvmrc` at the tag matching the api pin and fails with the exact fix, so on the grouped PR a red check says which Node to set.

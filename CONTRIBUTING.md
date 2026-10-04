@@ -68,6 +68,6 @@ Leave an unwanted release PR open, which release-please updates in place; if it 
 
 `renovate.json` makes Renovate title its PRs as Conventional Commits:
 
-- **The grouped `Actual` PR** is `feat(deps): require Actual server <version> or newer`, so it releases, and the release notes say which server the new image needs.
+- **The grouped `Actual` PR** is `feat(deps): require actual server <version> or newer`, so it releases, and the release notes say which server the new image needs.
 - **Other runtime dependencies** (`csv-parse`, `yaml`) are `fix(deps)`, because they ship in the image.
 - **Everything else** (dev tooling, GitHub Actions) is `chore(deps)`: nothing shipped changes, so nothing is released.
