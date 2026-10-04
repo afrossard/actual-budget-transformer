@@ -22,7 +22,7 @@
   },
   "license": "ISC",
   "dependencies": {
-    "@actual-app/api": "26.9.0",
+    "@actual-app/api": "26.10.0",
     "csv-parse": "^7.0.3",
     "yaml": "^2.9.1"
   },
