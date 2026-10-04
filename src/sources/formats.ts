@@ -9,9 +9,9 @@
  * a file, not by waiting for a release.
  *
  * The values below are defaults. Anything in `config.yml` under
- * `processors.ubs_csv` / `processors.ubs_cards` overrides them, key by key, and
- * the schema is deliberately the same one the Python path already reads so a
- * single config file serves both.
+ * `processors.ubs_csv` / `processors.ubs_cards` overrides them, key by key, in
+ * the schema the retired Python package read, so an existing config file keeps
+ * working.
  */
 
 /** Node's name for the encodings the config can ask for. */
@@ -113,7 +113,7 @@ export const DEFAULT_FORMATS: Formats = {
   ubsCardsCsv: DEFAULT_CARDS_CSV,
 };
 
-/** Python's encoding names, which is what the shared config file uses. */
+/** Python's encoding names, which is what existing config files use. */
 const ENCODINGS: Record<string, Encoding> = {
   'utf-8': 'utf8',
   'utf-8-sig': 'utf8',

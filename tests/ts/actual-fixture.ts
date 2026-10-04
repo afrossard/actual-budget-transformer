@@ -11,10 +11,9 @@
  * reference-less twins, and an imported-ID pair whose amount disagrees with
  * the bank's.
  *
- * Each run creates its **own account**, which is why this suite needs none of
- * the date partitioning the Python suite adopted: the reconciled-through date
- * is account-global server state, so owning the account makes it entirely ours
- * and leaves the Python suite's accounts alone.
+ * Each run creates its **own account**, which is why this suite needs no date
+ * partitioning: the reconciled-through date is account-global server state, so
+ * owning the account makes it entirely ours.
  *
  * These helpers call `@actual-app/api` directly. That is deliberate: seeding
  * has to put Actual into states the gateway cannot produce - a reconciled

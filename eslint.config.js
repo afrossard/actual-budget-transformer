@@ -2,11 +2,6 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    // The Python bridge is deleted in one commit once the TypeScript CLI
-    // reaches parity (#41), so linting it is work thrown away.
-    ignores: ['src/actual_budget_transformer/**'],
-  },
-  {
     // The same scope `npm run typecheck` and `npm run format:check` cover.
     files: ['src/**/*.ts', 'scripts/**/*.ts', 'tests/ts/**/*.ts'],
     extends: [tseslint.configs.base],
