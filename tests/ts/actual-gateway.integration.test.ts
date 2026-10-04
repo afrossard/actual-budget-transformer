@@ -69,7 +69,7 @@ describe('integration: the gateway reads only what a question needs', { skip }, 
     await session.api.sync();
   }
 
-  describe('reconciliationBoundary', () => {
+  describe('reconciledThroughDate', () => {
     it('is the newest reconciled date, ignoring newer unreconciled rows', async () => {
       const id = await account('boundary');
       await session.api.addTransactions(id, [
@@ -81,7 +81,7 @@ describe('integration: the gateway reads only what a question needs', { skip }, 
       await reconcile(id, '2031-01-10');
       await reconcile(id, '2031-02-10');
 
-      assert.equal(await session.gateway.reconciliationBoundary(id), '2031-02-10');
+      assert.equal(await session.gateway.reconciledThroughDate(id), '2031-02-10');
     });
 
     it('is null when the account has never been reconciled', async () => {
@@ -91,7 +91,7 @@ describe('integration: the gateway reads only what a question needs', { skip }, 
       ]);
       await session.api.sync();
 
-      assert.equal(await session.gateway.reconciliationBoundary(id), null);
+      assert.equal(await session.gateway.reconciledThroughDate(id), null);
     });
 
     it('finds a reconciled transaction dated in the future', async () => {
@@ -102,7 +102,7 @@ describe('integration: the gateway reads only what a question needs', { skip }, 
       await session.api.sync();
       await reconcile(id, '2099-12-31');
 
-      assert.equal(await session.gateway.reconciliationBoundary(id), '2099-12-31');
+      assert.equal(await session.gateway.reconciledThroughDate(id), '2099-12-31');
     });
 
     it("ignores another account's reconciled transactions", async () => {
@@ -114,7 +114,7 @@ describe('integration: the gateway reads only what a question needs', { skip }, 
       await session.api.sync();
       await reconcile(other, '2031-05-10');
 
-      assert.equal(await session.gateway.reconciliationBoundary(mine), null);
+      assert.equal(await session.gateway.reconciledThroughDate(mine), null);
     });
   });
 

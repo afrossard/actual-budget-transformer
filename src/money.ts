@@ -86,7 +86,7 @@ export function readAmount(debit: string, credit: string): AmountReading {
   }
 }
 
-/** Right-aligned two-decimal rendering for the Tape, e.g. `   -186.65`. */
+/** Right-aligned two-decimal rendering for the statement report, e.g. `   -186.65`. */
 export function formatCents(cents: number, width = 10): string {
   const sign = cents < 0 ? '-' : '';
   const abs = Math.abs(cents);

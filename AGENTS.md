@@ -67,16 +67,16 @@ Three pins move together, and they all follow whatever Actual is on. When upgrad
 ```
 src/
 ├── cli.ts             # argument parsing and wiring
-├── import-run.ts      # one run: parse, read Actual, classify once, review
+├── import-run.ts      # one run: parse, read Actual, pair once, review
 ├── config.ts          # the user's config.yml (account_names + actual_budget only)
 ├── account-resolution.ts # which account a statement goes into; the not-found message
-├── classify.ts        # THE CLASSIFIER SEAM — pure, no server, no I/O
+├── classify.ts        # THE CLASSIFIER SEAM — pairing; pure, no server, no I/O
 ├── actual-gateway.ts  # THE GATEWAY SEAM — the only module touching @actual-app/api
 ├── actual-version.ts  # ADR-007 version-skew gate
-├── review.ts          # the review loop: four actions, one confirmation per row
-├── tape.ts            # the Tape's rendering, and how evidence is worded
+├── review.ts          # the review loop: import or leave, one confirmation each
+├── statement-report.ts # the statement report, the review blocks, and [?]
 ├── io.ts              # terminal input (single keystroke on a TTY, lines otherwise)
-├── imported-id.ts     # minting, and the forced-copy scheme
+├── imported-id.ts     # minting
 ├── money.ts           # integer cents; the debit/credit sign convention
 └── sources/
     ├── formats.ts      # what each export looks like, as overridable settings
@@ -85,22 +85,21 @@ src/
     └── ubs-*.ts        # one parser factory per statement format
 ```
 
-**The two seams are pre-agreed and closed.** The classifier takes source transactions plus Actual transactions and returns four buckets; most tests live there. The gateway is integration-tested against a real server. The review loop is tested through the gateway rather than given a seam of its own. Do not add a third.
+**The two seams are pre-agreed and closed.** The classifier takes statement transactions plus Actual transactions and returns each statement transaction's pair, or none; most tests live there. The gateway is integration-tested against a real server. The review loop is tested through the gateway rather than given a seam of its own. Do not add a third.
 
 ### Rules the code enforces, and why
 
 | Rule | Where | Why |
 | --- | --- | --- |
 | Never `importTransactions` | `actual-gateway.ts`, guarded by a test in `tests/ts/write-path.test.ts` | It carries Actual's own matcher (same amount, ±7 days, any row with no imported ID). Two matchers over one decision caused every surprise in #38. |
-| Nothing is written without a confirmation for that row | `review.ts` | Including inside the reconciled range: `updateTransaction` patches a reconciled transaction without complaint and leaves `reconciled` true, so the guard is ours. Proven in `review.integration.test.ts`, both directions. |
-| A reconciled target is warned about even when the row is not Locked | `review.ts` `warnings()` | The boundary is the newest reconciled date, so a row one day *after* it can still match that transaction. Such a row is Suspicious, not Locked, and correcting it would reach into an attested range on the strength of one evidence line. |
-| A correction never writes the amount | `actual-gateway.ts` `correct()` | A split's parts must still sum to their parent. Where the bank and Actual disagree on an amount, nothing is applied and the difference is reported (#49 owns what to do instead). |
-| Classify once per batch | `import-run.ts` | Re-reading Actual between prompts makes each confirmation flag the next transaction — #50's noise, manufactured. |
-| A decline is a decision | `review.ts`, `tape.ts` | Skip and Locked rows are prompted and show what they matched. Bank data never goes out on a log line. |
+| Nothing is written without a confirmation for that statement transaction | `review.ts` | Including in the reconciled period, where Actual enforces nothing. Proven in `review.integration.test.ts`. |
+| Pair **one to one**, and never review a pair | `classify.ts`, `review.ts` | ADR 0003. A pair is a shared imported ID, or the same amount within ±1 day unless the two carry different **bank references** (minted `abt1-` IDs do not count: they can shift between exports); each Actual transaction pairs at most once, so of two identical statement transactions with one counterpart, one is reviewed. Amount pairs are a maximum matching, same-day first, so a run of entries typed a day late does not leave half of them reviewed. |
+| Nothing is written for a pair, and nothing patches an Actual transaction | `actual-gateway.ts`, guarded by a test in `tests/ts/write-path.test.ts` | A paired statement transaction is already in Actual. A pair Actual needs fixed (the amounts differ, or two Actual transactions share one imported ID) is listed in the statement report and never prompted: the fix is made in Actual (#49 owns doing more). `updateTransaction` would also patch a reconciled transaction without complaint, so its absence is the guard. |
+| Dates decide nothing | `classify.ts`, `review.ts` `warnings()` | An unpaired statement transaction dated on or before the reconciled-through date is reviewed like any other - it is most probably one deleted from Actual to be imported again (#82) - and carries a warning that importing it changes a reconciled balance. |
+| Pair once per batch | `import-run.ts` | Re-reading Actual between prompts would pair each statement transaction with what the last import wrote — #50's noise, manufactured. |
 | A minted imported ID hashes the reference columns **verbatim** | `sources/ubs-cards-csv.ts` | Not the parsed date. Correcting `date_format` after a UBS change is exactly what the config is for, and it must not silently renumber every transaction already written. |
-| Two source rows sharing an identity key make the **later one Suspicious** | `classify.ts` `identityKey` | Not in #41's scope list, and **kept deliberately** (review, 2026-09-28). It implements #38's closing recommendation to catch the twins by comparing source rows to each other, using the existing four buckets rather than a fifth. For reference-less twins it is informational - both are still written if confirmed, because the bank's file is authoritative on the count - and it stops the human declining one of two identical Clean lines by mistake. For a **repeated non-blank reference** it is a real guard: writing both would put two rows in Actual under one `imported_id`, and our own next run's Skip could not tell them apart. |
-| Look imported IDs up **unbounded in date**, never in a window around the file's dates | `import-run.ts`, `gateway.findByImportedIds` | An imported ID has to be recognised wherever the transaction now sits. The cards parser dates a purchase by `Date d'achat` while the bank books it weeks later, so re-dating it in Actual moves it outside any sensible window — and a missed imported ID means the row comes back as Clean, which claims nothing in Actual looks like it. Guarded by the `re-dated` test. Unbounded in date is not the same as reading everything: the lookup is bounded in rows instead (#67). |
-| Number a forced copy against Actual **at write time** | `review.ts` `freeForcedImportedId` | The classified batch holds only the rows the classifier could match, and an earlier forced copy re-dated out of the statement's span is not one of them. Numbering from the batch would write a second row under the same imported ID. Guarded by the `forced copy past an earlier one` test. |
+| Two statement transactions sharing an identity key: the later one says **`identical to #N`** | `classify.ts` `identityKey` | **Kept deliberately** (review, 2026-09-28), from #38's closing recommendation to catch the twins by comparing statement transactions to each other. It is informational: both are reviewed if unpaired and both are written if confirmed, because the bank's file is authoritative on the count; it stops the human leaving one of two identical lines by mistake. A **repeated non-blank reference** pairs once per copy Actual holds, and only holders beyond the number of copies the file carries are listed as two Actual transactions sharing one imported ID. |
+| Look imported IDs up **unbounded in date**, never in a window around the file's dates | `import-run.ts`, `gateway.findByImportedIds` | An imported ID has to be recognised wherever the transaction now sits. The cards parser dates a purchase by `Date d'achat` while the bank books it weeks later, so re-dating it in Actual moves it outside any sensible window — and a missed imported ID sends the statement transaction to review as "not in Actual". Guarded by the `re-dated` test. Unbounded in date is not the same as reading everything: the lookup is bounded in rows instead (#67). |
 | Build ActualQL filters only from shapes the characterization tests pin | `actual-gateway.ts` | ActualQL answers some filter shapes **wrongly and silently**: `amount: { $oneof }` matches nothing, `date: { $gte, $lte }` in one object drops a bound. `$oneof` also pastes its values into SQL unescaped, so the gateway doubles quotes itself - and a plain string filter reads a leading `$` as a field and a leading `:` as a parameter, which is why imported IDs go through `$oneof` and nothing else. |
 
 ### What the checkers enforce
@@ -116,7 +115,7 @@ Two of them are worth knowing by name:
   It is why a `!` in the parsers is load-bearing rather than decorative.
 
 `eslint.config.js` is flat config, type-aware (`parserOptions.projectService`), and scoped to the same files `typecheck` and `format:check` cover, minus `src/actual_budget_transformer/` which #41 deletes.
-The rule it exists for is **`@typescript-eslint/no-floating-promises`**: every write is `await gateway.add(…)` / `correct(…)` / `sync()`, and a dropped `await` there is a silently skipped write or a race, in a tool whose whole premise is that nothing reaches Actual without a confirmation for that row.
+The rule it exists for is **`@typescript-eslint/no-floating-promises`**: every write is `await gateway.add(…)` / `sync()`, and a dropped `await` there is a silently skipped write or a race, in a tool whose whole premise is that nothing reaches Actual without a confirmation for that statement transaction.
 No grep can prove the next one absent.
 `node:test`'s `test` / `it` / `before` and friends are listed under `allowForKnownSafeCalls`, because the runner owns those promises; nothing in `src/` is exempt.
 
@@ -135,7 +134,7 @@ ACTUAL_SERVER_URL=http://localhost:5006 npm test
 
 - **Never mock `@actual-app/api`.** These tests exist because Actual's real behaviour is surprising; a mock would encode our assumptions instead of checking them.
 - **`tests/ts/actual-api.characterization.test.ts`** holds the five probes from `prototype/38-interactive-import`, turned into assertions, and the ActualQL filter shapes the gateway's reads are built on (#67), the silently wrong ones included. They are the guard that an api version bump cannot quietly invalidate the write path or the reads (ADR-007). If one fails, the design they pin needs re-reading, not the test.
-- **Each integration run creates its own account.** The reconciliation boundary is account-global server state, so owning the account is what lets this suite skip the date partitioning the Python suite needed, and leaves the Python suite's accounts alone. Test accounts are named `TS <label> <tag>`; `actual-down` + `actual-up` + `npm run bootstrap` clears the debris.
+- **Each integration run creates its own account.** The reconciled-through date is account-global server state, so owning the account is what lets this suite skip the date partitioning the Python suite needed, and leaves the Python suite's accounts alone. Test accounts are named `TS <label> <tag>`; `actual-down` + `actual-up` + `npm run bootstrap` clears the debris.
 
 ### Choices, so they are not re-litigated
 

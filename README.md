@@ -25,19 +25,15 @@ read -s ACTUAL_BUDGET_PASSWORD && export ACTUAL_BUDGET_PASSWORD # Sets a passwor
 ACTUAL_BUDGET_URL=http://localhost:5006 npm run import -- -c config.yaml statement.csv
 ```
 
-It reads the account from the file, reads the account's history from Actual, and classifies every transaction once into one of four buckets:
+It reads the account from the file, reads from Actual what each statement transaction could pair with, and pairs each one once.
+A pair is the Actual transaction that shares its imported ID, or failing that one with the same amount within a day, unless the two carry different bank references; each Actual transaction pairs at most once.
 
-| Bucket         | Meaning                                                                        |
-| -------------- | ------------------------------------------------------------------------------ |
-| **clean**      | nothing in Actual looks like it                                                |
-| **suspicious** | something does — same amount within a day — but not confidently enough to pair |
-| **skip**       | its imported ID is already in Actual; nothing left to do                       |
-| **locked**     | dated on or before the newest reconciled transaction                           |
+A paired statement transaction is already in Actual, so it is never asked about and nothing is written for it.
+It then prints a statement report: how many are already in Actual, the pairs Actual needs fixed (an amount that differs, or two transactions holding one imported ID), and one line per statement transaction to review.
+Only the unpaired ones are reviewed, whatever their date; one dated in your reconciled period carries a warning, because importing it changes a reconciled balance.
+Two answers: **i**mport it or **l**eave it. `?` shows the detail and `q` stops the run.
 
-It then prints one line per transaction — the Tape — and prompts on **every** row, including the ones it is declining, showing what each matched and why.
-Four answers: **i**mport it, **c**orrect the matched transaction from the bank's data, **l**eave it, or **f**orce a separate transaction. `?` shows the detail and `q` stops the run.
-
-Nothing is written without an answer for that transaction, a correction never changes an amount, and re-running the same file writes nothing — which is also how an interrupted run resumes.
+Nothing is written without an answer for that transaction, nothing in Actual is ever changed, and re-running the same file has nothing left to review - which is also how an interrupted run resumes.
 
 Server settings come from the config's `actual_budget` block, overridden by `ACTUAL_BUDGET_URL`, `ACTUAL_BUDGET_PASSWORD` and `ACTUAL_BUDGET_SYNC_ID`.
 The budget is identified by its Sync ID, found in Actual under *Settings → Show advanced settings*, because two budgets on one server can share a name.

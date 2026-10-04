@@ -1,15 +1,18 @@
 /**
  * The integration suite's harness: a real Actual server, a fresh account per
- * run, and one seeded month that hits every bucket at once.
+ * run, and one seeded month that reaches every case pairing has at once.
  *
  * The fixture design is carried over from the #38 prototype (`scenario_source`
- * + `seed_actual`): a pre-boundary transaction inside the reconciled range, a
- * Skip by imported ID, a blind duplicate against a hand entry, a *split* hand
- * entry, five equal-amount consecutive days, reference-less twins, and an
- * imported-ID match whose amount disagrees with the bank's.
+ * + `seed_actual`) and reshaped for one-to-one pairing (ADR 0003): a pair with
+ * the reconciled transaction, a statement transaction missing from Actual on
+ * the reconciled-through date, a pair by imported ID, a pair on amount and
+ * date against a *split* entry typed by hand, a same-day pair that leaves its
+ * day-apart twin a lookalike, five equal-amount consecutive days,
+ * reference-less twins, and an imported-ID pair whose amount disagrees with
+ * the bank's.
  *
  * Each run creates its **own account**, which is why this suite needs none of
- * the date partitioning the Python suite adopted: the reconciliation boundary
+ * the date partitioning the Python suite adopted: the reconciled-through date
  * is account-global server state, so owning the account makes it entirely ours
  * and leaves the Python suite's accounts alone.
  *
@@ -144,34 +147,39 @@ export function runTag(): string {
   return cachedTag;
 }
 
-export const BOUNDARY = '2030-06-30';
+export const RECONCILED_THROUGH = '2030-06-30';
 
 export type Scenario = {
   tag: string;
-  boundary: string;
+  reconciledThrough: string;
   source: SourceTransaction[];
-  /** The reconciled transaction that defines the boundary. */
+  /** The reconciled transaction that sets the reconciled-through date. */
   reconciledId: string;
-  /** The split hand entry the restaurant row is a blind duplicate of. */
+  /** The split entry typed by hand that the restaurant one pairs with. */
   splitId: string;
-  /** The imported-ID match whose stored amount disagrees with the bank's. */
+  /** The imported-ID pair whose amount in Actual disagrees with the bank's. */
   amountMismatchId: string;
 };
 
-/** Source transactions as a parser would hand them over. */
+/** Statement transactions as a parser would hand them over. */
 export function scenarioSource(tag: string): SourceTransaction[] {
   const rows: [string, string, string, number, string][] = [
-    // Inside the already-reconciled range, and matching the reconciled
-    // transaction exactly: the row the reconciled guard is proven on.
-    [BOUNDARY, 'SUPERMARKET CORRECTION', 'Carte', -12000, 'T-9001'],
+    // In the reconciled period, and the same as the reconciled transaction:
+    // it pairs, and nothing is written for it.
+    [RECONCILED_THROUGH, 'SUPERMARKET CORRECTION', 'Carte', -12000, 'T-9001'],
+    // On the same day, and missing from Actual - as if deleted there to be
+    // imported again. Reviewed, with a warning, never set aside (#82).
+    [RECONCILED_THROUGH, 'KIOSK', 'Carte', -300, 'T-9002'],
     ['2031-03-02', 'MIGROS', 'Carte', -2345, 'T-0001'],
     ['2031-03-03', 'SBB TICKET', 'Carte', -860, 'T-0002'],
     // Already written under this imported ID on an earlier run.
     ['2031-03-04', 'SALARY ACME SA', 'Virement', 650000, 'T-0003'],
-    // A split hand entry sits on 03-06 in Actual: a blind duplicate.
+    // A split entry typed by hand sits on 03-06 in Actual: a pair a day off.
     ['2031-03-05', 'RESTAURANT DES ALPES', 'Carte', -6400, 'T-0004'],
-    // Five equal-amount consecutive days, with a hand entry on 03-09. Only the
-    // first is near it, and confirming it must not flag the rest.
+    // An entry typed by hand on 03-09 pairs with this, on the same day...
+    ['2031-03-09', 'CAFE LUGANO', 'Carte', -450, 'T-0012'],
+    // ...so the first of five equal-amount consecutive days is reviewed, as
+    // looking like that pair, and importing it must not pair the rest.
     ['2031-03-10', 'CAFE LUGANO', 'Carte', -450, 'T-0005'],
     ['2031-03-11', 'CAFE LUGANO', 'Carte', -450, 'T-0006'],
     ['2031-03-12', 'CAFE LUGANO', 'Carte', -450, 'T-0007'],
@@ -180,7 +188,7 @@ export function scenarioSource(tag: string): SourceTransaction[] {
     // The bank now says -75.00 for a transaction already stored at -80.00.
     ['2031-03-15', 'PRICE CHANGED', 'Carte', -7500, 'T-0011'],
     // Two real purchases with identical attributes and no bank reference. The
-    // bank's file says two, so the second must reach the human.
+    // bank's file says two, so both are reviewed.
     ['2031-03-20', 'PHARMACIE CENTRALE', '', -1990, ''],
     ['2031-03-20', 'PHARMACIE CENTRALE', '', -1990, ''],
     ['2031-03-25', 'UBS TWINT', 'Motif: loyer', -15000, 'T-0010'],
@@ -207,11 +215,10 @@ export async function seedScenario(
 
   await api.addTransactions(accountId, [
     {
-      date: BOUNDARY,
+      date: RECONCILED_THROUGH,
       amount: -12000,
-      imported_id: `${tag}-reconciled`,
       payee_name: 'OLD RECONCILED TX',
-      notes: 'marked reconciled below, which sets the boundary',
+      notes: 'marked reconciled below, which sets the reconciled-through date',
     },
     {
       date: '2031-03-04',
@@ -229,9 +236,8 @@ export async function seedScenario(
     },
   ]);
 
-  // Hand-entered rows carry no imported ID, which is what makes them blind
-  // duplicates rather than Skips. The restaurant one is split, so a correction
-  // can be watched against a split parent.
+  // Typed by hand, these carry no imported ID, so they pair on amount and date.
+  // The restaurant one is split, so its pair is seen to leave it untouched.
   await api.addTransactions(accountId, [
     {
       date: '2031-03-06',
@@ -250,9 +256,10 @@ export async function seedScenario(
   await api.sync();
 
   const stored = await api.getTransactions(accountId, '2030-01-01', '2031-12-31');
-  const reconciled = stored.find((t) => t.imported_id === `${tag}-reconciled`);
+  // Typed by hand: no imported ID, so it pairs on amount and date.
+  const reconciled = stored.find((t) => t.date === RECONCILED_THROUGH);
   if (!reconciled)
-    throw new Error('seeding failed: the boundary transaction is missing');
+    throw new Error('seeding failed: the reconciled transaction is missing');
   await api.updateTransaction(reconciled.id, { reconciled: true });
   await api.sync();
 
@@ -262,7 +269,7 @@ export async function seedScenario(
 
   return {
     tag,
-    boundary: BOUNDARY,
+    reconciledThrough: RECONCILED_THROUGH,
     source: scenarioSource(tag),
     reconciledId: reconciled.id,
     splitId: split.id,

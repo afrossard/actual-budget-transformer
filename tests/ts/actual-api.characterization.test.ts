@@ -5,8 +5,9 @@
  * These are the five probes from `prototype/38-interactive-import`, turned from
  * scripts that print into tests that assert. Everything the write path was
  * designed around is here: the whole reason `importTransactions` is bypassed,
- * the reason a correction does its own `updateTransaction`, the reason splits
- * are safe, and the reason the reconciled guard has to be ours.
+ * why patching an Actual transaction from the bank's data is not safe to do
+ * lightly (splits, and no reconciled guard), and so why this tool, which
+ * pairs and never patches, leaves that fix to the human in Actual.
  *
  * ADR-007 exists because Actual version skew has broken assumptions before, so
  * these are the assertions that should fail loudly on a version bump rather
@@ -105,8 +106,7 @@ describe('integration: what @actual-app/api actually does', { skip }, () => {
 
   it('on an imported_id match, never writes the amount or the date', async () => {
     // The two fields the bank is most authoritative on are the two Actual will
-    // not take. That is why a correction is our own updateTransaction and not a
-    // re-import.
+    // not take, so a re-import can never fix a pair whose amount differs.
     const id = await account('fields');
     const [catA, catB] = await twoCategories();
 
@@ -179,7 +179,7 @@ describe('integration: what @actual-app/api actually does', { skip }, () => {
   });
 
   it('splits survive a re-import and a parent patch', async () => {
-    // The constraint that decides how a correction is allowed to work: a
+    // The constraint any patch of an Actual transaction must respect: a
     // split's parts must always still sum to their parent.
     const id = await account('splits');
     const [catA, catB] = await twoCategories();
@@ -259,8 +259,8 @@ describe('integration: what @actual-app/api actually does', { skip }, () => {
 
   it('updateTransaction has no reconciled guard, so the guard has to be ours', async () => {
     // ADR-002's keystone rule - never touch a reconciled transaction - is not
-    // something Actual enforces on this path. The review loop's per-row
-    // confirmation is the only thing standing in the way.
+    // something Actual enforces on this path. This tool never calls it, and a
+    // test in write-path.test.ts keeps it that way.
     const id = await account('patch');
     await api.addTransactions(id, [
       {

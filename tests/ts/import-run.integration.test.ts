@@ -1,7 +1,8 @@
 /**
  * Both CSV inputs, end to end against a real Actual server: parse the file the
- * bank actually produces, classify against Actual, walk the Tape, write what is
- * confirmed - and then prove a second run of the same file writes nothing.
+ * bank actually produces, pair against Actual, review the rest, write what is
+ * confirmed - and then prove a second run of the same file has nothing to
+ * review.
  */
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -83,9 +84,12 @@ describe('integration: a whole run from a statement file', { skip }, () => {
     assert.equal(stored[0]!.amount, -18665, 'the debit stayed an outflow');
     assert.equal(stored[0]!.imported_id, '1234563AB9269773');
 
-    const second = await run(config, path, () => 'l', 1);
-    assert.equal(second.result.outcomes[0]!.row.bucket, 'skip');
-    assert.equal(second.result.outcomes[0]!.wrote, 'nothing');
+    const second = await run(config, path, () => 'l', 0);
+    assert.deepEqual(second.result.outcomes, []);
+    assert.match(
+      second.io.transcript.join('\n'),
+      /1 already in Actual · nothing to review/,
+    );
     assert.equal(
       (await session.gateway.getTransactions(accountId, '2022-01-01', '2024-12-31'))
         .length,
@@ -118,15 +122,8 @@ describe('integration: a whole run from a statement file', { skip }, () => {
       'every card imported ID is minted and says so',
     );
 
-    const second = await run(config, path, () => 'l', 3);
-    assert.deepEqual(
-      second.result.outcomes.map((o) => o.row.bucket),
-      ['skip', 'skip', 'skip'],
-    );
-    assert.equal(
-      second.result.outcomes.every((o) => o.wrote === 'nothing'),
-      true,
-    );
+    const second = await run(config, path, () => 'l', 0);
+    assert.deepEqual(second.result.outcomes, []);
     assert.equal(
       (await session.gateway.getTransactions(accountId, '2019-12-01', '2020-03-31'))
         .length,
@@ -138,8 +135,8 @@ describe('integration: a whole run from a statement file', { skip }, () => {
     // The cards parser dates a purchase by `Date d'achat` while the bank books
     // it weeks later, so re-dating it in Actual to its booking date moves it a
     // long way from where this tool wrote it. Reading only a window around the
-    // file's dates would miss the imported ID, report the row as Clean - "nothing
-    // in Actual looks like it" - and have the human confirm a duplicate.
+    // file's dates would miss the imported ID, send it to review as "not in
+    // Actual", and have the human confirm a duplicate.
     const { config, accountId } = await arrange('re-dated', '9659086893219337559');
     const path = DATA + 'ubs_cards_1.csv';
 
@@ -153,49 +150,80 @@ describe('integration: a whole run from a statement file', { skip }, () => {
     await session.api.updateTransaction(moved.id, { date: '2026-03-16' });
     await session.api.sync();
 
-    const second = await run(config, path, () => 'l', 3);
+    const second = await run(config, path, () => 'l', 0);
     assert.deepEqual(
-      second.result.outcomes.map((o) => o.row.bucket),
-      ['skip', 'skip', 'skip'],
-      'the re-dated transaction is still recognised by its imported ID',
+      second.result.outcomes,
+      [],
+      'the re-dated transaction still pairs by its imported ID',
     );
     assert.equal((await session.gateway.getAccountHistory(accountId)).length, 3);
   });
 
-  it('numbers a forced copy past an earlier one that has since been re-dated', async () => {
-    // A forced copy's number is the lowest one the account does not hold yet,
-    // wherever that earlier copy now sits. Missing it would write a second row
-    // under the same imported ID - the corruption forcing exists to avoid.
+  it('reviews one missing from Actual on the reconciled-through date', async () => {
+    // Reported from a real run (#82): a transaction deleted from Actual on the
+    // same day as the last reconciled one came up "locked".
     const { config, accountId } = await arrange(
-      'force-re-dated',
-      '9659086893219337559',
+      'reconciled-period',
+      'CH4200120123A12345678',
     );
-    const path = DATA + 'ubs_cards_1.csv';
-
-    await run(config, path, () => 'i', 3);
-    const second = await run(config, path, (i) => (i === 0 ? 'f' : 'l'), 3);
-    const base = second.result.outcomes[0]!.row.source.importedId;
-    const firstCopy = (
-      await session.gateway.findByImportedIds(accountId, [`${base}~dup1`])
-    )[0]!;
-    await session.api.updateTransaction(firstCopy.id, { date: '2026-03-16' });
+    await session.api.addTransactions(accountId, [
+      { date: '2023-01-13', amount: -5000, payee_name: 'Groceries (typed by hand)' },
+    ]);
+    const [typed] = await session.api.getTransactions(
+      accountId,
+      '2023-01-13',
+      '2023-01-13',
+    );
+    await session.api.updateTransaction(typed!.id, { reconciled: true });
     await session.api.sync();
 
-    await run(config, path, (i) => (i === 0 ? 'f' : 'l'), 3);
-    const copies = await session.gateway.findByImportedIds(accountId, [
-      `${base}~dup1`,
-      `${base}~dup2`,
-    ]);
-    assert.deepEqual(copies.map((t) => t.imported_id).sort(), [
-      `${base}~dup1`,
-      `${base}~dup2`,
-    ]);
+    const { result, io } = await run(config, DATA + 'ubs_valid.csv', () => 'i', 1);
+    assert.deepEqual(
+      result.outcomes.map((o) => o.wrote),
+      ['added'],
+    );
+    const transcript = io.transcript.join('\n');
+    assert.match(transcript, /reconciled through 2023-01-13/);
+    assert.match(transcript, /0 already in Actual · 1 to review/);
+    assert.match(transcript, /! dated in your reconciled period/);
+    assert.doesNotMatch(transcript, /locked/);
+    const stored = await session.gateway.getAccountHistory(accountId);
+    assert.deepEqual(stored.map((t) => t.amount).sort(), [-18665, -5000]);
   });
 
-  it('names both stored transactions when two share the imported ID of a row', async () => {
+  it('reviews one whose lookalike in Actual carries another bank reference', async () => {
+    // A second purchase of the same amount the day after one already imported:
+    // the bank gave them two references, so they are two transactions and the
+    // second must not be taken as already in Actual (#82's review).
+    const { config, accountId } = await arrange(
+      'other-reference',
+      'CH4200120123A12345678',
+    );
+    await session.gateway.add(accountId, {
+      date: '2023-01-12',
+      amountCents: -18665,
+      payee: 'Yesterday',
+      notes: '',
+      importedId: 'REF-YESTERDAY',
+    });
+    await session.api.sync();
+
+    const { result, io } = await run(config, DATA + 'ubs_valid.csv', () => 'i', 1);
+    assert.deepEqual(
+      result.outcomes.map((o) => o.wrote),
+      ['added'],
+    );
+    assert.match(
+      io.transcript.join('\n'),
+      /^ {2}not in Actual · looks like REF-YESTERDAY: 2023-01-12 -186\.65 Yesterday$/m,
+    );
+    assert.equal((await session.gateway.getAccountHistory(accountId)).length, 2);
+  });
+
+  it('lists, to fix in Actual, two Actual transactions sharing one imported ID', async () => {
     // Actual enforces no uniqueness on imported_id, so a hand-edit or an
-    // interrupted write can leave two rows under one ID. Naming only one of them
-    // would let the human decline on half the facts and never see the duplicate.
+    // interrupted write can leave two transactions under one ID. The fix is
+    // made in Actual, so it is listed and never prompted.
     const { config, accountId } = await arrange('shared-id', 'CH4200120123A12345678');
     const path = DATA + 'ubs_valid.csv';
 
@@ -209,19 +237,15 @@ describe('integration: a whole run from a statement file', { skip }, () => {
     });
     await session.api.sync();
 
-    const { result, io } = await run(config, path, () => 'l', 1);
-    assert.equal(result.outcomes[0]!.row.bucket, 'skip');
-    const transcript = io.transcript.join('\n');
-    // Actual title-cases payee names it creates, so match case-insensitively.
-    assert.match(transcript, /imported ID ×2/);
-    assert.match(transcript, /actual \d +2023-01-13 +-186\.65 +EXAMPLE; Paiement UBS/i);
+    const { result, io } = await run(config, path, () => 'l', 0);
+    assert.deepEqual(result.outcomes, []);
     assert.match(
-      transcript,
-      /actual \d +2023-03-01 +-186\.65 +Second copy +imported ID$/im,
+      io.transcript.join('\n'),
+      /^ {2}! #1 EXAMPLE; Paiement UBS TWINT: 2 Actual transactions hold its imported ID$/m,
     );
   });
 
-  it('says on the Tape which rows the file held but the parser did not read', async () => {
+  it('says in the statement report which rows the file held but the parser did not read', async () => {
     const { config } = await arrange('cards-pending', '9659086893219337559');
     const { io } = await run(config, DATA + 'ubs_cards_pending.csv', () => 'l', 3);
     const transcript = io.transcript.join('\n');

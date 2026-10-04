@@ -27,3 +27,5 @@ Reviewing the whole group instead would bring back the noise this decision remov
 - Review offers import and leave only. Correcting an Actual transaction from the bank's data and forcing a second copy of an already-imported one have nothing left to act on, and go.
 - Because nothing is written for a pair made by amount and date, every run pairs it again. Stamping the bank's imported ID onto such a pair would make later runs certain, and would need its own confirmation if it ever comes back.
 - The ±1 day window is kept until a real card file shows whether purchase dates sit too far from the booking dates Actual holds.
+- Two different bank references never pair on amount and date (added in review of #82): the bank says they are two transactions, and pairing them would take a second purchase of the same amount, the day after one already imported, as already in Actual and never review it.
+  Only bank references count, because an ID this tool mints can shift between two exports of one purchase.

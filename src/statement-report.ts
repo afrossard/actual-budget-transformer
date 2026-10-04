@@ -1,0 +1,510 @@
+/**
+ * The statement report, printed before any review: how many statement
+ * transactions are already in Actual, the pairs Actual needs fixed, and one
+ * line per statement transaction to review. Then one block per statement
+ * transaction as it is reviewed, and what `[?]` shows.
+ *
+ * Paired statement transactions are never listed one by one: they are already
+ * in Actual. The exception is a pair Actual needs fixed, which is listed and
+ * never prompted, because the fix is made in Actual.
+ *
+ * Every line is fitted to the terminal and cut with `…`. A line that wraps puts
+ * its tail in column 0, and from there on the columns stop meaning anything
+ * (#81). Nothing is lost by cutting: `[?]` shows everything in full.
+ */
+import { formatCents } from './money.ts';
+import {
+  tally,
+  toFixInActual,
+  type ActualTransaction,
+  type Classified,
+  type Lookalike,
+} from './classify.ts';
+import type { DroppedRow, SourceTransaction } from './sources/types.ts';
+
+const ESC = `${String.fromCharCode(27)}[`;
+const RESET = `${ESC}0m`;
+const DIM = `${ESC}2m`;
+const WARN = `${ESC}33m`;
+
+export type ReportStyle = {
+  colour: boolean;
+  /** The terminal's width in columns; every line is fitted to it. */
+  width: number;
+};
+
+/** The width when there is no terminal to ask, as in a pipe or a log. */
+export const DEFAULT_WIDTH = 80;
+
+/**
+ * How wide to lay the report out on this stream. Some pseudo-terminals report
+ * a width of 0, and fitting to that would print every line empty.
+ */
+export function terminalWidth(stream: { isTTY?: boolean; columns?: number }): number {
+  const columns = stream.isTTY === true ? (stream.columns ?? 0) : 0;
+  return columns > 0 ? columns : DEFAULT_WIDTH;
+}
+
+export type Segment = { text: string; code?: string | undefined };
+
+/**
+ * Lay segments out on one line no wider than `width`, cutting the first one
+ * that does not fit with `…` and dropping the rest. Trailing padding goes, so a
+ * short line does not end in spaces.
+ */
+export function fit(
+  segments: readonly Segment[],
+  width: number,
+  style: Pick<ReportStyle, 'colour'>,
+): string {
+  const kept: Segment[] = [];
+  let room = width;
+  for (const segment of segments) {
+    if (segment.text.length <= room) {
+      kept.push(segment);
+      room -= segment.text.length;
+      continue;
+    }
+    if (room > 0)
+      kept.push({ ...segment, text: `${segment.text.slice(0, room - 1)}…` });
+    break;
+  }
+  for (let last = kept.at(-1); last !== undefined; last = kept.at(-1)) {
+    const text = last.text.trimEnd();
+    if (text !== '') {
+      kept[kept.length - 1] = { ...last, text };
+      break;
+    }
+    kept.pop();
+  }
+  return kept
+    .map(({ text, code }) =>
+      style.colour && code !== undefined ? `${code}${text}${RESET}` : text,
+    )
+    .join('');
+}
+
+function clip(text: string, width: number): string {
+  return text.length <= width ? text : `${text.slice(0, width - 1)}…`;
+}
+
+function plural(count: number, one: string, many: string): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
+function amount(cents: number): string {
+  return formatCents(cents).trim();
+}
+
+/** A lookalike in a few words: whose it is, or under which reference. */
+function lookalikeName(lookalike: Lookalike): string {
+  switch (lookalike.role) {
+    case 'pair':
+      return `#${lookalike.of}'s pair`;
+    case 'extra-holder':
+      return `#${lookalike.of}'s duplicate`;
+    case 'other-reference':
+      return lookalike.actual.imported_id ?? '';
+  }
+}
+
+/** The review list's `note` column: what to know about it, in a few words. */
+export function noteTag(classified: Classified): string {
+  const { lookalikes, repeatOf, inReconciledPeriod } = classified;
+  const [only] = lookalikes;
+  return [
+    ...(inReconciledPeriod ? ['reconciled period'] : []),
+    ...(only === undefined
+      ? []
+      : lookalikes.length === 1
+        ? [`like ${lookalikeName(only)}`]
+        : [`like ${lookalikes.length} pairs`]),
+    ...(repeatOf === null ? [] : [`same as #${repeatOf}`]),
+  ].join(' · ');
+}
+
+/**
+ * The review list's column widths, single-sourced.
+ *
+ * The header is built from these rather than written out, because a header whose
+ * labels sit a column off the fields they name is the kind of thing that stays
+ * wrong for a long time.
+ */
+const COLUMN = {
+  index: 3,
+  date: 10,
+  /** Right-aligned, so `formatCents`'s own width has to match. */
+  amount: 10,
+} as const;
+
+/**
+ * The payee takes what the terminal has to spare once the last column - the
+ * note, or a block's tags - has its room, between these two. The note comes
+ * first: a cut payee is still recognisable, a cut "reconciled period" is not.
+ */
+const PAYEE = { min: 12, max: 40 } as const;
+
+/** The most room the note column asks for; past that a note is cut. */
+const NOTE_ROOM = 36;
+
+const LIST_INDENT = COLUMN.index + 1 + COLUMN.date + 1 + COLUMN.amount + 1;
+
+/** How wide the payee is, with `indent` columns before it and `tagRoom` after. */
+function payeeWidth(style: ReportStyle, indent: number, tagRoom: number): number {
+  const spare = style.width - indent - (tagRoom === 0 ? 0 : tagRoom + 1);
+  return Math.min(PAYEE.max, Math.max(PAYEE.min, spare));
+}
+
+function columns(
+  style: ReportStyle,
+  noteRoom: number,
+  cells: { index: string; date: string; amount: string; payee: string; note: Segment },
+): Segment[] {
+  const payee = payeeWidth(style, LIST_INDENT, noteRoom);
+  return [
+    {
+      text:
+        `${cells.index.padStart(COLUMN.index)} ${cells.date.padEnd(COLUMN.date)} ` +
+        `${cells.amount.padStart(COLUMN.amount)} `,
+    },
+    // The payee is cut to its column rather than pushing the note column out.
+    { text: `${clip(cells.payee, payee).padEnd(payee)} ` },
+    cells.note,
+  ];
+}
+
+export function listHeader(style: ReportStyle, noteRoom = NOTE_ROOM): string {
+  return fit(
+    columns(style, noteRoom, {
+      index: '#',
+      date: 'date',
+      amount: 'amount',
+      payee: 'payee',
+      // Nothing has a note, so there is no column to name.
+      note: { text: noteRoom === 0 ? '' : 'note' },
+    }),
+    style.width,
+    style,
+  );
+}
+
+/** One statement transaction to review, as the report lists it. */
+export function listLine(
+  classified: Classified,
+  style: ReportStyle,
+  /** The same for every line of one report, so that its columns line up. */
+  noteRoom = NOTE_ROOM,
+): string {
+  const { source, number } = classified;
+  return fit(
+    columns(style, noteRoom, {
+      index: String(number),
+      date: source.date,
+      amount: formatCents(source.amountCents, COLUMN.amount),
+      payee: source.payee,
+      note: { text: noteTag(classified), code: DIM },
+    }),
+    style.width,
+    style,
+  );
+}
+
+/** What Actual needs fixed about one pair, one line each. */
+export function fixLines(classified: Classified): string[] {
+  const { number, source } = classified;
+  const subject = `#${number} ${source.payee}`.trimEnd();
+  return toFixInActual(classified).map((fix) => {
+    switch (fix.kind) {
+      case 'amount-differs':
+        return (
+          `${subject}: Actual holds ${amount(fix.actualAmount)}, ` +
+          `the bank says ${amount(source.amountCents)}`
+        );
+      case 'imported-id-shared':
+        return `${subject}: ${fix.holders.length} Actual transactions hold its imported ID`;
+    }
+  });
+}
+
+/** What is printed before the first prompt: the statement at a glance. */
+export function report(
+  statement: {
+    accountName: string;
+    classified: readonly Classified[];
+    reconciledThrough: string | null;
+    dropped: readonly DroppedRow[];
+  },
+  style: ReportStyle,
+): string[] {
+  const { accountName, classified, reconciledThrough, dropped } = statement;
+  const { paired, toReview } = tally(classified);
+  const line = (text: string, code?: string): string =>
+    fit([{ text, code }], style.width, style);
+  // The account's name has a line of its own: it can be long, and cutting it
+  // must not cut the reconciled-through date with it.
+  const lines = [
+    line(accountName),
+    line(
+      `  ${plural(classified.length, 'transaction', 'transactions')} · ` +
+        (reconciledThrough === null
+          ? 'nothing reconciled yet'
+          : `reconciled through ${reconciledThrough}`),
+    ),
+    line(
+      `  ${paired} already in Actual · ` +
+        (toReview === 0 ? 'nothing to review' : `${toReview} to review`),
+    ),
+  ];
+  if (dropped.length > 0) {
+    lines.push(
+      line(
+        dropped.length === 1
+          ? '  1 row in the file was not read as a transaction:'
+          : `  ${dropped.length} rows in the file were not read as transactions:`,
+      ),
+    );
+    for (const row of dropped)
+      lines.push(line(`    line ${row.sourceLine}: ${row.reason}`));
+  }
+  const fixes = classified.flatMap(fixLines);
+  if (fixes.length > 0) {
+    lines.push('', line('  already in Actual, but to fix there (not prompted):'));
+    for (const fix of fixes) lines.push(line(`  ! ${fix}`, WARN));
+  }
+  const reviewed = classified.filter((c) => c.pair === null);
+  if (reviewed.length > 0) {
+    const noteRoom = Math.min(
+      NOTE_ROOM,
+      Math.max(0, ...reviewed.map((c) => noteTag(c).length)),
+    );
+    lines.push('', listHeader(style, noteRoom));
+    for (const c of reviewed) lines.push(listLine(c, style, noteRoom));
+  }
+  return lines;
+}
+
+/** The block's columns: label, date, amount, payee. */
+const LABEL = 8;
+const SIDE_INDENT = 2 + LABEL + 1 + COLUMN.date + 1 + COLUMN.amount + 2;
+
+/** An Actual transaction in a few words, for a lookalike's line. */
+function brief(tx: ActualTransaction): string {
+  return [tx.date, amount(tx.amount), tx.payeeName ?? ''].join(' ').trimEnd();
+}
+
+function lookalikeText(lookalike: Lookalike): string {
+  return `looks like ${lookalikeName(lookalike)}: ${brief(lookalike.actual)}`;
+}
+
+export type ReviewedBlock = {
+  /** Its place among the statement transactions to review, counted from 1. */
+  position: number;
+  /** How many there are to review. */
+  total: number;
+  classified: Classified;
+  /** Short, one line each; `[?]` has the long form. */
+  warnings: readonly string[];
+};
+
+/**
+ * One reviewed statement transaction: the bank's version under its `#`, then
+ * whether anything in Actual is alike to it, then what to watch out for.
+ */
+export function block(reviewed: ReviewedBlock, style: ReportStyle): string[] {
+  const { position, total, classified } = reviewed;
+  const { source, number, lookalikes, repeatOf } = classified;
+
+  const title = `── ${position} of ${total} `;
+  const rule = title + '─'.repeat(Math.max(0, style.width - title.length));
+  const payee = payeeWidth(style, SIDE_INDENT, 0);
+
+  const lines = [
+    fit([{ text: rule, code: DIM }], style.width, style),
+    fit(
+      [
+        {
+          text:
+            `  ${`#${number}`.padEnd(LABEL)} ${source.date.padEnd(COLUMN.date)} ` +
+            `${formatCents(source.amountCents, COLUMN.amount)}  `,
+        },
+        { text: clip(source.payee, payee) },
+      ],
+      style.width,
+      style,
+    ),
+  ];
+  if (source.notes !== '') {
+    lines.push(
+      fit(
+        [{ text: ' '.repeat(SIDE_INDENT) }, { text: source.notes, code: DIM }],
+        style.width,
+        style,
+      ),
+    );
+  }
+
+  const status = '  not in Actual';
+  const [first, ...more] = lookalikes;
+  lines.push(
+    fit(
+      [{ text: status }, { text: first ? ` · ${lookalikeText(first)}` : '' }],
+      style.width,
+      style,
+    ),
+  );
+  // Further lookalikes hang under the first, so each reads as its own line.
+  for (const lookalike of more) {
+    lines.push(
+      fit(
+        [{ text: ' '.repeat(status.length + 3) }, { text: lookalikeText(lookalike) }],
+        style.width,
+        style,
+      ),
+    );
+  }
+  if (repeatOf !== null) {
+    lines.push(
+      fit([{ text: `  identical to #${repeatOf} in this file` }], style.width, style),
+    );
+  }
+  for (const warning of reviewed.warnings) {
+    lines.push(fit([{ text: `  ! ${warning}`, code: WARN }], style.width, style));
+  }
+  return lines;
+}
+
+/**
+ * Break `text` into lines no wider than `width`, at spaces where it can and
+ * inside a word only when the word alone is wider than a line. The detail
+ * wraps where the block cuts, because showing everything is its whole job.
+ */
+export function wrap(text: string, width: number): string[] {
+  const lines: string[] = [];
+  let line = '';
+  for (let word of text.split(' ')) {
+    while (word.length > width) {
+      if (line !== '') lines.push(line);
+      lines.push(word.slice(0, width));
+      word = word.slice(width);
+      line = '';
+    }
+    if (line === '') line = word;
+    else if (line.length + 1 + word.length <= width) line += ` ${word}`;
+    else {
+      lines.push(line);
+      line = word;
+    }
+  }
+  lines.push(line);
+  return lines;
+}
+
+/**
+ * Why a statement transaction is reviewed, one phrase per reason, for `[?]`.
+ *
+ * A phrase never describes an Actual transaction: the detail lists each
+ * lookalike once, beside these.
+ */
+export function explain(classified: Classified): string[] {
+  const { source, lookalikes, repeatOf, inReconciledPeriod } = classified;
+  const why = [
+    ...(lookalikes.some((l) => l.role !== 'other-reference')
+      ? ['an Actual transaction alike to it belongs to another statement transaction']
+      : []),
+    ...(lookalikes.some((l) => l.role === 'other-reference')
+      ? [
+          'an Actual transaction alike to it carries another bank reference, so it ' +
+            'is a different transaction',
+        ]
+      : []),
+  ];
+  const [
+    first = 'no Actual transaction holds its imported ID or has its amount ' +
+      'within a day of it',
+    ...more
+  ] = why;
+  return [
+    `not in Actual: ${first}`,
+    ...more,
+    ...(repeatOf === null
+      ? []
+      : [`identical to #${repeatOf} in this file, which the bank lists as well`]),
+    ...(inReconciledPeriod ? [`dated ${source.date}, in your reconciled period`] : []),
+  ];
+}
+
+const KEY = 13;
+const DETAIL_INDENT = 2 + LABEL + 1;
+
+const ORIGIN: Record<SourceTransaction['importedIdOrigin'], string> = {
+  'bank-reference': "the bank's reference",
+  minted: 'minted from the transaction, as this format carries no reference',
+  absent: 'none: the bank wrote no reference',
+};
+
+/**
+ * What `[?]` shows: why it is reviewed, then every field of the bank's version
+ * and of each lookalike, uncut. Laid out under labels like the block, and
+ * wrapped to the terminal rather than cut.
+ */
+export function detail(classified: Classified, style: ReportStyle): string[] {
+  const { source } = classified;
+  const lines: string[] = [];
+  // A section's label goes on its first line. A keyed value starts after the
+  // key; an unkeyed one where the key would. Wrapped lines hang under the
+  // value, and an empty field is left out rather than shown blank.
+  const section = (
+    label: string,
+    fields: readonly (readonly [string, string])[],
+  ): void => {
+    const present = fields.filter(([, value]) => value !== '');
+    for (const [i, [key, value]] of present.entries()) {
+      const indent = DETAIL_INDENT + (key === '' ? 0 : KEY);
+      const head = `  ${(i === 0 ? label : '').padEnd(LABEL)} ${key.padEnd(indent - DETAIL_INDENT)}`;
+      for (const [j, part] of wrap(
+        value,
+        Math.max(1, style.width - indent),
+      ).entries()) {
+        lines.push((j === 0 ? head : ' '.repeat(indent)) + part);
+      }
+    }
+  };
+
+  section(
+    'why',
+    explain(classified).map((why) => ['', why] as const),
+  );
+  section('bank', [
+    ['', `line ${source.sourceLine} of the file`],
+    ['payee', source.payee],
+    ['notes', source.notes],
+    [
+      'imported ID',
+      source.importedId === ''
+        ? ORIGIN.absent
+        : `${source.importedId}, ${ORIGIN[source.importedIdOrigin]}`,
+    ],
+  ]);
+  for (const lookalike of classified.lookalikes) {
+    const tx = lookalike.actual;
+    const parts = tx.subtransactions ?? [];
+    const whose = {
+      pair: `in Actual, the pair of #${lookalike.of}`,
+      'extra-holder': `in Actual, a second holder of #${lookalike.of}'s imported ID`,
+      'other-reference': `in Actual under bank reference ${tx.imported_id ?? ''}, so a different transaction`,
+    }[lookalike.role];
+    section('alike', [
+      ['', whose],
+      ['date', tx.date],
+      ['amount', amount(tx.amount)],
+      ['payee', tx.payeeName ?? ''],
+      ['notes', tx.notes ?? ''],
+      ['imported ID', tx.imported_id ?? 'none'],
+      ...(parts.length > 0
+        ? [['split into', parts.map((p) => amount(p.amount)).join(', ')] as const]
+        : []),
+      ...(tx.reconciled ? [['reconciled', 'yes'] as const] : []),
+    ]);
+  }
+  return lines;
+}

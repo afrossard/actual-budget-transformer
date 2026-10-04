@@ -30,7 +30,7 @@ _Avoid_: reconciliation boundary, last reconciled date, lock date
 ### Direct-import side
 
 **Pair**:
-A statement transaction and the Actual transaction taken to be the same one: either they share an imported ID, or they have the same amount within ±1 day of each other. Each Actual transaction pairs with at most one statement transaction, so of two identical statement transactions with one counterpart in Actual, one stays unpaired.
+A statement transaction and the Actual transaction taken to be the same one: either they share an imported ID, or they have the same amount within ±1 day of each other and do not carry two different bank references. Each Actual transaction pairs with at most one statement transaction, so of two identical statement transactions with one counterpart in Actual, one stays unpaired.
 _Avoid_: blind duplicate, match, near-match
 
 **Review**:

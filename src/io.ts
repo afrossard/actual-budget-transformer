@@ -8,7 +8,7 @@
  */
 import { createInterface } from 'node:readline/promises';
 import type { ReviewIo } from './review.ts';
-import { terminalWidth } from './tape.ts';
+import { terminalWidth } from './statement-report.ts';
 
 const CTRL_C = 3;
 const CTRL_D = 4;
