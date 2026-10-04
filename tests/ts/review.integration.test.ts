@@ -618,7 +618,7 @@ describe('integration: the review loop', { skip }, () => {
     });
 
     assert.equal(result.outcomes[0]!.wrote, 'nothing');
-    assert.ok(io.transcript.some((line) => line.includes('source line')));
+    assert.ok(io.transcript.some((line) => /line \d+ of the file/.test(line)));
     // Actual title-cases payee names it creates, so match case-insensitively.
     const transcript = io.transcript.join('\n').toLowerCase();
     assert.ok(transcript.includes('restaurant (typed by hand)'), transcript);

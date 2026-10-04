@@ -16,12 +16,11 @@ import { forcedCopyIds, forcedImportedId } from './imported-id.ts';
 import { formatCents } from './money.ts';
 import {
   block,
+  detail,
   DEFAULT_WIDTH,
-  explain,
   matches,
   numbering,
   overview,
-  type NumberOf,
   type TapeStyle,
 } from './tape.ts';
 import type { ActualGateway } from './actual-gateway.ts';
@@ -165,7 +164,7 @@ export async function review(options: ReviewOptions): Promise<ReviewResult> {
     const allowed = [...actions.map(keyFor), '?', 'q'];
     let answer = await io.ask(promptFor(row, corrected), allowed);
     while (answer === '?') {
-      for (const line of detail(row, numberOf)) io.write(`    ${line}`);
+      for (const line of detail(reviewed, style, numberOf)) io.write(line);
       answer = await io.ask(promptFor(row, corrected), allowed);
     }
 
@@ -372,18 +371,6 @@ export function warnings(
       `${targets.length} matches, too many to choose from here: resolve it in Actual`,
     );
   }
-  return lines;
-}
-
-/** The raw source row and every stored transaction behind the evidence, uncut. */
-export function detail(row: ClassifiedRow, numberOf: NumberOf): string[] {
-  const { source } = row;
-  const lines = [
-    `source line ${source.sourceLine}: ${source.date} ${formatCents(source.amountCents).trim()}`,
-    `payee "${source.payee}"  notes "${source.notes}"`,
-    `imported ID ${source.importedId === '' ? '(none - the bank wrote no reference)' : source.importedId} (${source.importedIdOrigin})`,
-  ];
-  for (const why of explain(row.reasons, numberOf)) lines.push(why);
   return lines;
 }
 

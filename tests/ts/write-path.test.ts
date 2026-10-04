@@ -16,7 +16,9 @@ import {
   MAX_CORRECTION_CHOICES,
   warnings,
 } from '../../src/review.ts';
-import { explain } from '../../src/tape.ts';
+import { detail, explain } from '../../src/tape.ts';
+
+const WIDE = { colour: false, width: 120 };
 import type { SourceTransaction } from '../../src/sources/types.ts';
 
 const SRC = fileURLToPath(new URL('../../src/', import.meta.url));
@@ -160,8 +162,17 @@ test('a Skip matching two stored transactions says so, and names both', () => {
   const [why] = explain(row!.reasons, () => undefined);
   assert.equal(
     why,
-    'already in Actual as 2 transactions sharing this imported ID: ' +
-      '2031-03-10 -4.50 "First"; 2031-03-10 -4.50 "Second"',
+    'its imported ID is held by 2 transactions in Actual, where there should be one: ' +
+      'fix that in Actual',
+  );
+  const shown = detail({ row: row!, corrected: new Set() }, WIDE, () => undefined);
+  assert.ok(
+    shown.some((l) => /^ {2}actual 1 +payee +First$/.test(l)),
+    shown.join('\n'),
+  );
+  assert.ok(
+    shown.some((l) => /^ {2}actual 2 +payee +Second$/.test(l)),
+    shown.join('\n'),
   );
   assert.deepEqual(
     correctionTargets(row!).map((t) => t.id),
@@ -169,10 +180,17 @@ test('a Skip matching two stored transactions says so, and names both', () => {
   );
 });
 
-test('the evidence names the payee, not just an id', () => {
+test('the detail names the payee, not just an id', () => {
   const [row] = classify([src()], [actual()], null);
-  const [why] = explain(row!.reasons, () => undefined);
-  assert.match(why!, /Coffee \(typed by hand\) \/ manual/);
+  const shown = detail({ row: row!, corrected: new Set() }, WIDE, () => undefined);
+  assert.ok(
+    shown.some((l) => /payee +Coffee \(typed by hand\)$/.test(l)),
+    shown.join('\n'),
+  );
+  assert.ok(
+    shown.some((l) => /notes +manual$/.test(l)),
+    shown.join('\n'),
+  );
 });
 
 test('a row just after the boundary that matches a reconciled transaction is warned about', () => {

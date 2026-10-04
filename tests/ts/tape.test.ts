@@ -9,6 +9,8 @@ import assert from 'node:assert/strict';
 import { classify, type ActualTransaction } from '../../src/classify.ts';
 import {
   block,
+  detail,
+  wrap,
   explain,
   fit,
   matchTag,
@@ -369,4 +371,66 @@ test('a terminal that reports no width is treated as the default width', () => {
   assert.equal(terminalWidth({ isTTY: true, columns: 0 }), 80);
   assert.equal(terminalWidth({ isTTY: true, columns: 132 }), 132);
   assert.equal(terminalWidth({ isTTY: false, columns: 132 }), 80);
+});
+
+test('wrap breaks at spaces, and only inside a word too long for a line', () => {
+  assert.deepEqual(wrap('short', 10), ['short']);
+  assert.deepEqual(wrap('one two three four', 9), ['one two', 'three', 'four']);
+  assert.deepEqual(wrap('abcdefghijkl', 5), ['abcde', 'fghij', 'kl']);
+  assert.deepEqual(wrap('', 5), ['']);
+});
+
+test('the detail names each match once, in full, and never outgrows the terminal', () => {
+  const notes =
+    'marked reconciled below, which sets the boundary, and then some more words';
+  const [row] = classify(
+    [src({ date: '2030-06-30', amountCents: -12000, payee: 'SUPERMARKET CORRECTION' })],
+    [actual({ date: '2030-06-30', amount: -12000, notes, reconciled: true })],
+    '2030-06-30',
+  );
+  const lines = detail({ row: row!, corrected: new Set() }, plain, noNumbers);
+  for (const l of lines) assert.ok(l.length <= 80, `${l.length} > 80: ${l}`);
+  assert.ok(!lines.some((l) => l.includes('…')), lines.join('\n'));
+  // Wrapped, not cut: every word of the notes is there, once.
+  const text = lines.join(' ').replace(/\s+/g, ' ');
+  assert.ok(text.includes(notes), text);
+  assert.equal(text.split('Coffee (typed by hand)').length - 1, 1, text);
+  assert.match(text, /dated on or before the reconciliation boundary 2030-06-30/);
+  assert.match(text, /same amount within a day of 1 transaction\b/);
+  assert.match(text, new RegExp(`line ${row!.source.sourceLine} of the file`));
+  assert.match(text, /imported ID T-\d+, the bank's reference/);
+});
+
+test('the detail labels matches as the block does, so the numbers agree', () => {
+  const [row] = classify(
+    [src()],
+    [actual({ id: 'a', payeeName: 'First' }), actual({ id: 'b', payeeName: 'Second' })],
+    null,
+  );
+  const reviewed = { row: row!, corrected: new Set<string>() };
+  const lines = detail(reviewed, plain, noNumbers);
+  assert.ok(
+    lines.some((l) => /^ {2}actual 1 +payee +First$/.test(l)),
+    lines.join('\n'),
+  );
+  assert.ok(
+    lines.some((l) => /^ {2}actual 2 +payee +Second$/.test(l)),
+    lines.join('\n'),
+  );
+});
+
+test('the detail shows what a split is made of', () => {
+  const [row] = classify(
+    [src({ amountCents: -6400 })],
+    [
+      actual({
+        amount: -6400,
+        is_parent: true,
+        subtransactions: [{ amount: -4000 }, { amount: -2400 }],
+      }),
+    ],
+    null,
+  );
+  const text = detail({ row: row!, corrected: new Set() }, plain, noNumbers).join('\n');
+  assert.match(text, /split into +-40\.00, -24\.00/);
 });

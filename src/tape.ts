@@ -18,7 +18,7 @@ import {
   type Evidence,
   type Bucket,
 } from './classify.ts';
-import type { DroppedRow } from './sources/types.ts';
+import type { DroppedRow, SourceTransaction } from './sources/types.ts';
 
 const ESC = `${String.fromCharCode(27)}[`;
 const RESET = `${ESC}0m`;
@@ -98,51 +98,30 @@ export function fit(
     .join('');
 }
 
-/** How a stored transaction is named in the detail: everything, uncut. */
-export function describe(tx: ActualTransaction): string {
-  const flags = [tx.is_parent ? 'split' : '', tx.reconciled ? 'reconciled' : '']
-    .filter((f) => f !== '')
-    .join(' ');
-  const label = [tx.payeeName ?? '', tx.notes ?? '']
-    .filter((p) => p !== '')
-    .join(' / ');
-  return (
-    `${tx.date} ${formatCents(tx.amount).trim()}` +
-    (flags === '' ? '' : ` ${flags}`) +
-    (label === '' ? '' : ` "${label}"`)
-  );
-}
-
-/** One phrase per reason, in the order the classifier ranked them, for `[?]`. */
+/**
+ * One phrase per reason, in the order the classifier ranked them, for `[?]`.
+ *
+ * A phrase never describes a stored transaction: the detail lists each match
+ * once, beside these, and naming it again here is the repetition #81 removed.
+ */
 export function explain(reasons: readonly Evidence[], numberOf: NumberOf): string[] {
-  return reasons.flatMap((reason) => {
+  return reasons.map((reason) => {
     switch (reason.kind) {
-      case 'already-imported': {
-        const [only, ...more] = reason.matched;
-        if (more.length === 0) return [`already in Actual as ${describe(only)}`];
+      case 'already-imported':
         // Not a tie to break: one imported ID held twice is corruption in
         // Actual, and fixing it there is likely the right action.
-        return [
-          `already in Actual as ${reason.matched.length} transactions sharing this imported ID: ` +
-            reason.matched.map(describe).join('; '),
-        ];
-      }
+        return reason.matched.length === 1
+          ? 'its imported ID is already in Actual'
+          : `its imported ID is held by ${reason.matched.length} transactions in Actual, ` +
+              'where there should be one: fix that in Actual';
       case 'inside-reconciled-range':
-        return [
-          `on or before the reconciliation boundary ${reason.boundary}` +
-            (reason.matched ? `, near ${describe(reason.matched)}` : ''),
-        ];
+        return `dated on or before the reconciliation boundary ${reason.boundary}`;
       case 'same-amount-within-one-day':
-        return [
-          `same amount within a day of ${reason.candidates.length} transaction(s): ` +
-            reason.candidates.map(describe).join('; '),
-        ];
+        return `same amount within a day of ${plural(reason.candidates.length, 'transaction', 'transactions')}`;
       case 'repeated-in-this-file':
-        return [
-          `identical to ${rowRef(reason.firstSeenLine, numberOf)} (line ${reason.firstSeenLine} of this file)`,
-        ];
+        return `identical to ${rowRef(reason.firstSeenLine, numberOf)} (line ${reason.firstSeenLine} of this file)`;
       case 'no-match':
-        return [];
+        return 'nothing in Actual looks like it';
     }
   });
 }
@@ -413,6 +392,34 @@ function sideBySide(side: Side, payee: number, style: TapeStyle): string[] {
   return lines;
 }
 
+/** Stored transactions holding the row's imported ID. */
+function heldByImportedId(row: ClassifiedRow): Set<string> {
+  return new Set(
+    row.reasons.flatMap((r) =>
+      r.kind === 'already-imported' ? r.matched.map((tx) => tx.id) : [],
+    ),
+  );
+}
+
+/**
+ * Each match with its label. When more than one can still be corrected they are
+ * numbered, and those numbers are what the which-one prompt offers.
+ */
+function labelledMatches(
+  row: ClassifiedRow,
+  corrected: ReadonlySet<string>,
+): { label: string; tx: ActualTransaction }[] {
+  const all = matches(row);
+  const open = all.filter((tx) => !corrected.has(tx.id));
+  return all.map((tx) => {
+    const choice = open.indexOf(tx);
+    return {
+      label: choice >= 0 && open.length > 1 ? `actual ${choice + 1}` : 'actual',
+      tx,
+    };
+  });
+}
+
 export type ReviewedRow = {
   number: number;
   total: number;
@@ -427,8 +434,7 @@ export type ReviewedRow = {
  * One reviewed row: the bank's version, then each stored transaction it
  * matched, named once and lined up under it, then what to watch out for.
  *
- * When more than one match can still be corrected they are numbered, and those
- * numbers are what the which-one prompt offers. A match an earlier row already
+ * Matches are labelled as `labelledMatches` says. A match an earlier row already
  * corrected stays visible, unnumbered, so the row does not look as if it never
  * matched anything.
  */
@@ -459,17 +465,10 @@ export function block(
       ),
     },
   ];
-  const byImportedId = new Set(
-    row.reasons.flatMap((r) =>
-      r.kind === 'already-imported' ? r.matched.map((tx) => tx.id) : [],
-    ),
-  );
-  const all = matches(row);
-  const open = all.filter((tx) => !corrected.has(tx.id));
-  for (const tx of all) {
-    const choice = open.indexOf(tx);
+  const byImportedId = heldByImportedId(row);
+  for (const { label, tx } of labelledMatches(row, corrected)) {
     sides.push({
-      label: choice >= 0 && open.length > 1 ? `actual ${choice + 1}` : 'actual',
+      label,
       tx: {
         date: tx.date,
         amount: tx.amount,
@@ -494,6 +493,112 @@ export function block(
   for (const side of sides) lines.push(...sideBySide(side, payee, style));
   for (const warning of reviewed.warnings) {
     lines.push(fit([{ text: `  ! ${warning}`, code: WARN }], style.width, style));
+  }
+  return lines;
+}
+
+/**
+ * Break `text` into lines no wider than `width`, at spaces where it can and
+ * inside a word only when the word alone is wider than a line. The detail
+ * wraps where the block cuts, because showing everything is its whole job.
+ */
+export function wrap(text: string, width: number): string[] {
+  const lines: string[] = [];
+  let line = '';
+  for (let word of text.split(' ')) {
+    while (word.length > width) {
+      if (line !== '') lines.push(line);
+      lines.push(word.slice(0, width));
+      word = word.slice(width);
+      line = '';
+    }
+    if (line === '') line = word;
+    else if (line.length + 1 + word.length <= width) line += ` ${word}`;
+    else {
+      lines.push(line);
+      line = word;
+    }
+  }
+  lines.push(line);
+  return lines;
+}
+
+const KEY = 13;
+const DETAIL_INDENT = 2 + LABEL + 1;
+
+const ORIGIN: Record<SourceTransaction['importedIdOrigin'], string> = {
+  'bank-reference': "the bank's reference",
+  minted: 'minted from the row, as this format carries no reference',
+  absent: 'none: the bank wrote no reference',
+};
+
+/**
+ * What `[?]` shows: why the row is in its bucket, then every field of the
+ * bank's version and of each match, uncut. Laid out like the block, under the
+ * same labels, and wrapped to the terminal rather than cut.
+ */
+export function detail(
+  reviewed: Pick<ReviewedRow, 'row' | 'corrected'>,
+  style: TapeStyle,
+  numberOf: NumberOf,
+): string[] {
+  const { row, corrected } = reviewed;
+  const { source } = row;
+  const lines: string[] = [];
+  // A section's label goes on its first line. A keyed value starts after the
+  // key; an unkeyed one where the key would. Wrapped lines hang under the
+  // value, and an empty field is left out rather than shown blank.
+  const section = (
+    label: string,
+    fields: readonly (readonly [string, string])[],
+  ): void => {
+    const present = fields.filter(([, value]) => value !== '');
+    for (const [i, [key, value]] of present.entries()) {
+      const indent = DETAIL_INDENT + (key === '' ? 0 : KEY);
+      const head = `  ${(i === 0 ? label : '').padEnd(LABEL)} ${key.padEnd(indent - DETAIL_INDENT)}`;
+      for (const [j, part] of wrap(
+        value,
+        Math.max(1, style.width - indent),
+      ).entries()) {
+        lines.push((j === 0 ? head : ' '.repeat(indent)) + part);
+      }
+    }
+  };
+
+  section(
+    'why',
+    explain(row.reasons, numberOf).map((why) => ['', why] as const),
+  );
+  section('bank', [
+    ['', `line ${source.sourceLine} of the file`],
+    ['payee', source.payee],
+    ['notes', source.notes],
+    [
+      'imported ID',
+      source.importedId === ''
+        ? ORIGIN.absent
+        : `${source.importedId}, ${ORIGIN[source.importedIdOrigin]}`,
+    ],
+  ]);
+  for (const { label, tx } of labelledMatches(row, corrected)) {
+    const parts = tx.subtransactions ?? [];
+    section(label, [
+      ['payee', tx.payeeName ?? ''],
+      ['notes', tx.notes ?? ''],
+      ['imported ID', tx.imported_id ?? 'none'],
+      ...(parts.length > 0
+        ? [
+            [
+              'split into',
+              parts.map((p) => formatCents(p.amount).trim()).join(', '),
+            ] as const,
+          ]
+        : []),
+      ...(tx.reconciled ? [['reconciled', 'yes'] as const] : []),
+      ...(corrected.has(tx.id)
+        ? [['', 'corrected by an earlier row in this run'] as const]
+        : []),
+    ]);
   }
   return lines;
 }
