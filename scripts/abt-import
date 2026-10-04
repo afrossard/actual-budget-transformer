@@ -21,7 +21,7 @@
 #     -v "$PWD/config.yaml":/abt/config.yaml:ro \
 #     -v "$PWD/statement.csv":/abt/statement/statement.csv:ro \
 #     -e ACTUAL_BUDGET_PASSWORD \
-#     ghcr.io/afrossard/actual-budget-transformer:main \
+#     ghcr.io/afrossard/actual-budget-transformer:<version> \
 #     -c /abt/config.yaml /abt/statement/statement.csv
 #
 # CSV and CAMT.053 file output is the retired Python image's, pinned by digest
@@ -34,7 +34,9 @@ set -euo pipefail
 # The ${a[@]+"${a[@]}"} spelling below is for an empty array under `set -u`,
 # which the bash 3.2 macOS ships rejects.
 
-image=${ABT_IMAGE:-ghcr.io/afrossard/actual-budget-transformer:main}
+# The release this script belongs to; release-please bumps it.
+version="0.0.0" # x-release-please-version
+image=${ABT_IMAGE:-ghcr.io/afrossard/actual-budget-transformer:$version}
 config=${ACTUAL_BUDGET_TRANSFORMER_CONFIG:-}
 passthrough=()
 statements=()

@@ -8,6 +8,7 @@
 
 ## Working style
 
+- **Conventional Commits, squash-merged** (#87). The PR title becomes the commit release-please computes the next version from; `CONTRIBUTING.md` says which type bumps what. Never edit `CHANGELOG.md` by hand.
 - **Don't mark plan/checklist items "done" until validated.** Writing the code is not the same as confirming it works. Wait for the user to report results before editing a plan's status for anything only they can run. Pre-marking creates false signal that's worse than the unfinished state.
 - **Know which things actually need the human.** Docker availability depends on where the session runs, so check it rather than assuming: an agent session may run outside the devcontainer (`ls /.dockerenv`, `docker info`), in which case docker works but `actual-up`/`actual-down` do **not**, because the `dc` alias hardcodes `/workspaces/actual-budget-transformer`. Bring the test server up directly instead (see Devcontainer below).
   The real human-only boundary is **the user's own data and budget**, not docker: downloading statements from UBS e-banking, anything touching the real Actual budget, and verifying results in the Actual UI. A disposable test server is not a substitute for any of those.
@@ -52,6 +53,7 @@ Four pins move together, and they all follow whatever Actual is on. When upgradi
 Renovate is configured to keep this rule (#97), and nothing else has to be remembered:
 
 - **One grouped `Actual` PR per release** (`renovate.json`) moves the api and both server lines together, so the api never lands ahead of the server.
+  It is titled `feat(deps): require actual server <version> or newer`, so it cuts a release whose notes say which server the image needs (#87).
   The compose line is a literal tag for that reason: Renovate extracts nothing from a `${VAR:-default}` image.
 - **Renovate's Node updates are off** for `.nvmrc` and the Containerfile, because it would propose Node's latest and cannot read Actual's `.nvmrc`.
 - **The `node-follows-actual` check** (`npm run check:node`, a job in `test.yaml`) fetches Actual's `.nvmrc` at the tag matching the api pin and fails with the exact fix, so on the grouped PR a red check says which Node to set.
@@ -159,8 +161,9 @@ ACTUAL_SERVER_URL=http://localhost:5006 npm test
   Bundling crashes on Actual's dynamic requires as ESM and is a silent no-op as CJS (`invokedDirectly()` has no `import.meta.filename` there), and better-sqlite3 is a native addon either way (#61).
 - **No init in the image.** Under msb, `node` is not PID 1; under docker it is, and `docker run --init` is what lets a signal through, so that is documented rather than baked in.
   The review prompts read raw keystrokes on a TTY, so Ctrl-C there is a byte the prompt answers as quit, not a signal.
-- **Publishing is manual**: the `Build prod docker image` workflow, dispatched from `main`, pushes `:main` and the run number for amd64 and arm64.
-  Release tags are #87.
+- **Publishing is release-please's** (#87): merging its release PR tags the release and `release.yml` publishes the image for amd64 and arm64 in the same run, under the version, its moving ranges, `:latest` and `:actual-<api version>`.
+  `CONTRIBUTING.md` holds the tags, the bump rules, and how to recover a failed release.
+  `scripts/abt-import` pins the version on a line marked `x-release-please-version`, which release-please bumps and `tests/ts/abt-import-script.test.ts` checks against `.release-please-manifest.json`.
 - **The PR check** (`container` in `test.yaml`) builds the image for amd64 and runs it with no arguments, which must print the usage line and fail.
   That is the guard against an entry point that exits 0 having done nothing.
 - **`scripts/abt-import`** runs the image under `msb run` as the calling user, with the config and the statement mounted read-only and the `ACTUAL_BUDGET_*` variables forwarded.

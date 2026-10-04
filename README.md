@@ -33,8 +33,11 @@ The account names in `account_names` must match the account names in your budget
 
 ## Running the image
 
-`ghcr.io/afrossard/actual-budget-transformer:main` carries the same CLI, so Node and `npm ci` are not needed.
-`scripts/abt-import` runs it under [msb](https://github.com/superradcompany/microsandbox), with the config and the statement mounted read-only.
+`ghcr.io/afrossard/actual-budget-transformer` carries the same CLI, so Node and `npm ci` are not needed.
+Each release is tagged with its version, `:latest` is the newest, and `:actual-<version>` is the newest built for that Actual version, e.g. `:actual-26.9.0`.
+An image works with its Actual version and any newer server, never an older one; `CONTRIBUTING.md` lists every tag.
+
+`scripts/abt-import` runs it under [msb](https://github.com/superradcompany/microsandbox), pinned to its own release, with the config and the statement mounted read-only.
 Its sandbox is allowed to reach private addresses, which is where a self-hosted Actual server is:
 
 ```bash
@@ -50,7 +53,7 @@ docker run --rm -it --init \
  -v "$PWD/config.yaml":/abt/config.yaml:ro \
  -v "$PWD/statement.csv":/abt/statement/statement.csv:ro \
  -e ACTUAL_BUDGET_PASSWORD \
- ghcr.io/afrossard/actual-budget-transformer:main \
+ ghcr.io/afrossard/actual-budget-transformer:latest \
  -c /abt/config.yaml /abt/statement/statement.csv
 ```
 

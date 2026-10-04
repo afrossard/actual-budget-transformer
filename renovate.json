@@ -5,12 +5,18 @@
   ],
   "packageRules": [
     {
-      "description": "One PR per Actual release: the api and the test server move together, or the api runs ahead of the server and ADR-007 aborts (AGENTS.md, \"Versions: follow Actual\").",
+      "description": "One PR per Actual release: the api and the test server move together, or the api runs ahead of the server and ADR-007 aborts (AGENTS.md, \"Versions: follow Actual\"). It is a feat(deps), so a release, whose notes say which server it needs (CONTRIBUTING.md).",
       "matchPackageNames": [
         "@actual-app/api",
         "actualbudget/actual-server"
       ],
-      "groupName": "Actual"
+      "groupName": "Actual",
+      "semanticCommitType": "feat",
+      "commitMessageAction": "require",
+      "commitMessageExtra": "{{newVersion}} or newer",
+      "group": {
+        "commitMessageTopic": "Actual server"
+      }
     },
     {
       "description": "Node follows Actual's own .nvmrc, not Node's latest. Renovate cannot read another project's .nvmrc, so the node-follows-actual CI check says what to set instead.",
@@ -23,5 +29,6 @@
       ],
       "enabled": false
     }
-  ]
+  ],
+  "semanticCommits": "enabled"
 }
