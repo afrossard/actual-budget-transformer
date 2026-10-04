@@ -170,6 +170,9 @@ ACTUAL_SERVER_URL=http://localhost:5006 npm test
   It passes `--net private --no-dns-rebind-protection`: without them a self-hosted server's name failed to resolve in the sandbox (`ENOTFOUND`), and with both it answered. Neither flag has been tried alone.
   The docker equivalent and the retired image are comments in it.
   `tests/ts/abt-import-script.test.ts` checks the `msb run` line it assembles against a stub `msb`; booting it for real needs KVM.
+- **`afrossard/homebrew-tap` ships `scripts/abt-import`** as `abt-import`, from the tagged release tarball (#101).
+  The tap's Renovate bumps that formula when a release is tagged, and its bottle workflow bottles it; nothing in this repo pushes to the tap.
+  msb is deliberately not a dependency there, because it may already be installed by its own `curl` installer.
 
 ---
 

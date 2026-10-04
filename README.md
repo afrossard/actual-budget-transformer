@@ -38,12 +38,16 @@ Each release is tagged with its version, `:latest` is the newest, and `:actual-<
 An image works with its Actual version and any newer server, never an older one; `CONTRIBUTING.md` lists every tag.
 
 `scripts/abt-import` runs it under [msb](https://github.com/superradcompany/microsandbox), pinned to its own release, with the config and the statement mounted read-only.
-Its sandbox is allowed to reach private addresses, which is where a self-hosted Actual server is:
+Its sandbox is allowed to reach private addresses, which is where a self-hosted Actual server is.
+Homebrew installs it as `abt-import`; msb is not installed with it, so get it with `brew install superradcompany/tap/microsandbox` or its own installer if it is not on your `PATH` yet:
 
 ```bash
+brew install afrossard/tap/actual-budget-transformer
 read -s ACTUAL_BUDGET_PASSWORD && export ACTUAL_BUDGET_PASSWORD
-scripts/abt-import -c config.yaml statement.csv
+abt-import -c config.yaml statement.csv
 ```
+
+From a checkout, `scripts/abt-import` runs the same way.
 
 With docker instead, `-it` gives the prompts a terminal and `--init` lets Ctrl-C through:
 
