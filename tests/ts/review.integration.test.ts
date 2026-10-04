@@ -172,8 +172,8 @@ describe('integration: the review loop', { skip }, () => {
     assert.deepEqual(after, before);
     // And the decline was prompted with its evidence, not swallowed by a log line.
     assert.ok(
-      io.transcript.some((line) => line.includes('reconciliation boundary')),
-      `expected the boundary in the transcript, got:\n${io.transcript.join('\n')}`,
+      io.transcript.some((line) => line.includes('inside the reconciled range')),
+      `expected the reconciled-range warning in the transcript, got:\n${io.transcript.join('\n')}`,
     );
   });
 
@@ -507,9 +507,7 @@ describe('integration: the review loop', { skip }, () => {
     assert.equal(await blankPayees(), blankBefore, 'no payee named "" was created');
     // The run says only what it wrote.
     assert.ok(
-      io.transcript.some((line) =>
-        line.includes("from the bank's data: date, imported ID."),
-      ),
+      io.transcript.some((line) => line.endsWith('corrected date, imported ID')),
       io.transcript.join('\n'),
     );
   });
@@ -558,7 +556,7 @@ describe('integration: the review loop', { skip }, () => {
       result.outcomes.map((o) => o.wrote),
       ['corrected', 'nothing'],
     );
-    const secondPrompt = io.transcript.filter((line) => line.includes('[?]detail'))[1];
+    const secondPrompt = io.transcript.filter((line) => line.includes('[?] detail'))[1];
     assert.ok(secondPrompt !== undefined && !secondPrompt.includes('[c]orrect'));
     assert.ok(
       io.transcript.some((line) =>
@@ -620,7 +618,7 @@ describe('integration: the review loop', { skip }, () => {
     });
 
     assert.equal(result.outcomes[0]!.wrote, 'nothing');
-    assert.ok(io.transcript.some((line) => line.includes('source line')));
+    assert.ok(io.transcript.some((line) => /line \d+ of the file/.test(line)));
     // Actual title-cases payee names it creates, so match case-insensitively.
     const transcript = io.transcript.join('\n').toLowerCase();
     assert.ok(transcript.includes('restaurant (typed by hand)'), transcript);

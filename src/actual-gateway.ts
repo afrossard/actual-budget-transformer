@@ -79,6 +79,10 @@ export class ActualGateway {
       serverURL: this.#settings.serverUrl,
       password: this.#settings.password,
       dataDir,
+      // The api otherwise logs its own progress - "Syncing since ...", "Got
+      // messages from server 0" - to stdout, in between the Tape's lines (#81).
+      // Its warnings and errors go to stderr regardless.
+      verbose: false,
     });
     this.#api = api;
 

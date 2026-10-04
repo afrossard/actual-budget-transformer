@@ -14,7 +14,15 @@
 import type { ActualTransaction, ClassifiedRow } from './classify.ts';
 import { forcedCopyIds, forcedImportedId } from './imported-id.ts';
 import { formatCents } from './money.ts';
-import { describe, explain, tapeLine, TAPE_HEADER, type TapeStyle } from './tape.ts';
+import {
+  block,
+  detail,
+  DEFAULT_WIDTH,
+  matches,
+  numbering,
+  overview,
+  type TapeStyle,
+} from './tape.ts';
 import type { ActualGateway } from './actual-gateway.ts';
 import type { DroppedRow, SourceTransaction } from './sources/types.ts';
 
@@ -33,6 +41,11 @@ export type RowOutcome = {
 
 export type ReviewIo = {
   write(line: string): void;
+  /**
+   * Say what came of the last answer - on the prompt's own line while it is
+   * still open, so a row's decision and its outcome read as one line.
+   */
+  conclude(outcome: string): void;
   /** Resolves to one of `allowed`. */
   ask(prompt: string, allowed: readonly string[]): Promise<string>;
 };
@@ -42,24 +55,6 @@ export type ReviewResult = {
   /** True when the human stopped the run early; the rest is left untouched. */
   stopped: boolean;
 };
-
-/** Every stored transaction the evidence names, most relevant first. */
-function candidates(row: ClassifiedRow): ActualTransaction[] {
-  const seen = new Set<string>();
-  const targets: ActualTransaction[] = [];
-  const add = (tx: ActualTransaction | null): void => {
-    if (tx && !seen.has(tx.id)) {
-      seen.add(tx.id);
-      targets.push(tx);
-    }
-  };
-  for (const reason of row.reasons) {
-    if (reason.kind === 'already-imported') reason.matched.forEach(add);
-    if (reason.kind === 'inside-reconciled-range') add(reason.matched);
-    if (reason.kind === 'same-amount-within-one-day') reason.candidates.forEach(add);
-  }
-  return targets;
-}
 
 /**
  * Every stored transaction this row could correct, most relevant first.
@@ -74,7 +69,7 @@ export function correctionTargets(
   row: ClassifiedRow,
   corrected: ReadonlySet<string> = new Set(),
 ): ActualTransaction[] {
-  return candidates(row).filter((tx) => !corrected.has(tx.id));
+  return matches(row).filter((tx) => !corrected.has(tx.id));
 }
 
 /**
@@ -122,12 +117,12 @@ function keyFor(action: Action): string {
 function promptFor(row: ClassifiedRow, corrected: ReadonlySet<string>): string {
   const labels: Record<Action, string> = {
     import: '[i]mport',
-    correct: '[c]orrect the matched transaction',
-    leave: '[l]eave it',
-    force: '[f]orce a separate transaction',
+    correct: '[c]orrect',
+    leave: '[l]eave',
+    force: '[f]orce',
   };
   const offered = availableActions(row, corrected).map((a) => labels[a]);
-  return `${offered.join('  ')}  [?]detail  [q]uit > `;
+  return `  ${offered.join('  ')}  [?] detail  [q]uit > `;
 }
 
 export type ReviewOptions = {
@@ -144,35 +139,42 @@ export type ReviewOptions = {
 
 export async function review(options: ReviewOptions): Promise<ReviewResult> {
   const { gateway, accountId, accountName, rows, io, boundary } = options;
-  const style = options.style ?? { colour: false };
+  const style = options.style ?? { colour: false, width: DEFAULT_WIDTH };
+  const numberOf = numbering(rows);
   // Stored transactions corrected so far in this run; see `correctionTargets`.
   const corrected = new Set<string>();
 
-  printTape(options, style);
+  io.write('');
+  const batch = { accountName, rows, boundary, dropped: options.dropped ?? [] };
+  for (const line of overview(batch, style)) io.write(line);
 
   const outcomes: RowOutcome[] = [];
   for (const [index, row] of rows.entries()) {
-    const number = index + 1;
     io.write('');
-    io.write(tapeLine(number, row, style));
-    for (const warning of warnings(row, boundary, corrected)) {
-      io.write(`    ${warning}`);
-    }
+    const reviewed = {
+      number: index + 1,
+      total: rows.length,
+      row,
+      corrected,
+      warnings: warnings(row, corrected),
+    };
+    for (const line of block(reviewed, style, numberOf)) io.write(line);
 
     const actions = availableActions(row, corrected);
     const allowed = [...actions.map(keyFor), '?', 'q'];
     let answer = await io.ask(promptFor(row, corrected), allowed);
     while (answer === '?') {
-      for (const line of detail(row)) io.write(`    ${line}`);
+      for (const line of detail(reviewed, style, numberOf)) io.write(line);
       answer = await io.ask(promptFor(row, corrected), allowed);
     }
 
     if (answer === 'q') {
-      io.write(`    stopped. ${rows.length - index} row(s) left untouched.`);
+      const left = rows.length - index;
+      io.conclude(`stopped, ${left} row${left === 1 ? '' : 's'} left untouched`);
       outcomes.push({ row, action: 'quit', wrote: 'nothing' });
       // A partial run still has to say what it wrote: re-running the file is
       // the resume mechanism, and that only works if what happened is legible.
-      printSummary(outcomes, accountName, io);
+      printSummary(outcomes, rows, accountName, io);
       return { outcomes, stopped: true };
     }
 
@@ -193,7 +195,7 @@ export async function review(options: ReviewOptions): Promise<ReviewResult> {
     outcomes.push(outcome);
   }
 
-  printSummary(outcomes, accountName, io);
+  printSummary(outcomes, rows, accountName, io);
   return { outcomes, stopped: false };
 }
 
@@ -239,7 +241,7 @@ async function apply(args: {
   const { source } = row;
 
   if (action === 'leave') {
-    io.write('    left. Nothing written.');
+    io.conclude('left, nothing written');
     return { row, action, wrote: 'nothing' };
   }
 
@@ -252,11 +254,10 @@ async function apply(args: {
       importedId: source.importedId,
     });
     await gateway.sync();
-    io.write(
-      `    added ${source.date} ${formatCents(source.amountCents).trim()}` +
-        (source.importedId === ''
-          ? ' with no imported ID, because the bank wrote no reference'
-          : ` as ${source.importedId}`),
+    io.conclude(
+      source.importedId === ''
+        ? 'added, with no imported ID: the bank wrote no reference'
+        : `added as ${source.importedId}`,
     );
     return { row, action, wrote: 'added' };
   }
@@ -271,7 +272,7 @@ async function apply(args: {
       importedId,
     });
     await gateway.sync();
-    io.write(`    forced a separate transaction as ${importedId}`);
+    io.conclude(`forced a separate transaction as ${importedId}`);
     return { row, action, wrote: 'forced' };
   }
 
@@ -283,21 +284,19 @@ async function apply(args: {
   }
   let target = first;
   if (targets.length > 1) {
+    // The numbers are the ones the row's block put on its `actual` lines.
     const byChoice = new Map(targets.map((tx, i) => [String(i + 1), tx]));
     const choices = [...byChoice.keys()];
-    for (const [i, candidate] of targets.entries()) {
-      io.write(`    ${i + 1}) ${describe(candidate)}`);
-    }
     // `q` backs out of the choice, not out of the run: on a terminal this prompt
     // reads a single raw keystroke, so without a way out a change of mind here
     // would be a loop that Ctrl-C cannot break either.
     const choice = await io.ask(
-      `    which one? [${choices.join('/')}, q to cancel] > `,
+      `  correct which? [${choices.join('/')}, q to cancel] > `,
       [...choices, 'q'],
     );
     const chosen = byChoice.get(choice);
     if (chosen === undefined) {
-      io.write('    cancelled. Nothing written.');
+      io.conclude('cancelled, nothing written');
       return { row, action: 'leave', wrote: 'nothing' };
     }
     target = chosen;
@@ -309,7 +308,7 @@ async function apply(args: {
       `${formatCents(target.amount).trim()}. Correcting cannot change an amount ` +
       `(a split's parts must still sum to their parent), so nothing was applied. ` +
       `Resolve the amount in Actual.`;
-    io.write(`    not applied: ${refusal}`);
+    io.conclude('not applied: the amounts differ (see the end of the run)');
     return { row, action, wrote: 'nothing', refusal };
   }
 
@@ -330,21 +329,23 @@ async function apply(args: {
     ...(patch.notes === undefined ? [] : ['notes']),
     ...(patch.importedId === undefined ? [] : ['imported ID']),
   ];
-  io.write(
-    `    corrected ${target.id} from the bank's data: ${written.join(', ')}` +
-      (target.is_parent ? '. The split parts were left untouched.' : '.'),
+  io.conclude(
+    `corrected ${written.join(', ')}` +
+      (target.is_parent ? '; the split parts were left untouched' : ''),
   );
   return { row, action, wrote: 'corrected' };
 }
 
 /**
- * What has to be said out loud before this row is answered.
+ * What has to be said out loud before this row is answered, one short line
+ * each. The row's block already names every match, so these never do.
  *
  * A row dated after the boundary can still match a transaction inside the
  * reconciled range - the boundary is the newest reconciled date, so a candidate
  * one day earlier can be exactly that transaction. The row is then Suspicious
  * rather than Locked, and correcting it would reach into an attested range with
- * nothing but the evidence line to say so. Hence the second warning.
+ * nothing but a `reconciled` tag to say so. Hence the warning. On a Locked row
+ * the reconciled-range warning already says it, and is not repeated.
  *
  * A candidate an earlier row already corrected is withheld (see
  * `correctionTargets`), and that is said too, so a row whose `correct` has gone
@@ -352,77 +353,30 @@ async function apply(args: {
  */
 export function warnings(
   row: ClassifiedRow,
-  boundary: string | null,
   corrected: ReadonlySet<string> = new Set(),
 ): string[] {
   const lines: string[] = [];
-  if (row.bucket === 'locked') {
-    lines.push(
-      `this date is inside the reconciled range (boundary ${boundary}). ` +
-        'Anything written here changes a range you have already attested to.',
-    );
-  }
-  const taken = candidates(row).filter((tx) => corrected.has(tx.id));
-  if (taken.length > 0) {
-    lines.push(
-      `already corrected by an earlier row in this run, so not offered again: ` +
-        `${taken.map(describe).join('; ')}. A second correction would overwrite ` +
-        "that row's imported ID.",
-    );
-  }
   const targets = correctionTargets(row, corrected);
-  const reconciled = targets.filter((t) => t.reconciled);
-  if (reconciled.length > 0) {
-    lines.push(
-      `${reconciled.length} of the transaction(s) this could correct ` +
-        `${reconciled.length === 1 ? 'is' : 'are'} reconciled: ` +
-        `${reconciled.map(describe).join('; ')}. Actual will not stop that patch.`,
-    );
+  if (row.bucket === 'locked') {
+    lines.push('inside the reconciled range: writing here changes it');
+  } else if (targets.some((t) => t.reconciled)) {
+    lines.push('a match is reconciled: correcting it changes an attested range');
+  }
+  if (matches(row).some((tx) => corrected.has(tx.id))) {
+    // A second correction would overwrite that row's imported ID.
+    lines.push('already corrected by an earlier row in this run, so not offered again');
   }
   if (targets.length > MAX_CORRECTION_CHOICES) {
     lines.push(
-      `${targets.length} transactions here could be the same one, which is too ` +
-        'many to choose between at a prompt. Correcting is not offered; leave the ' +
-        'row and resolve it in Actual.',
+      `${targets.length} matches, too many to choose from here: resolve it in Actual`,
     );
   }
   return lines;
-}
-
-/** The raw source row and every stored transaction behind the evidence. */
-export function detail(row: ClassifiedRow): string[] {
-  const { source } = row;
-  const lines = [
-    `source line ${source.sourceLine}: ${source.date} ${formatCents(source.amountCents).trim()}`,
-    `payee "${source.payee}"  notes "${source.notes}"`,
-    `imported ID ${source.importedId === '' ? '(none - the bank wrote no reference)' : source.importedId} (${source.importedIdOrigin})`,
-  ];
-  for (const why of explain(row.reasons)) lines.push(why);
-  return lines;
-}
-
-function printTape(options: ReviewOptions, style: TapeStyle): void {
-  const { io, rows, accountName, boundary, dropped = [] } = options;
-  io.write('');
-  io.write(`${accountName}: ${rows.length} source transaction(s)`);
-  io.write(
-    boundary === null
-      ? 'no reconciled transaction in this account, so nothing is locked'
-      : `reconciliation boundary ${boundary}: anything dated on or before it is locked`,
-  );
-  if (dropped.length > 0) {
-    io.write(`${dropped.length} row(s) in the file were not read as transactions:`);
-    for (const row of dropped) io.write(`    line ${row.sourceLine}: ${row.reason}`);
-  }
-  io.write('');
-  io.write(TAPE_HEADER);
-  for (const [index, row] of rows.entries()) {
-    io.write(tapeLine(index + 1, row, style));
-  }
 }
 
 function printSummary(
   outcomes: readonly RowOutcome[],
+  rows: readonly ClassifiedRow[],
   accountName: string,
   io: ReviewIo,
 ): void {
@@ -437,7 +391,7 @@ function printSummary(
   if (refused.length > 0) {
     io.write(`${refused.length} request(s) were not applied:`);
     for (const outcome of refused) {
-      io.write(`    line ${outcome.row.source.sourceLine}: ${outcome.refusal}`);
+      io.write(`  #${rows.indexOf(outcome.row) + 1}: ${outcome.refusal}`);
     }
   }
 }
