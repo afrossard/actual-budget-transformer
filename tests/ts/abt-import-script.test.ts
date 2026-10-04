@@ -17,6 +17,16 @@ import { fileURLToPath } from 'node:url';
 // the image as intended is not something a test here can reach: it needs KVM.
 const script = fileURLToPath(new URL('../../scripts/abt-import', import.meta.url));
 
+// The image is pinned to the release this commit belongs to. release-please
+// bumps the pin and the manifest together, so the two must always agree.
+const manifest: unknown = JSON.parse(
+  readFileSync(
+    fileURLToPath(new URL('../../.release-please-manifest.json', import.meta.url)),
+    'utf8',
+  ),
+);
+const released = (manifest as Record<string, string>)['.'];
+
 function run(
   args: readonly string[],
   env: Record<string, string> = {},
@@ -71,7 +81,7 @@ test('mounts the config and the statement read-only and passes their in-sandbox 
     `${config}:/abt/config.yaml:ro`,
     '--mount-file',
     `${statement}:/abt/statement/cards 2031.csv:ro`,
-    'ghcr.io/afrossard/actual-budget-transformer:main',
+    `ghcr.io/afrossard/actual-budget-transformer:${released}`,
     '--',
     '--no-colour',
     '-c',

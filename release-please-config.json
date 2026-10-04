@@ -1,0 +1,18 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "include-v-in-tag": false,
+  "include-component-in-tag": false,
+  "bootstrap-sha": "1d2457e68b98c3c983db0ebb031c426597ee2883",
+  "packages": {
+    ".": {
+      "release-type": "node",
+      "bump-minor-pre-major": true,
+      "extra-files": [
+        {
+          "type": "generic",
+          "path": "scripts/abt-import"
+        }
+      ]
+    }
+  }
+}
