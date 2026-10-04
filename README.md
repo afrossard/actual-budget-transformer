@@ -34,7 +34,8 @@ The account names in `account_names` must match the account names in your budget
 ## Running the image
 
 `ghcr.io/afrossard/actual-budget-transformer:main` carries the same CLI, so Node and `npm ci` are not needed.
-`scripts/abt-import` runs it under [msb](https://github.com/superradcompany/microsandbox), with the config and the statement mounted read-only:
+`scripts/abt-import` runs it under [msb](https://github.com/superradcompany/microsandbox), with the config and the statement mounted read-only.
+Its sandbox is allowed to reach private addresses, which is where a self-hosted Actual server is:
 
 ```bash
 read -s ACTUAL_BUDGET_PASSWORD && export ACTUAL_BUDGET_PASSWORD

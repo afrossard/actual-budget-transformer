@@ -155,6 +155,7 @@ ACTUAL_SERVER_URL=http://localhost:5006 npm test
 - **The PR check** (`container` in `test.yaml`) builds the image for amd64 and runs it with no arguments, which must print the usage line and fail.
   That is the guard against an entry point that exits 0 having done nothing.
 - **`scripts/abt-import`** runs the image under `msb run` as the calling user, with the config and the statement mounted read-only and the `ACTUAL_BUDGET_*` variables forwarded.
+  It passes `--net private --no-dns-rebind-protection`: without them a self-hosted server's name failed to resolve in the sandbox (`ENOTFOUND`), and with both it answered. Neither flag has been tried alone.
   The docker equivalent and the retired image are comments in it.
   `tests/ts/abt-import-script.test.ts` checks the `msb run` line it assembles against a stub `msb`; booting it for real needs KVM.
 

@@ -122,8 +122,14 @@ for var in ACTUAL_BUDGET_URL ACTUAL_BUDGET_PASSWORD ACTUAL_BUDGET_SYNC_ID; do
   fi
 done
 
+# A self-hosted Actual server sits on a private address. Without these two
+# flags its name did not resolve in the sandbox; with both it answered.
+# `--net private` allows connecting to a private address, and
+# `--no-dns-rebind-protection` lets a DNS answer pointing at one through.
 exec msb run \
   --user "$(id -u):$(id -g)" \
+  --net private \
+  --no-dns-rebind-protection \
   ${mounts[@]+"${mounts[@]}"} \
   ${envs[@]+"${envs[@]}"} \
   "$image" \
