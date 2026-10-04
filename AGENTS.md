@@ -49,6 +49,15 @@ Four pins move together, and they all follow whatever Actual is on. When upgradi
 | `.nvmrc` | Actual's own `.nvmrc` for that release (`actualbudget/actual` at tag `vX.Y.Z`). CI reads this file, so it is the single place to change | `24.18.1` |
 | `FROM` in `Containerfile`, both stages | `node:<.nvmrc>-trixie-slim`. `FROM` cannot read a file, so the version is written twice and `tests/ts/containerfile.test.ts` fails when the two disagree | `24.18.1` |
 
+Renovate is configured to keep this rule (#97), and nothing else has to be remembered:
+
+- **One grouped `Actual` PR per release** (`renovate.json`) moves the api and both server lines together, so the api never lands ahead of the server.
+  The compose line is a literal tag for that reason: Renovate extracts nothing from a `${VAR:-default}` image.
+- **Renovate's Node updates are off** for `.nvmrc` and the Containerfile, because it would propose Node's latest and cannot read Actual's `.nvmrc`.
+- **The `node-follows-actual` check** (`npm run check:node`, a job in `test.yaml`) fetches Actual's `.nvmrc` at the tag matching the api pin and fails with the exact fix, so on the grouped PR a red check says which Node to set.
+
+Verify a `renovate.json` change with Renovate's own local dry run before relying on it: `GITHUB_COM_TOKEN=$(gh auth token) LOG_LEVEL=debug npx renovate --platform=local --dry-run=lookup`, then read the `branchName` of each update in the `packageFiles with updates` log line.
+
 `engines.node` is `>=22.18.0`, which is both Actual's own floor and the Node release where type stripping stopped needing a flag — so it is the real floor for `node src/cli.ts`, not a guess.
 
 **After any bump, re-run the characterization tests against the new server.** That is what they are for: they turned a 26.5.2 → 26.9.0 bump from a hope into a checked fact (all five passed unchanged).

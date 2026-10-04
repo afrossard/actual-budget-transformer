@@ -2,5 +2,26 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended"
+  ],
+  "packageRules": [
+    {
+      "description": "One PR per Actual release: the api and the test server move together, or the api runs ahead of the server and ADR-007 aborts (AGENTS.md, \"Versions: follow Actual\").",
+      "matchPackageNames": [
+        "@actual-app/api",
+        "actualbudget/actual-server"
+      ],
+      "groupName": "Actual"
+    },
+    {
+      "description": "Node follows Actual's own .nvmrc, not Node's latest. Renovate cannot read another project's .nvmrc, so the node-follows-actual CI check says what to set instead.",
+      "matchManagers": [
+        "nvm",
+        "dockerfile"
+      ],
+      "matchDepNames": [
+        "node"
+      ],
+      "enabled": false
+    }
   ]
 }

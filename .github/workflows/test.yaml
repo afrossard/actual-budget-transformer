@@ -70,6 +70,24 @@ jobs:
       - name: Run tests
         run: npm test
 
+  # Renovate's Node updates are off, because Node follows Actual's own .nvmrc
+  # rather than Node's latest and Renovate cannot read another project's file.
+  # On the grouped Actual PR this is the check that says what Node to set.
+  node-follows-actual:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Check that Node follows Actual
+        run: npm run check:node
+
   container:
     runs-on: ubuntu-latest
 
