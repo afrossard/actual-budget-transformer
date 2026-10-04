@@ -31,6 +31,30 @@ The budget is identified by its Sync ID, found in Actual under *Settings → Sho
 *Reset sync* in Actual gives the budget a new Sync ID, so update `sync_id` after using it; until then the import stops and lists the budgets with their current IDs.
 The account names in `account_names` must match the account names in your budget.
 
+## Running the image
+
+`ghcr.io/afrossard/actual-budget-transformer:main` carries the same CLI, so Node and `npm ci` are not needed.
+`scripts/abt-import` runs it under [msb](https://github.com/superradcompany/microsandbox), with the config and the statement mounted read-only:
+
+```bash
+read -s ACTUAL_BUDGET_PASSWORD && export ACTUAL_BUDGET_PASSWORD
+scripts/abt-import -c config.yaml statement.csv
+```
+
+With docker instead, `-it` gives the prompts a terminal and `--init` lets Ctrl-C through:
+
+```bash
+docker run --rm -it --init \
+ --user "$(id -u):$(id -g)" \
+ -v "$PWD/config.yaml":/abt/config.yaml:ro \
+ -v "$PWD/statement.csv":/abt/statement/statement.csv:ro \
+ -e ACTUAL_BUDGET_PASSWORD \
+ ghcr.io/afrossard/actual-budget-transformer:main \
+ -c /abt/config.yaml /abt/statement/statement.csv
+```
+
+Inside the container `localhost` is the container itself, so `server_url` must name the server's host as the container sees it.
+
 ## Config file
 
 Create a new `config.yaml` based on `config.template.yml`, and pass it with `-c` or `ACTUAL_BUDGET_TRANSFORMER_CONFIG`.

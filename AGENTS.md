@@ -19,7 +19,8 @@ It is one TypeScript codebase calling `@actual-app/api` in process (#41).
 
 The Python package that came before it, which wrote CSV and CAMT.053 files for Actual's own import dialog, was deleted in #41.
 Its last image stays in GHCR as the fallback for file output, pinned by digest: `ghcr.io/afrossard/actual-budget-transformer-main@sha256:89a73600137963c83b31a73f751b84c7cf4824150d52a3c61f9168f02a2043e8`.
-Nothing in this repo builds it any more: `.github/workflows/prod-container-build.yaml` still points at the deleted `Containerfile`, so a dispatch fails before pushing, until #61 points it at the new image.
+Nothing in this repo builds it any more.
+The CLI's own image is `ghcr.io/afrossard/actual-budget-transformer`, without the suffix (#61); see "The container image" below.
 
 ---
 
@@ -39,13 +40,14 @@ There is **no build step**. `tsconfig.json` is `noEmit` and Node strips types na
 
 ### Versions: follow Actual
 
-Three pins move together, and they all follow whatever Actual is on. When upgrading:
+Four pins move together, and they all follow whatever Actual is on. When upgrading:
 
 | Ours | Set it to | Currently |
 | --- | --- | --- |
 | `@actual-app/api` in `package.json` | the server version you run, **exactly** — no caret. A range could pull a newer api and create the one skew ADR-007 aborts on | `26.9.0` |
 | `actualbudget/actual-server` in `.devcontainer/docker-compose.yml` and `.github/workflows/test.yaml` | the same version, so the characterization tests check the behaviour you actually run | `26.9.0` |
 | `.nvmrc` | Actual's own `.nvmrc` for that release (`actualbudget/actual` at tag `vX.Y.Z`). CI reads this file, so it is the single place to change | `24.18.1` |
+| `FROM` in `Containerfile`, both stages | `node:<.nvmrc>-trixie-slim`. `FROM` cannot read a file, so the version is written twice and `tests/ts/containerfile.test.ts` fails when the two disagree | `24.18.1` |
 
 `engines.node` is `>=22.18.0`, which is both Actual's own floor and the Node release where type stripping stopped needing a flag — so it is the real floor for `node src/cli.ts`, not a guess.
 
@@ -138,6 +140,23 @@ ACTUAL_SERVER_URL=http://localhost:5006 npm test
 - **YAML: `yaml`.** Reads the `config.yml` users already had for the Python package. Both its advisories are fixed well below the pinned version.
 - **The bank's column names, encodings, separators and date formats are `config.yml` settings, not constants.** They were briefly hard-coded here on the grounds that they describe the export rather than the user's preferences. That was wrong twice over: UBS changes its exports without announcing it, and the labels are in the language of the user's e-banking, so they move when that setting moves. Either way the person hitting it has to be able to fix it by editing a file, which is why they were in a config file to begin with. `src/sources/formats.ts` holds the defaults; `processors.ubs_csv` / `processors.ubs_cards` override them key by key, in **the schema the Python package read**, so an existing config keeps working. A partial block keeps the defaults for what it does not restate, and a test asserts `config.template.yml` and the defaults have not drifted apart.
 - **Minted imported IDs are prefixed `abt1-`**, where `1` versions the scheme, so a change to how IDs are derived is visible rather than silent. They are not byte-compatible with the deleted Python package's hashes, which is fine: nothing has ever been written to the real budget (#32 is still open).
+
+### The container image
+
+`Containerfile` builds the CLI into `ghcr.io/afrossard/actual-budget-transformer`: `npm ci --omit=dev` in a builder stage, then `node_modules`, `package.json` and `src/` on `node:<version>-trixie-slim`, run as `node src/cli.ts` by the non-root `node` user.
+`.dockerignore` admits only those three, so `config.yaml` and the statements under `tmp/` never enter a build context.
+
+- **No bundler, no prune step.** Actual's own image ships `node_modules` whole too.
+  Bundling crashes on Actual's dynamic requires as ESM and is a silent no-op as CJS (`invokedDirectly()` has no `import.meta.filename` there), and better-sqlite3 is a native addon either way (#61).
+- **No init in the image.** Under msb, `node` is not PID 1; under docker it is, and `docker run --init` is what lets a signal through, so that is documented rather than baked in.
+  The review prompts read raw keystrokes on a TTY, so Ctrl-C there is a byte the prompt answers as quit, not a signal.
+- **Publishing is manual**: the `Build prod docker image` workflow, dispatched from `main`, pushes `:main` and the run number for amd64 and arm64.
+  Release tags are #87.
+- **The PR check** (`container` in `test.yaml`) builds the image for amd64 and runs it with no arguments, which must print the usage line and fail.
+  That is the guard against an entry point that exits 0 having done nothing.
+- **`scripts/abt-import`** runs the image under `msb run` as the calling user, with the config and the statement mounted read-only and the `ACTUAL_BUDGET_*` variables forwarded.
+  The docker equivalent and the retired image are comments in it.
+  `tests/ts/abt-import-script.test.ts` checks the `msb run` line it assembles against a stub `msb`; booting it for real needs KVM.
 
 ---
 

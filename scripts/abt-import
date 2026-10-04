@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+# abt-import - run the import CLI's image on one statement file, under msb.
+#
+#   abt-import [-c <config.yaml>] [--no-colour] <statement file>
+#
+# The config comes from -c, or else $ACTUAL_BUDGET_TRANSFORMER_CONFIG, exactly
+# as for `npm run import`. Server settings and their ACTUAL_BUDGET_URL,
+# ACTUAL_BUDGET_PASSWORD and ACTUAL_BUDGET_SYNC_ID overrides are forwarded from
+# this shell; set the password without it entering shell history:
+#
+#   read -s ACTUAL_BUDGET_PASSWORD && export ACTUAL_BUDGET_PASSWORD
+#
+# The config and the statement are mounted read-only, and the CLI runs as the
+# calling user. ABT_IMAGE overrides the image, e.g. for a local build.
+#
+# The same run under docker. `--init` is what lets Ctrl-C reach node, which is
+# PID 1 there; under msb it is not:
+#
+#   docker run --rm -it --init \
+#     --user "$(id -u):$(id -g)" \
+#     -v "$PWD/config.yaml":/abt/config.yaml:ro \
+#     -v "$PWD/statement.csv":/abt/statement/statement.csv:ro \
+#     -e ACTUAL_BUDGET_PASSWORD \
+#     ghcr.io/afrossard/actual-budget-transformer:main \
+#     -c /abt/config.yaml /abt/statement/statement.csv
+#
+# CSV and CAMT.053 file output is the retired Python image's, pinned by digest
+# (see README.md, "File output (retired)"):
+#
+#   ghcr.io/afrossard/actual-budget-transformer-main@sha256:89a73600137963c83b31a73f751b84c7cf4824150d52a3c61f9168f02a2043e8
+
+set -euo pipefail
+
+# The ${a[@]+"${a[@]}"} spelling below is for an empty array under `set -u`,
+# which the bash 3.2 macOS ships rejects.
+
+image=${ABT_IMAGE:-ghcr.io/afrossard/actual-budget-transformer:main}
+config=${ACTUAL_BUDGET_TRANSFORMER_CONFIG:-}
+passthrough=()
+statements=()
+
+while (($# > 0)); do
+  case $1 in
+  -c | --config)
+    if (($# < 2)); then
+      echo "abt-import: $1 needs a path" >&2
+      exit 2
+    fi
+    config=$2
+    shift 2
+    ;;
+  --config=*)
+    config=${1#--config=}
+    shift
+    ;;
+  -c?*)
+    config=${1#-c}
+    shift
+    ;;
+  --)
+    shift
+    statements+=("$@")
+    break
+    ;;
+  -*)
+    passthrough+=("$1")
+    shift
+    ;;
+  *)
+    statements+=("$1")
+    shift
+    ;;
+  esac
+done
+
+mounts=()
+args=()
+
+# A mount spec is SOURCE:DEST:OPTIONS, so a `:` in the host path would split it
+# in the wrong place. Refuse it rather than guess; prints the resolved path.
+mountable() {
+  local path
+  path=$(realpath "$1")
+  if [[ $path == *:* ]]; then
+    echo "abt-import: cannot mount $path: its path contains a colon" >&2
+    exit 2
+  fi
+  printf "%s" "$path"
+}
+
+# Mounted only when given, so `abt-import --help` and a missing statement
+# reach the CLI, which owns the usage message.
+if [[ -n $config ]]; then
+  if [[ ! -f $config ]]; then
+    echo "abt-import: no config file at $config" >&2
+    exit 2
+  fi
+  host=$(mountable "$config")
+  mounts+=(--mount-file "$host:/abt/config.yaml:ro")
+  args+=(-c /abt/config.yaml)
+fi
+
+for statement in ${statements[@]+"${statements[@]}"}; do
+  if [[ ! -f $statement ]]; then
+    echo "abt-import: no statement file at $statement" >&2
+    exit 2
+  fi
+  host=$(mountable "$statement")
+  # The file keeps its name, and above all its extension, which the parser is
+  # picked by.
+  name=$(basename "$statement")
+  mounts+=(--mount-file "$host:/abt/statement/$name:ro")
+  args+=("/abt/statement/$name")
+done
+
+# msb's -e takes KEY=value only, so a forwarded value is visible in this
+# host's process list while the run lasts.
+envs=()
+for var in ACTUAL_BUDGET_URL ACTUAL_BUDGET_PASSWORD ACTUAL_BUDGET_SYNC_ID; do
+  if [[ -n ${!var:-} ]]; then
+    envs+=(-e "$var=${!var}")
+  fi
+done
+
+exec msb run \
+  --user "$(id -u):$(id -g)" \
+  ${mounts[@]+"${mounts[@]}"} \
+  ${envs[@]+"${envs[@]}"} \
+  "$image" \
+  -- ${passthrough[@]+"${passthrough[@]}"} ${args[@]+"${args[@]}"}

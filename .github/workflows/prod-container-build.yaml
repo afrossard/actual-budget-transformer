@@ -2,6 +2,9 @@ name: Build prod docker image
 on:
   workflow_dispatch:
 
+# Dispatched from main, this publishes ghcr.io/afrossard/actual-budget-transformer
+# tagged `main` and the run number. The retired Python image lives on under the
+# `-main` suffixed name, pinned by digest in README.md; nothing builds it now.
 jobs:
   actual-budget-transformer-docker-image:
     permissions:
@@ -10,5 +13,5 @@ jobs:
     uses: ./.github/workflows/generic-docker-build-push.yml
     with:
       registry: ghcr.io
-      image-name: ${{ github.repository }}-main
+      image-name: ${{ github.repository }}
       file: ./Containerfile
