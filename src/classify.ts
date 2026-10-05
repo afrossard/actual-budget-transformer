@@ -109,6 +109,17 @@ function otherBankReference(source: SourceTransaction, tx: ActualTransaction): b
   );
 }
 
+/**
+ * Whether two Actual transactions carry two different bank references, which
+ * makes them two transactions however alike they are, as `otherBankReference`
+ * does for a pair.
+ */
+function twoBankReferences(a: ActualTransaction, b: ActualTransaction): boolean {
+  const bank = (tx: ActualTransaction): boolean =>
+    !!tx.imported_id && !tx.imported_id.startsWith(MINTED_PREFIX);
+  return bank(a) && bank(b) && a.imported_id !== b.imported_id;
+}
+
 /** How many days apart two amounts may be and still pair. */
 export const PAIRING_WINDOW_DAYS = 1;
 
@@ -312,7 +323,9 @@ export function unpairedActual(
     paired
       .filter(
         (p) =>
-          p.amount === tx.amount && daysApart(p.date, tx.date) <= PAIRING_WINDOW_DAYS,
+          p.amount === tx.amount &&
+          daysApart(p.date, tx.date) <= PAIRING_WINDOW_DAYS &&
+          !twoBankReferences(p, tx),
       )
       .sort((a, b) => daysApart(a.date, tx.date) - daysApart(b.date, tx.date))[0] ??
     null;

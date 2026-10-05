@@ -489,3 +489,17 @@ test('a paired Actual transaction outside the period still has its duplicates fo
     ['copy~moved'],
   );
 });
+
+test('an Actual transaction under another bank reference is no duplicate', () => {
+  // The bank says these are two transactions, as it does for pairing (#82).
+  assert.deepEqual(
+    unpaired(
+      [src({ importedId: 'R1' })],
+      [
+        actual({ id: 'paired', imported_id: 'R1' }),
+        actual({ id: 'other', imported_id: 'R2' }),
+      ],
+    ),
+    ['other'],
+  );
+});
