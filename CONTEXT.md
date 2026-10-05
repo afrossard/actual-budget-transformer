@@ -18,6 +18,11 @@ Blank where a format that normally carries one did not, because a later export w
 Minted deterministically only where the bank never supplies one, as on the UBS cards CSV.
 _Avoid_: dedup key, hash, fingerprint
 
+**Pending**:
+The state of a statement transaction the bank has authorised but not yet booked, as a UBS cards CSV states some card purchases.
+Its amount is not final: a purchase in another currency is stated in that currency only, and the booked amount may differ.
+_Avoid_: unbooked, provisional, authorisation
+
 ### Actual side
 
 **Actual transaction**:
