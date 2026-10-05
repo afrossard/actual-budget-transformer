@@ -42,6 +42,17 @@ const COL = {
 } as const;
 
 const IBAN_ROW = 1;
+/** The preamble's `Du:` and `Au:` rows: the period the statement covers. */
+const FROM_ROW = 2;
+const TO_ROW = 3;
+
+/**
+ * A preamble date, in the configured format or else ISO, which is how the
+ * bank writes it whatever the transaction rows use. Null when it is neither.
+ */
+function preambleDate(value: string, format: string): string | null {
+  return parseDate(value, format) ?? parseDate(value, '%Y-%m-%d');
+}
 
 export function ubsAccountCsvParser(format: AccountCsvFormat): StatementParser {
   // Preamble occupies rows 0..headerRows-1, then a blank line, then the header.
@@ -125,7 +136,13 @@ export function ubsAccountCsvParser(format: AccountCsvFormat): StatementParser {
         });
       }
 
-      return { format: FORMAT, accountKey, transactions, dropped };
+      // Unreadable, the period falls back to the transactions' own dates, as
+      // for a format that states none: narrower, never wrong.
+      const from = preambleDate(cell(rows[FROM_ROW] ?? [], 1), format.dateFormat);
+      const to = preambleDate(cell(rows[TO_ROW] ?? [], 1), format.dateFormat);
+      const period = from === null || to === null ? null : { from, to };
+
+      return { format: FORMAT, accountKey, period, transactions, dropped };
     },
   };
 }

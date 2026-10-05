@@ -1,12 +1,14 @@
 /**
- * The statement report, printed before any review: how many statement
- * transactions are already in Actual, the pairs Actual needs fixed, and one
- * line per statement transaction to review. Then one block per statement
- * transaction as it is reviewed, and what `[?]` shows.
+ * The statement report, printed before any review: what the statement holds
+ * and what Actual holds, the pairs Actual needs fixed, the Actual transactions
+ * the statement does not hold, and one line per statement transaction to
+ * review. Then one block per statement transaction as it is reviewed, and what
+ * `[?]` shows.
  *
  * Paired statement transactions are never listed one by one: they are already
  * in Actual. The exception is a pair Actual needs fixed, which is listed and
- * never prompted, because the fix is made in Actual.
+ * never prompted, because the fix is made in Actual. So is every unpaired
+ * Actual transaction: nothing is ever written for one.
  *
  * Every line is fitted to the terminal and cut with `…`. A line that wraps puts
  * its tail in column 0, and from there on the columns stop meaning anything
@@ -19,8 +21,9 @@ import {
   type ActualTransaction,
   type Classified,
   type Lookalike,
+  type UnpairedActual,
 } from './classify.ts';
-import type { DroppedRow, SourceTransaction } from './sources/types.ts';
+import type { DroppedRow, Period, SourceTransaction } from './sources/types.ts';
 
 const ESC = `${String.fromCharCode(27)}[`;
 const RESET = `${ESC}0m`;
@@ -168,7 +171,10 @@ function columns(
         `${cells.amount.padStart(COLUMN.amount)} `,
     },
     // The payee is cut to its column rather than pushing the note column out.
-    { text: `${clip(cells.payee, payee).padEnd(payee)} ` },
+    { text: clip(cells.payee, payee).padEnd(payee) },
+    // A segment of its own: with no note, a payee given all the room ends the
+    // line, and `fit` drops a separator it has no room for rather than cut it.
+    { text: ' ' },
     cells.note,
   ];
 }
@@ -213,63 +219,157 @@ export function listLine(
 export function fixLines(classified: Classified): string[] {
   const { number, source } = classified;
   const subject = `#${number} ${source.payee}`.trimEnd();
-  return toFixInActual(classified).map((fix) => {
-    switch (fix.kind) {
-      case 'amount-differs':
-        return (
-          `${subject}: Actual holds ${amount(fix.actualAmount)}, ` +
-          `the bank says ${amount(source.amountCents)}`
-        );
-      case 'imported-id-shared':
-        return `${subject}: ${fix.holders.length} Actual transactions hold its imported ID`;
+  return toFixInActual(classified).map(
+    (fix) =>
+      `${subject}: Actual holds ${amount(fix.actualAmount)}, ` +
+      `the bank says ${amount(source.amountCents)}`,
+  );
+}
+
+const DUPLICATE = 'duplicate, delete one';
+const RECONCILED = 'already reconciled, double check reconciliation balance';
+
+/** An Actual transaction the unpaired list shows, and what to know about it. */
+type UnpairedRow = { tx: ActualTransaction; note: string };
+
+/**
+ * The unpaired list's rows: by date, each duplicate beside its paired twin.
+ * The twin is shown but is not unpaired, since which of the two the pairing
+ * took is arbitrary.
+ */
+export function unpairedRows(unpaired: readonly UnpairedActual[]): UnpairedRow[] {
+  const byDate = (a: ActualTransaction, b: ActualTransaction): number =>
+    a.date.localeCompare(b.date);
+  // Never empty, so each has a first transaction to sort by.
+  type Group = [ActualTransaction, ...ActualTransaction[]];
+  const couples = new Map<string, Group>();
+  const groups: Group[] = [];
+  for (const { actual, twin } of unpaired) {
+    if (twin === null) {
+      groups.push([actual]);
+      continue;
     }
+    const couple = couples.get(twin.id);
+    if (couple !== undefined) couple.push(actual);
+    else {
+      const created: Group = [twin, actual];
+      couples.set(twin.id, created);
+      groups.push(created);
+    }
+  }
+  // Stable sorts: on a tie the twin stays first, and the order Actual gave stays.
+  for (const group of groups) group.sort(byDate);
+  groups.sort((a, b) => byDate(a[0], b[0]));
+  return groups.flatMap((group) =>
+    group.map((tx) => ({
+      tx,
+      note:
+        group.length > 1
+          ? DUPLICATE + (tx.reconciled ? ' · reconciled' : '')
+          : tx.reconciled
+            ? RECONCILED
+            : '',
+    })),
+  );
+}
+
+/** Where the unpaired list's payee starts: `  ! `, the date and the amount. */
+const UNPAIRED_INDENT = 4 + COLUMN.date + 1 + COLUMN.amount + 2;
+
+/** Where a note that does not fit beside its payee goes, on a line of its own. */
+const HUNG_NOTE = ' '.repeat(6);
+
+/**
+ * The Actual transactions the statement does not hold, one line each.
+ *
+ * A note too long to sit beside even the narrowest payee hangs below instead,
+ * wrapped rather than cut: there is no `[?]` here to show it in full.
+ */
+export function unpairedLines(
+  unpaired: readonly UnpairedActual[],
+  style: ReportStyle,
+): string[] {
+  const rows = unpairedRows(unpaired);
+  const room = style.width - UNPAIRED_INDENT - PAYEE.min - 1;
+  const fits = (note: string): boolean => note.length <= room;
+  const noteRoom = Math.max(
+    0,
+    ...rows.map((r) => r.note.length).filter((length) => length <= room),
+  );
+  const payee = payeeWidth(style, UNPAIRED_INDENT, noteRoom);
+  return rows.flatMap(({ tx, note }) => {
+    const head =
+      `  ! ${tx.date.padEnd(COLUMN.date)} ` +
+      `${formatCents(tx.amount, COLUMN.amount)}  `;
+    const name = clip(tx.payeeName ?? '', payee).padEnd(payee);
+    const segments = [head, name, ' ', fits(note) ? note : ''];
+    const hung = fits(note)
+      ? []
+      : wrap(note, Math.max(1, style.width - HUNG_NOTE.length)).map(
+          (part) => HUNG_NOTE + part,
+        );
+    return [
+      fit(
+        segments.map((text) => ({ text, code: WARN })),
+        style.width,
+        style,
+      ),
+      ...hung.map((text) => fit([{ text, code: WARN }], style.width, style)),
+    ];
   });
 }
 
 /** What is printed before the first prompt: the statement at a glance. */
 export function report(
   statement: {
-    accountName: string;
+    /** The dates the statement covers. */
+    period: Period;
     classified: readonly Classified[];
+    unpaired: readonly UnpairedActual[];
     reconciledThrough: string | null;
     dropped: readonly DroppedRow[];
   },
   style: ReportStyle,
 ): string[] {
-  const { accountName, classified, reconciledThrough, dropped } = statement;
+  const { period, classified, unpaired, reconciledThrough, dropped } = statement;
   const { paired, toReview } = tally(classified);
   const line = (text: string, code?: string): string =>
     fit([{ text, code }], style.width, style);
-  // The account's name has a line of its own: it can be long, and cutting it
-  // must not cut the reconciled-through date with it.
   const lines = [
-    line(accountName),
-    line(
-      `  ${plural(classified.length, 'transaction', 'transactions')} · ` +
-        (reconciledThrough === null
-          ? 'nothing reconciled yet'
-          : `reconciled through ${reconciledThrough}`),
-    ),
-    line(
-      `  ${paired} already in Actual · ` +
-        (toReview === 0 ? 'nothing to review' : `${toReview} to review`),
-    ),
+    line('  Statement'),
+    line(`    - From ${period.from} to ${period.to}`),
+    line(`    - ${plural(classified.length, 'transaction', 'transactions')} found`),
+    line(`    - ${paired} already in Actual`),
+    line(`    - ${toReview} to review`),
   ];
   if (dropped.length > 0) {
     lines.push(
       line(
         dropped.length === 1
-          ? '  1 row in the file was not read as a transaction:'
-          : `  ${dropped.length} rows in the file were not read as transactions:`,
+          ? '    - 1 row in the file was not read as a transaction:'
+          : `    - ${dropped.length} rows in the file were not read as transactions:`,
       ),
     );
     for (const row of dropped)
-      lines.push(line(`    line ${row.sourceLine}: ${row.reason}`));
+      lines.push(line(`        line ${row.sourceLine}: ${row.reason}`));
   }
+  lines.push(
+    line('  Actual'),
+    line(
+      reconciledThrough === null
+        ? '    - Nothing reconciled yet'
+        : `    - Reconciled through ${reconciledThrough}`,
+    ),
+    line(`    - ${unpaired.length} not in the statement`),
+  );
   const fixes = classified.flatMap(fixLines);
   if (fixes.length > 0) {
-    lines.push('', line('  already in Actual, but to fix there (not prompted):'));
+    lines.push('', line('  in Actual, but to fix there'));
     for (const fix of fixes) lines.push(line(`  ! ${fix}`, WARN));
+  }
+  if (unpaired.length > 0) {
+    lines.push('', line('  in Actual, not in the statement'));
+    lines.push(...unpairedLines(unpaired, style));
   }
   const reviewed = classified.filter((c) => c.pair === null);
   if (reviewed.length > 0) {

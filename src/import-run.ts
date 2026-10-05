@@ -6,13 +6,18 @@
  * statement transaction with whatever the last import wrote - a cascade of
  * manufactured noise rather than a finding.
  */
-import { classify, PAIRING_WINDOW_DAYS, type ActualTransaction } from './classify.ts';
+import {
+  classify,
+  PAIRING_WINDOW_DAYS,
+  unpairedActual,
+  type ActualTransaction,
+} from './classify.ts';
 import { resolveAccount } from './account-resolution.ts';
 import { accountTargetFor, type Config } from './config.ts';
 import { parseStatement } from './sources/index.ts';
 import { review, type ReviewIo, type ReviewResult } from './review.ts';
 import type { ActualGateway } from './actual-gateway.ts';
-import type { SourceTransaction } from './sources/types.ts';
+import type { Period, SourceTransaction } from './sources/types.ts';
 import type { ReportStyle } from './statement-report.ts';
 
 export type RunOptions = {
@@ -46,28 +51,30 @@ export async function runImport(options: RunOptions): Promise<RunResult> {
 
   const account = resolveAccount(target, await gateway.listAccounts());
 
+  const span = transactionSpan(statement.transactions);
+  const period = statement.period ?? span;
+
   // Three targeted reads instead of the account's whole history (#67), each
   // answering one question the classifier asks. Their union is every Actual
   // transaction a statement transaction could pair with, so it pairs exactly
-  // as it would against the whole history.
+  // as it would against the whole history, and every one in the period.
   const reconciledThrough = await gateway.reconciledThroughDate(account.id);
   const byImportedId = await gateway.findByImportedIds(
     account.id,
     statement.transactions.map((tx) => tx.importedId),
   );
-  const nearby = await gateway.getTransactions(
-    account.id,
-    ...pairingSpan(statement.transactions),
-  );
+  const nearby = await gateway.getTransactions(account.id, ...readSpan(span, period));
   const existing = distinctById([...byImportedId, ...nearby]);
 
   const classified = classify(statement.transactions, existing, reconciledThrough);
+  const unpaired = unpairedActual(classified, existing, period);
 
   const result = await review({
     gateway,
     accountId: account.id,
-    accountName,
+    period,
     classified,
+    unpaired,
     dropped: statement.dropped,
     reconciledThrough,
     io,
@@ -76,24 +83,33 @@ export async function runImport(options: RunOptions): Promise<RunResult> {
   return { ...result, accountName };
 }
 
+/** The first to last statement transaction date. */
+function transactionSpan(sources: readonly SourceTransaction[]): Period {
+  // ISO dates sort as strings.
+  const dates = sources.map((tx) => tx.date).sort();
+  const from = dates[0];
+  const to = dates.at(-1);
+  if (from === undefined || to === undefined) {
+    throw new Error('a statement with no transactions has no span');
+  }
+  return { from, to };
+}
+
 /**
- * The dates an amount-and-date pair of any of these transactions could sit on:
- * the statement's own span, widened by the pairing window at each end.
+ * The dates to read: wherever an amount-and-date pair of a statement
+ * transaction could sit - its span, widened by the pairing window at each end -
+ * and the whole period, where every Actual transaction is either paired or
+ * unpaired.
  *
  * A window is right here, and only here. Such a pair is *defined* by its date
  * being near the statement transaction's, whereas an imported ID has to be
  * found wherever the transaction now sits - which is why that read is
  * unbounded.
  */
-function pairingSpan(sources: readonly SourceTransaction[]): [string, string] {
-  // ISO dates sort as strings.
-  const dates = sources.map((tx) => tx.date).sort();
-  const first = dates[0];
-  const last = dates.at(-1);
-  if (first === undefined || last === undefined) {
-    throw new Error('a statement with no transactions has no span');
-  }
-  return [shiftDays(first, -PAIRING_WINDOW_DAYS), shiftDays(last, PAIRING_WINDOW_DAYS)];
+function readSpan(span: Period, period: Period): [string, string] {
+  const from = shiftDays(span.from, -PAIRING_WINDOW_DAYS);
+  const to = shiftDays(span.to, PAIRING_WINDOW_DAYS);
+  return [period.from < from ? period.from : from, period.to > to ? period.to : to];
 }
 
 function shiftDays(date: string, days: number): string {

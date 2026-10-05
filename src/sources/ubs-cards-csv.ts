@@ -140,7 +140,7 @@ export function ubsCardsCsvParser(format: CardsCsvFormat): StatementParser {
         throw new Error(`no card number found in ${path}`);
       }
 
-      return { format: FORMAT, accountKey, transactions, dropped };
+      return { format: FORMAT, accountKey, period: null, transactions, dropped };
     },
   };
 }
