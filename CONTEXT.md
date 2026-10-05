@@ -37,6 +37,13 @@ _Avoid_: reconciliation boundary, last reconciled date, lock date
 A statement transaction and the Actual transaction taken to be the same one: either they share an imported ID, or they have the same amount within ±1 day of each other and do not carry two different bank references. Each Actual transaction pairs with at most one statement transaction, so of two identical statement transactions with one counterpart in Actual, one stays unpaired.
 _Avoid_: blind duplicate, match, near-match
 
+**Unpaired Actual transaction**:
+An Actual transaction in the statement's account, dated within the statement's period, that no statement transaction pairs with. The statement's period is the one the file states, or else its first to last statement transaction date. The bank does not hold it as Actual does, so it is listed in the statement report to be fixed in Actual.
+_Avoid_: orphan, extra, stray, unmatched
+
+**Duplicate**:
+An unpaired Actual transaction that holds the imported ID of a paired Actual transaction, or has the same amount within ±1 day of one. The statement holds the transaction once and Actual holds it twice; which copy the pairing took is arbitrary, so both are shown and the human deletes one in Actual.
+
 **Review**:
 The human deciding, one at a time, what happens to each unpaired statement transaction. A paired statement transaction is never reviewed: it is already in Actual.
 
