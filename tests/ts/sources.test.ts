@@ -57,6 +57,15 @@ test('the account CSV keeps the bank reference as the imported ID', () => {
   });
 });
 
+test('the account CSV states its period, from its Du and Au lines', () => {
+  const statement = accountCsv.parse(DATA + 'ubs_valid.csv');
+  assert.deepEqual(statement.period, { from: '2023-01-01', to: '2023-01-31' });
+});
+
+test('the cards CSV states no period', () => {
+  assert.equal(cardsCsv.parse(DATA + 'ubs_cards_1.csv').period, null);
+});
+
 test('an account row with no transaction number keeps a blank imported ID', () => {
   const statement = accountCsv.parse(DATA + 'ubs_account_no_reference.csv');
   const byPayee = new Map(statement.transactions.map((t) => [t.payee, t]));
@@ -263,6 +272,8 @@ test('a renamed, re-ordered-language export parses once the config is corrected'
       sourceLine: 11,
     },
   ]);
+  // Its preamble writes ISO dates where its rows do not.
+  assert.deepEqual(statement.period, { from: '2031-07-01', to: '2031-07-31' });
   // And it does not start claiming the French file it was not configured for.
   assert.equal(corrected.canParse(DATA + 'ubs_valid.csv'), false);
 });

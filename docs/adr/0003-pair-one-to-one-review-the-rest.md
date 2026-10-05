@@ -29,3 +29,5 @@ Reviewing the whole group instead would bring back the noise this decision remov
 - The ±1 day window is kept until a real card file shows whether purchase dates sit too far from the booking dates Actual holds.
 - Two different bank references never pair on amount and date (added in review of #82): the bank says they are two transactions, and pairing them would take a second purchase of the same amount, the day after one already imported, as already in Actual and never review it.
   Only bank references count, because an ID this tool mints can shift between two exports of one purchase.
+- Pairing also runs the other way (#109): every Actual transaction dated within the statement's period that no statement transaction took is an unpaired Actual transaction, listed in the statement report, and a duplicate when a paired one holds its imported ID or its amount within ±1 day.
+  Nothing is written for one, so a second holder of an imported ID is shown as a duplicate beside its pair rather than as a pair to fix.

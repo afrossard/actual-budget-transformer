@@ -88,7 +88,7 @@ describe('integration: a whole run from a statement file', { skip }, () => {
     assert.deepEqual(second.result.outcomes, []);
     assert.match(
       second.io.transcript.join('\n'),
-      /1 already in Actual · nothing to review/,
+      /- 1 already in Actual\n {4}- 0 to review/,
     );
     assert.equal(
       (await session.gateway.getTransactions(accountId, '2022-01-01', '2024-12-31'))
@@ -183,8 +183,13 @@ describe('integration: a whole run from a statement file', { skip }, () => {
       ['added'],
     );
     const transcript = io.transcript.join('\n');
-    assert.match(transcript, /reconciled through 2023-01-13/);
-    assert.match(transcript, /0 already in Actual · 1 to review/);
+    assert.match(transcript, /Reconciled through 2023-01-13/);
+    assert.match(transcript, /- 0 already in Actual\n {4}- 1 to review/);
+    // The reconciled one is in the statement's period and the bank does not hold it.
+    assert.match(
+      transcript,
+      /^ {2}! 2023-01-13 +-50\.00 +Groceries \(typed by hand\)\n {6}already reconciled, double check reconciliation balance$/im,
+    );
     assert.match(transcript, /! dated in your reconciled period/);
     assert.doesNotMatch(transcript, /locked/);
     const stored = await session.gateway.getAccountHistory(accountId);
@@ -220,7 +225,7 @@ describe('integration: a whole run from a statement file', { skip }, () => {
     assert.equal((await session.gateway.getAccountHistory(accountId)).length, 2);
   });
 
-  it('lists, to fix in Actual, two Actual transactions sharing one imported ID', async () => {
+  it('lists two Actual transactions sharing one imported ID as a duplicate couple', async () => {
     // Actual enforces no uniqueness on imported_id, so a hand-edit or an
     // interrupted write can leave two transactions under one ID. The fix is
     // made in Actual, so it is listed and never prompted.
@@ -229,7 +234,7 @@ describe('integration: a whole run from a statement file', { skip }, () => {
 
     await run(config, path, () => 'i', 1);
     await session.gateway.add(accountId, {
-      date: '2023-03-01',
+      date: '2023-01-30',
       amountCents: -18665,
       payee: 'Second copy',
       notes: '',
@@ -239,10 +244,92 @@ describe('integration: a whole run from a statement file', { skip }, () => {
 
     const { result, io } = await run(config, path, () => 'l', 0);
     assert.deepEqual(result.outcomes, []);
+    const transcript = io.transcript.join('\n');
+    assert.match(transcript, /- 1 not in the statement/);
     assert.match(
-      io.transcript.join('\n'),
-      /^ {2}! #1 EXAMPLE; Paiement UBS TWINT: 2 Actual transactions hold its imported ID$/m,
+      transcript,
+      /^ {2}in Actual, not in the statement\n {2}! 2023-01-13 +-186\.65 +Example; Paiement UBS TWINT +duplicate, delete one\n {2}! 2023-01-30 +-186\.65 +Second copy +duplicate, delete one$/im,
     );
+    assert.doesNotMatch(transcript, /to fix there/);
+  });
+
+  it('lists what Actual holds in the stated period and the statement does not', async () => {
+    // The account CSV states its period, Du to Au, which reaches well past its
+    // one transaction: what Actual holds anywhere in it counts, edges included.
+    const { config, accountId } = await arrange(
+      'stated-period',
+      'CH4200120123A12345678',
+    );
+    await session.api.addTransactions(accountId, [
+      { date: '2022-12-31', amount: -100, payee_name: 'Before the period' },
+      { date: '2023-01-01', amount: -200, payee_name: 'First day' },
+      { date: '2023-01-31', amount: -300, payee_name: 'Last day' },
+      { date: '2023-02-01', amount: -400, payee_name: 'After the period' },
+    ]);
+    await session.api.sync();
+
+    const { io } = await run(config, DATA + 'ubs_valid.csv', () => 'l', 1);
+    const transcript = io.transcript.join('\n');
+    assert.match(transcript, /- From 2023-01-01 to 2023-01-31/);
+    assert.match(transcript, /- 2 not in the statement/);
+    assert.match(
+      transcript,
+      /^ {2}in Actual, not in the statement\n {2}! 2023-01-01 +-2\.00 +First day\n {2}! 2023-01-31 +-3\.00 +Last day$/im,
+    );
+    assert.equal(
+      (await session.gateway.getAccountHistory(accountId)).length,
+      4,
+      'nothing is written for them',
+    );
+  });
+
+  it('flags a duplicated Actual transaction, and both copies once the amount changes', async () => {
+    // The owner's reproduction (#109), on a cards statement, which states no
+    // period: it runs from its first to its last statement transaction.
+    const { config, accountId } = await arrange('duplicated', '9659086893219337559');
+    const path = DATA + 'ubs_cards_1.csv';
+    await session.api.addTransactions(accountId, [
+      { date: '2020-02-24', amount: -4100, payee_name: 'Typed once' },
+      { date: '2020-02-24', amount: -4100, payee_name: 'Typed twice' },
+      { date: '2020-02-25', amount: -999, payee_name: 'After the last purchase' },
+    ]);
+    await session.api.sync();
+
+    const first = await run(config, path, () => 'l', 2);
+    const transcript = first.io.transcript.join('\n');
+    assert.match(transcript, /- From 2020-01-06 to 2020-02-24/);
+    assert.match(transcript, /- 1 already in Actual/);
+    assert.match(transcript, /- 1 not in the statement/);
+    const listed = /in Actual, not in the statement\n((?: {2}!.*\n?)+)/
+      .exec(transcript)![1]!
+      .trimEnd()
+      .split('\n');
+    assert.equal(listed.length, 2, listed.join('\n'));
+    for (const l of listed) {
+      assert.match(
+        l,
+        /^ {2}! 2020-02-24 +-41\.00 +Typed (once|twice) +duplicate, delete one$/i,
+      );
+    }
+
+    // Both copies changed in Actual to an amount the bank does not hold: the
+    // statement transaction no longer pairs and is reviewed, and both Actual
+    // transactions are listed - neither is a duplicate, since nothing pairs.
+    const history = await session.gateway.getAccountHistory(accountId);
+    for (const typed of history.filter((t) => t.amount === -4100)) {
+      await session.api.updateTransaction(typed.id, { amount: -4200 });
+    }
+    await session.api.sync();
+
+    const second = await run(config, path, () => 'l', 3);
+    const again = second.io.transcript.join('\n');
+    assert.match(again, /- 0 already in Actual\n {4}- 3 to review/);
+    assert.match(again, /- 2 not in the statement/);
+    assert.match(
+      again,
+      /^ {2}! 2020-02-24 +-42\.00 +Typed once\n {2}! 2020-02-24 +-42\.00 +Typed twice$/im,
+    );
+    assert.doesNotMatch(again, /duplicate, delete one/);
   });
 
   it('says in the statement report which rows the file held but the parser did not read', async () => {

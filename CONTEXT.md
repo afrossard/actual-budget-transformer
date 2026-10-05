@@ -53,5 +53,5 @@ An unpaired Actual transaction that holds the imported ID of a paired Actual tra
 The human deciding, one at a time, what happens to each unpaired statement transaction. A paired statement transaction is never reviewed: it is already in Actual.
 
 **Statement report**:
-What the importer prints for one statement file before any review: how many statement transactions are already in Actual, the ones in Actual that need fixing there, and the ones to review.
+What the importer prints for one statement file before any review: the statement's period and how many of its statement transactions are already in Actual, the pairs that need fixing in Actual, the unpaired Actual transactions, and the statement transactions to review.
 _Avoid_: tape, summary

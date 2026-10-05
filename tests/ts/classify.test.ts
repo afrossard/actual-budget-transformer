@@ -4,6 +4,7 @@ import {
   classify,
   tally,
   toFixInActual,
+  unpairedActual,
   type ActualTransaction,
   type Classified,
 } from '../../src/classify.ts';
@@ -38,6 +39,8 @@ function actual(over: Partial<ActualTransaction> = {}): ActualTransaction {
     ...over,
   };
 }
+
+const MARCH = { from: '2031-03-01', to: '2031-03-31' };
 
 /** Each statement transaction's pair, by Actual id, or null when unpaired. */
 function pairs(classified: readonly Classified[]): (string | null)[] {
@@ -297,15 +300,16 @@ test('a pair whose amounts differ is something to fix in Actual', () => {
   ]);
 });
 
-test('two Actual transactions sharing one imported ID are something to fix in Actual', () => {
+test('two Actual transactions sharing one imported ID are a duplicate, not a fix', () => {
   // Actual has no uniqueness constraint on imported_id, so this is reachable,
   // and it is the corruption this tool exists to prevent.
-  const first = actual({ imported_id: 'SHARED', id: 'first', date: '2031-08-01' });
-  const second = actual({ imported_id: 'SHARED', id: 'second', date: '2031-08-02' });
+  const first = actual({ imported_id: 'SHARED', id: 'first', date: '2031-03-01' });
+  const second = actual({ imported_id: 'SHARED', id: 'second', date: '2031-03-02' });
   const classified = classify([src({ importedId: 'SHARED' })], [first, second], null);
   assert.equal(classified[0]!.pair?.actual.id, 'first');
-  assert.deepEqual(toFixInActual(classified[0]!), [
-    { kind: 'imported-id-shared', holders: [first, second] },
+  assert.deepEqual(toFixInActual(classified[0]!), []);
+  assert.deepEqual(unpairedActual(classified, [first, second], MARCH), [
+    { actual: second, twin: first },
   ]);
 });
 
@@ -321,17 +325,19 @@ test('a second holder of an imported ID is never paired on amount and date', () 
   assert.deepEqual(pairs(classified), ['first', null]);
 });
 
-test('a reference the bank itself repeats pairs each copy, and is nothing to fix', () => {
+test('a reference the bank itself repeats pairs each copy, and is no duplicate', () => {
+  const existing = [
+    actual({ imported_id: 'TWICE', id: 'a' }),
+    actual({ imported_id: 'TWICE', id: 'b' }),
+  ];
   const classified = classify(
     [src({ importedId: 'TWICE' }), src({ importedId: 'TWICE' })],
-    [
-      actual({ imported_id: 'TWICE', id: 'a' }),
-      actual({ imported_id: 'TWICE', id: 'b' }),
-    ],
+    existing,
     null,
   );
   assert.deepEqual(pairs(classified), ['a', 'b']);
   assert.deepEqual(classified.flatMap(toFixInActual), []);
+  assert.deepEqual(unpairedActual(classified, existing, MARCH), []);
 });
 
 test('a pair made on amount and date is nothing to fix', () => {
@@ -366,5 +372,134 @@ test('the holder of its own imported ID, paired with an earlier copy, is a looka
   assert.deepEqual(
     classified[1]!.lookalikes.map((l) => [l.actual.id, l.of, l.role]),
     [['moved', 1, 'pair']],
+  );
+});
+
+/** The unpaired Actual transactions, as `id` or `id~twin`. */
+function unpaired(
+  sources: readonly SourceTransaction[],
+  existing: readonly ActualTransaction[],
+  period = MARCH,
+): string[] {
+  const classified = classify(sources, existing, null);
+  return unpairedActual(classified, existing, period).map((u) =>
+    u.twin === null ? u.actual.id : `${u.actual.id}~${u.twin.id}`,
+  );
+}
+
+test('an Actual transaction in the period that nothing pairs with is unpaired', () => {
+  assert.deepEqual(
+    unpaired(
+      [src()],
+      [actual({ id: 'paired' }), actual({ id: 'other', amount: -900 })],
+    ),
+    ['other'],
+  );
+});
+
+test('an Actual transaction outside the period is not unpaired, its edges included', () => {
+  assert.deepEqual(
+    unpaired(
+      [],
+      [
+        actual({ id: 'before', date: '2031-02-28' }),
+        actual({ id: 'first', date: '2031-03-01' }),
+        actual({ id: 'last', date: '2031-03-31' }),
+        actual({ id: 'after', date: '2031-04-01' }),
+      ],
+    ),
+    ['first', 'last'],
+  );
+});
+
+test('a second copy of a paired Actual transaction is its duplicate, payee ignored', () => {
+  assert.deepEqual(
+    unpaired(
+      [src()],
+      [
+        actual({ id: 'paired', payeeName: 'Coop' }),
+        actual({ id: 'copy', date: '2031-03-11', payeeName: 'Migros' }),
+      ],
+    ),
+    ['copy~paired'],
+  );
+});
+
+test('a second holder of a paired imported ID is its duplicate, whatever its amount', () => {
+  assert.deepEqual(
+    unpaired(
+      [src({ importedId: 'X' })],
+      [
+        actual({ id: 'paired', imported_id: 'X' }),
+        actual({ id: 'copy', imported_id: 'X', amount: -999, date: '2031-03-20' }),
+      ],
+    ),
+    ['copy~paired'],
+  );
+});
+
+test('the same amount two days from a paired one is no duplicate', () => {
+  assert.deepEqual(
+    unpaired(
+      [src()],
+      [actual({ id: 'paired' }), actual({ id: 'far', date: '2031-03-12' })],
+    ),
+    ['far'],
+  );
+});
+
+test('a duplicate names the twin holding its imported ID before one alike in amount', () => {
+  assert.deepEqual(
+    unpaired(
+      [src({ importedId: 'A' }), src({ importedId: 'B' })],
+      [
+        actual({ id: 'by-amount', imported_id: 'A' }),
+        actual({ id: 'by-id', imported_id: 'B' }),
+        actual({ id: 'copy', imported_id: 'B' }),
+      ],
+    ),
+    ['copy~by-id'],
+  );
+});
+
+test('a duplicate names the closest twin in date', () => {
+  assert.deepEqual(
+    unpaired(
+      [src({ date: '2031-03-09' }), src({ date: '2031-03-10' })],
+      [
+        actual({ id: 'day-before', date: '2031-03-09' }),
+        actual({ id: 'same-day', date: '2031-03-10' }),
+        actual({ id: 'copy', date: '2031-03-10' }),
+      ],
+    ),
+    ['copy~same-day'],
+  );
+});
+
+test('a paired Actual transaction outside the period still has its duplicates found', () => {
+  // An imported-ID pair is found wherever it is dated.
+  assert.deepEqual(
+    unpaired(
+      [src({ importedId: 'X' })],
+      [
+        actual({ id: 'moved', imported_id: 'X', date: '2031-06-30' }),
+        actual({ id: 'copy', imported_id: 'X' }),
+      ],
+    ),
+    ['copy~moved'],
+  );
+});
+
+test('an Actual transaction under another bank reference is no duplicate', () => {
+  // The bank says these are two transactions, as it does for pairing (#82).
+  assert.deepEqual(
+    unpaired(
+      [src({ importedId: 'R1' })],
+      [
+        actual({ id: 'paired', imported_id: 'R1' }),
+        actual({ id: 'other', imported_id: 'R2' }),
+      ],
+    ),
+    ['other'],
   );
 });

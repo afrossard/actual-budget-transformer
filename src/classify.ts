@@ -14,7 +14,7 @@
  * finding (#50).
  */
 import { MINTED_PREFIX } from './imported-id.ts';
-import type { SourceTransaction } from './sources/types.ts';
+import type { Period, SourceTransaction } from './sources/types.ts';
 
 /** A transaction as Actual hands it back, narrowed to the fields we read. */
 export type ActualTransaction = {
@@ -35,17 +35,6 @@ export type ActualTransaction = {
 export type Pair = {
   by: 'imported-id' | 'amount-and-date';
   actual: ActualTransaction;
-  /**
-   * Every Actual transaction holding the imported ID, this pair's included.
-   * Empty for a pair made on amount and date.
-   */
-  holders: readonly ActualTransaction[];
-  /**
-   * How many statement transactions in this file carry the imported ID. The
-   * bank repeating its own reference is not Actual's fault, so only holders
-   * beyond that count are something to fix in Actual.
-   */
-  carriers: number;
 };
 
 /**
@@ -58,7 +47,7 @@ export type Lookalike =
       /**
        * `pair`: it is the pair of statement transaction `#of`. `extra-holder`:
        * it holds `#of`'s imported ID beside its pair, a duplicate the
-       * statement report lists to fix in Actual, and is nobody's pair.
+       * statement report lists among the unpaired Actual transactions.
        */
       role: 'pair' | 'extra-holder';
       /** The `#` of the statement transaction it belongs to. */
@@ -94,10 +83,13 @@ export type Classified = {
   inReconciledPeriod: boolean;
 };
 
-/** Something about a pair that Actual needs fixed, there rather than here. */
-export type ToFix =
-  | { kind: 'amount-differs'; actualAmount: number }
-  | { kind: 'imported-id-shared'; holders: readonly ActualTransaction[] };
+/**
+ * Something about a pair that Actual needs fixed, there rather than here.
+ * Only an imported-ID pair can have one: an amount pair has the same amount by
+ * definition. A second holder of the imported ID is not one of these but a
+ * duplicate, listed with the unpaired Actual transactions.
+ */
+export type ToFix = { kind: 'amount-differs'; actualAmount: number };
 
 /**
  * Whether both carry a reference from the bank, and they differ. The bank says
@@ -115,6 +107,17 @@ function otherBankReference(source: SourceTransaction, tx: ActualTransaction): b
     !tx.imported_id.startsWith(MINTED_PREFIX) &&
     tx.imported_id !== source.importedId
   );
+}
+
+/**
+ * Whether two Actual transactions carry two different bank references, which
+ * makes them two transactions however alike they are, as `otherBankReference`
+ * does for a pair.
+ */
+function twoBankReferences(a: ActualTransaction, b: ActualTransaction): boolean {
+  const bank = (tx: ActualTransaction): boolean =>
+    !!tx.imported_id && !tx.imported_id.startsWith(MINTED_PREFIX);
+  return bank(a) && bank(b) && a.imported_id !== b.imported_id;
 }
 
 /** How many days apart two amounts may be and still pair. */
@@ -162,29 +165,20 @@ export function classify(
     if (held) held.push(tx);
     else holdersOf.set(tx.imported_id, [tx]);
   }
-  const carriers = new Map<string, number>();
-  for (const source of sources) {
-    if (source.importedId === '') continue;
-    carriers.set(source.importedId, (carriers.get(source.importedId) ?? 0) + 1);
-  }
+  const carried = new Set(sources.map((s) => s.importedId).filter((id) => id !== ''));
   for (const [i, source] of sources.entries()) {
     const holders = holdersOf.get(source.importedId);
     if (source.importedId === '' || holders === undefined) continue;
     const free = holders.find((tx) => !taken.has(tx.id));
     if (free === undefined) continue;
     taken.set(free.id, i);
-    pairs[i] = {
-      by: 'imported-id',
-      actual: free,
-      holders,
-      carriers: carriers.get(source.importedId) ?? 0,
-    };
+    pairs[i] = { by: 'imported-id', actual: free };
   }
   // Every holder of an imported ID in this file is accounted for by that ID: a
   // second holder paired on amount would hide the duplicate it is.
   const reserved = new Set(
     existing
-      .filter((tx) => tx.imported_id && carriers.has(tx.imported_id))
+      .filter((tx) => tx.imported_id && carried.has(tx.imported_id))
       .map((tx) => tx.id),
   );
 
@@ -239,7 +233,7 @@ export function classify(
     const actual = byId.get(id);
     if (actual === undefined) continue;
     taken.set(id, i);
-    pairs[i] = { by: 'amount-and-date', actual, holders: [], carriers: 0 };
+    pairs[i] = { by: 'amount-and-date', actual };
   }
 
   const firstSeen = new Map<string, number>();
@@ -293,16 +287,51 @@ function reservedFor(
 /** What Actual needs fixed about this pair, if anything; never prompted. */
 export function toFixInActual(classified: Classified): ToFix[] {
   const { pair, source } = classified;
-  if (pair === null) return [];
-  const found: ToFix[] = [];
-  if (pair.actual.amount !== source.amountCents) {
-    found.push({ kind: 'amount-differs', actualAmount: pair.actual.amount });
-  }
-  // Reported once, on the first statement transaction carrying the ID.
-  if (pair.holders.length > pair.carriers && pair.holders[0] === pair.actual) {
-    found.push({ kind: 'imported-id-shared', holders: pair.holders });
-  }
-  return found;
+  if (pair === null || pair.actual.amount === source.amountCents) return [];
+  return [{ kind: 'amount-differs', actualAmount: pair.actual.amount }];
+}
+
+/**
+ * An Actual transaction in the statement's account and period that no
+ * statement transaction pairs with: the bank does not hold it as Actual does.
+ */
+export type UnpairedActual = {
+  actual: ActualTransaction;
+  /**
+   * The paired Actual transaction it duplicates, or null: one holding the same
+   * imported ID, or else one of the same amount within a day. Which of the two
+   * the pairing took is arbitrary, so the human is shown both.
+   */
+  twin: ActualTransaction | null;
+};
+
+/**
+ * Pairing the other way round: every Actual transaction dated within the
+ * period that no statement transaction took. Nothing is ever written for one;
+ * the statement report lists it to be fixed in Actual.
+ */
+export function unpairedActual(
+  classified: readonly Classified[],
+  /** What `classify` was given; only those dated within `period` count. */
+  existing: readonly ActualTransaction[],
+  period: Period,
+): UnpairedActual[] {
+  const paired = classified.flatMap((c) => (c.pair === null ? [] : [c.pair.actual]));
+  const taken = new Set(paired.map((tx) => tx.id));
+  const twinOf = (tx: ActualTransaction): ActualTransaction | null =>
+    paired.find((p) => !!tx.imported_id && p.imported_id === tx.imported_id) ??
+    paired
+      .filter(
+        (p) =>
+          p.amount === tx.amount &&
+          daysApart(p.date, tx.date) <= PAIRING_WINDOW_DAYS &&
+          !twoBankReferences(p, tx),
+      )
+      .sort((a, b) => daysApart(a.date, tx.date) - daysApart(b.date, tx.date))[0] ??
+    null;
+  return existing
+    .filter((tx) => !taken.has(tx.id) && tx.date >= period.from && tx.date <= period.to)
+    .map((actual) => ({ actual, twin: twinOf(actual) }));
 }
 
 /** How many are already in Actual and how many go to review. */

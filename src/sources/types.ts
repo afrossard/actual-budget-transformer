@@ -25,6 +25,9 @@ export type SourceTransaction = {
   sourceLine: number;
 };
 
+/** The dates a statement covers, both included. ISO `YYYY-MM-DD`. */
+export type Period = { from: string; to: string };
+
 /** A source row the parser did not turn into a transaction, and why. */
 export type DroppedRow = {
   sourceLine: number;
@@ -38,6 +41,11 @@ export type ParsedStatement = {
   format: string;
   /** The identifier the file carries: an IBAN, or a card number. */
   accountKey: string;
+  /**
+   * The period the file says it covers, or null when it says none, as the
+   * cards CSV does. It can reach past the first and last transaction.
+   */
+  period: Period | null;
   transactions: SourceTransaction[];
   /**
    * Rows deliberately not imported — today only pending card rows and the

@@ -23,6 +23,9 @@ import {
 
 const skip = skipReason(await serverReachable());
 
+/** The seeded statement's period; what Actual holds outside its pairs is not listed here. */
+const PERIOD = { from: '2030-06-01', to: '2031-03-31' };
+
 /** The seeded statement's unpaired transactions, in the order they are reviewed. */
 const TO_REVIEW = [
   '#2 KIOSK',
@@ -52,7 +55,6 @@ describe('integration: the review loop', { skip }, () => {
   /** A fresh account, seeded, read the way a run reads it. */
   async function arrange(label: string): Promise<{
     accountId: string;
-    accountName: string;
     scenario: Scenario;
     existing: ActualTransaction[];
     reconciledThrough: string | null;
@@ -63,7 +65,6 @@ describe('integration: the review loop', { skip }, () => {
     const reconciledThrough = await session.gateway.reconciledThroughDate(account.id);
     return {
       accountId: account.id,
-      accountName: account.name,
       scenario,
       existing,
       reconciledThrough,
@@ -100,7 +101,7 @@ describe('integration: the review loop', { skip }, () => {
   });
 
   it('writes nothing at all when every one is left', async () => {
-    const { accountId, accountName, scenario, existing, reconciledThrough } =
+    const { accountId, scenario, existing, reconciledThrough } =
       await arrange('leave-all');
     const classified = classify(scenario.source, existing, reconciledThrough);
     const io = createScriptedIo(TO_REVIEW.map(() => 'l'));
@@ -108,7 +109,8 @@ describe('integration: the review loop', { skip }, () => {
     const result = await review({
       gateway: session.gateway,
       accountId,
-      accountName,
+      period: PERIOD,
+      unpaired: [],
       classified,
       reconciledThrough,
       io,
@@ -131,7 +133,7 @@ describe('integration: the review loop', { skip }, () => {
   it('imports one missing on the reconciled-through date, and says it changes a reconciled balance', async () => {
     // Reported from a real run (#82): transactions deleted from Actual on the
     // same day as the last reconciled one were set aside as "locked".
-    const { accountId, accountName, scenario, existing, reconciledThrough } =
+    const { accountId, scenario, existing, reconciledThrough } =
       await arrange('reconciled-period');
     const classified = classify(scenario.source, existing, reconciledThrough);
     const io = createScriptedIo(['i', 'q']);
@@ -139,7 +141,8 @@ describe('integration: the review loop', { skip }, () => {
     await review({
       gateway: session.gateway,
       accountId,
-      accountName,
+      period: PERIOD,
+      unpaired: [],
       classified,
       reconciledThrough,
       io,
@@ -163,7 +166,7 @@ describe('integration: the review loop', { skip }, () => {
   });
 
   it('never asks about a pair, and lists the one Actual needs fixed', async () => {
-    const { accountId, accountName, scenario, existing, reconciledThrough } =
+    const { accountId, scenario, existing, reconciledThrough } =
       await arrange('fix-in-actual');
     const classified = classify(scenario.source, existing, reconciledThrough);
     const io = createScriptedIo(['q']);
@@ -171,14 +174,15 @@ describe('integration: the review loop', { skip }, () => {
     await review({
       gateway: session.gateway,
       accountId,
-      accountName,
+      period: PERIOD,
+      unpaired: [],
       classified,
       reconciledThrough,
       io,
     });
 
     const transcript = io.transcript.join('\n');
-    assert.match(transcript, /^ {2}5 already in Actual · 11 to review$/m);
+    assert.match(transcript, /^ {4}- 5 already in Actual\n {4}- 11 to review$/m);
     assert.match(
       transcript,
       /^ {2}! #13 PRICE CHANGED: Actual holds -80\.00, the bank says -75\.00$/m,
@@ -193,7 +197,7 @@ describe('integration: the review loop', { skip }, () => {
   });
 
   it('says which statement transaction took a lookalike, and shows it in full on [?]', async () => {
-    const { accountId, accountName, scenario, existing, reconciledThrough } =
+    const { accountId, scenario, existing, reconciledThrough } =
       await arrange('lookalike');
     const classified = classify(scenario.source, existing, reconciledThrough);
     const coffee = classified.find((c) => c.number === 8)!;
@@ -202,7 +206,8 @@ describe('integration: the review loop', { skip }, () => {
     await review({
       gateway: session.gateway,
       accountId,
-      accountName,
+      period: PERIOD,
+      unpaired: [],
       classified: [coffee],
       reconciledThrough,
       io,
@@ -223,13 +228,14 @@ describe('integration: the review loop', { skip }, () => {
   });
 
   it('a second run of the same statement has nothing to review', async () => {
-    const { accountId, accountName, scenario, existing, reconciledThrough } =
+    const { accountId, scenario, existing, reconciledThrough } =
       await arrange('idempotent');
     const first = classify(scenario.source, existing, reconciledThrough);
     const firstResult = await review({
       gateway: session.gateway,
       accountId,
-      accountName,
+      period: PERIOD,
+      unpaired: [],
       classified: first,
       reconciledThrough,
       io: createScriptedIo(TO_REVIEW.map(() => 'i')),
@@ -245,13 +251,14 @@ describe('integration: the review loop', { skip }, () => {
     const secondResult = await review({
       gateway: session.gateway,
       accountId,
-      accountName,
+      period: PERIOD,
+      unpaired: [],
       classified: second,
       reconciledThrough,
       io,
     });
     assert.deepEqual(secondResult, { outcomes: [], stopped: false });
-    assert.match(io.transcript.join('\n'), /16 already in Actual · nothing to review/);
+    assert.match(io.transcript.join('\n'), /- 16 already in Actual\n {4}- 0 to review/);
     assert.equal(
       (await session.gateway.getAccountHistory(accountId)).length,
       afterFirst.length,
@@ -259,15 +266,15 @@ describe('integration: the review loop', { skip }, () => {
   });
 
   it('stops the run on quit and leaves the rest untouched', async () => {
-    const { accountId, accountName, scenario, existing, reconciledThrough } =
-      await arrange('quit');
+    const { accountId, scenario, existing, reconciledThrough } = await arrange('quit');
     const classified = classify(scenario.source, existing, reconciledThrough);
     const io = createScriptedIo(['l', 'q']);
 
     const result = await review({
       gateway: session.gateway,
       accountId,
-      accountName,
+      period: PERIOD,
+      unpaired: [],
       classified,
       reconciledThrough,
       io,

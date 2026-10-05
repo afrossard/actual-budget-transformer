@@ -13,7 +13,7 @@
  * nothing left to act on once only unpaired statement transactions are
  * reviewed.
  */
-import type { Classified } from './classify.ts';
+import type { Classified, UnpairedActual } from './classify.ts';
 import {
   block,
   detail,
@@ -22,7 +22,7 @@ import {
   type ReportStyle,
 } from './statement-report.ts';
 import type { ActualGateway } from './actual-gateway.ts';
-import type { DroppedRow } from './sources/types.ts';
+import type { DroppedRow, Period } from './sources/types.ts';
 
 export type Action = 'import' | 'leave';
 
@@ -64,9 +64,12 @@ const PROMPT = `  ${ACTIONS.map((a) => LABEL[a]).join('  ')}  [?] detail  [q]uit
 export type ReviewOptions = {
   gateway: ActualGateway;
   accountId: string;
-  accountName: string;
+  /** The dates the statement covers. */
+  period: Period;
   /** Every statement transaction, paired or not, as the classifier left it. */
   classified: readonly Classified[];
+  /** The Actual transactions in the period the statement does not hold. */
+  unpaired: readonly UnpairedActual[];
   /** Rows the parser did not turn into transactions, so the report can say so. */
   dropped?: readonly DroppedRow[];
   reconciledThrough: string | null;
@@ -75,14 +78,14 @@ export type ReviewOptions = {
 };
 
 export async function review(options: ReviewOptions): Promise<ReviewResult> {
-  const { gateway, accountId, accountName, classified, io, reconciledThrough } =
-    options;
+  const { gateway, accountId, classified, io, reconciledThrough } = options;
   const style = options.style ?? { colour: false, width: DEFAULT_WIDTH };
 
   io.write('');
   const statement = {
-    accountName,
+    period: options.period,
     classified,
+    unpaired: options.unpaired,
     reconciledThrough,
     dropped: options.dropped ?? [],
   };
@@ -187,7 +190,7 @@ function printSummary(
   const left = classified.length - already - imported;
   io.write('');
   io.write(
-    // No account name: the report opened with it, and a long one would wrap.
+    // No account name: the run opened with it, and a long one would wrap.
     `${imported} imported, ${left} left, ${already} already in Actual.`,
   );
 }
