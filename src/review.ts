@@ -21,6 +21,7 @@ import {
   report,
   type ReportStyle,
 } from './statement-report.ts';
+import { formatCents } from './money.ts';
 import type { ActualGateway } from './actual-gateway.ts';
 import type { DroppedRow, Period } from './sources/types.ts';
 
@@ -172,11 +173,29 @@ async function apply(
  * reconciled period is reviewed like any other, because it is most probably
  * one deleted from Actual to be imported again. It is only said out loud,
  * since importing it moves a balance the human has already attested.
+ *
+ * A pending one is reviewed like any other too (#47), but its amount is not
+ * final, so it must not be confirmed as if it were: in another currency it is
+ * not even an amount in the account's own.
  */
 export function warnings(classified: Classified): string[] {
-  return classified.inReconciledPeriod
-    ? ['dated in your reconciled period: importing it changes a reconciled balance']
-    : [];
+  const said: string[] = [];
+  if (classified.inReconciledPeriod) {
+    said.push(
+      'dated in your reconciled period: importing it changes a reconciled balance',
+    );
+  }
+  const { pending, amountCents } = classified.source;
+  if (pending) {
+    const { originalCurrency, accountCurrency } = pending;
+    said.push(
+      originalCurrency === accountCurrency
+        ? 'pending, amount may change when booked'
+        : `pending, amount is ${formatCents(Math.abs(amountCents), 0)} ` +
+            `${originalCurrency}, not ${accountCurrency}`,
+    );
+  }
+  return said;
 }
 
 function printSummary(

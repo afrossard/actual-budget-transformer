@@ -332,12 +332,33 @@ describe('integration: a whole run from a statement file', { skip }, () => {
     assert.doesNotMatch(again, /duplicate, delete one/);
   });
 
-  it('says in the statement report which rows the file held but the parser did not read', async () => {
-    const { config } = await arrange('cards-pending', '9659086893219337559');
-    const { io } = await run(config, DATA + 'ubs_cards_pending.csv', () => 'l', 3);
+  it('imports a pending card purchase, warning that its amount is not final', async () => {
+    const { config, accountId } = await arrange('cards-pending', '9659086893219337559');
+    const { io } = await run(
+      config,
+      DATA + 'ubs_cards_pending.csv',
+      (i) => (i < 2 ? 'i' : 'l'),
+      5,
+    );
     const transcript = io.transcript.join('\n');
-    assert.match(transcript, /4 rows in the file were not read as transactions/);
-    assert.match(transcript, /pending \(not booked yet\)/);
+    assert.match(transcript, /2 rows in the file were not read as transactions/);
+    assert.doesNotMatch(transcript, /not booked yet/);
+    assert.match(
+      transcript,
+      /#1 +2020-02-26 +-21\.62 +MERCHANT-PENDING1.*\n(?:.*\n)*? {2}! pending, amount is 21\.62 USD, not CHF\n/,
+    );
+    assert.match(
+      transcript,
+      /#2 +2020-02-25 +-3\.12 +MERCHANT-PENDING2.*\n(?:.*\n)*? {2}! pending, amount may change when booked\n/,
+    );
+    // A booked row carries no such warning.
+    assert.equal(transcript.match(/! pending/g)?.length, 2);
+
+    const stored = await session.gateway.getAccountHistory(accountId);
+    assert.deepEqual(stored.map((t) => [t.date, t.amount]).sort(), [
+      ['2020-02-25', -312],
+      ['2020-02-26', -2162],
+    ]);
   });
 
   describe('when the budget has no account to import into', () => {

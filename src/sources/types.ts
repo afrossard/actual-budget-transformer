@@ -23,6 +23,19 @@ export type SourceTransaction = {
   importedIdOrigin: ImportedIdOrigin;
   /** 1-based line number in the source file, for the Tape and for evidence. */
   sourceLine: number;
+  /** Set when the bank has authorised it but not booked it yet. */
+  pending?: Pending;
+};
+
+/**
+ * A pending statement transaction's amount is not final: it is the purchase's
+ * original amount, in its original currency, until the bank books it.
+ */
+export type Pending = {
+  /** The currency its amount is stated in, e.g. `USD`. */
+  originalCurrency: string;
+  /** The account's own currency, e.g. `CHF`: what the amount is written as. */
+  accountCurrency: string;
 };
 
 /** The dates a statement covers, both included. ISO `YYYY-MM-DD`. */
@@ -48,9 +61,9 @@ export type ParsedStatement = {
   period: Period | null;
   transactions: SourceTransaction[];
   /**
-   * Rows deliberately not imported — today only pending card rows and the
-   * per-currency footer. Carried rather than logged so the Tape can say the
-   * file held more than it proposes.
+   * Rows deliberately not imported — today the cards CSV's per-currency
+   * footer, and any row whose date or amount cannot be read. Carried rather
+   * than logged so the Tape can say the file held more than it proposes.
    */
   dropped: DroppedRow[];
 };
