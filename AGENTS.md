@@ -41,14 +41,15 @@ There is **no build step**. `tsconfig.json` is `noEmit` and Node strips types na
 
 ### Versions: follow Actual
 
-Four pins move together, and they all follow whatever Actual is on. When upgrading:
+Five pins move together, and they all follow whatever Actual is on. When upgrading:
 
 | Ours | Set it to | Currently |
 | --- | --- | --- |
-| `@actual-app/api` in `package.json` | the server version you run, **exactly** — no caret. A range could pull a newer api and create the one skew ADR-007 aborts on | `26.9.0` |
-| `actualbudget/actual-server` in `.devcontainer/docker-compose.yml` and `.github/workflows/test.yaml` | the same version, so the characterization tests check the behaviour you actually run | `26.9.0` |
+| `@actual-app/api` in `package.json` | the server version you run, **exactly** — no caret. A range could pull a newer api and create the one skew ADR-007 aborts on | `26.10.0` |
+| `actualbudget/actual-server` in `.devcontainer/docker-compose.yml` and `.github/workflows/test.yaml` | the same version, so the characterization tests check the behaviour you actually run | `26.10.0` |
 | `.nvmrc` | Actual's own `.nvmrc` for that release (`actualbudget/actual` at tag `vX.Y.Z`). CI reads this file, so it is the single place to change | `24.18.1` |
 | `FROM` in `Containerfile`, both stages | `node:<.nvmrc>-trixie-slim`. `FROM` cannot read a file, so the version is written twice and `tests/ts/containerfile.test.ts` fails when the two disagree | `24.18.1` |
+| `@types/node` in `package.json` | the major of `engines.node`, as in Actual's own `package.json`: types newer than the oldest supported Node typecheck APIs it lacks. `tests/ts/types-node.test.ts` fails when the range or the Renovate rule names another major | `^22` |
 
 Renovate is configured to keep this rule (#97), and nothing else has to be remembered:
 
@@ -56,6 +57,7 @@ Renovate is configured to keep this rule (#97), and nothing else has to be remem
   It is titled `feat(deps): require actual server <version> or newer`, so it cuts a release whose notes say which server the image needs (#87).
   The compose line is a literal tag for that reason: Renovate extracts nothing from a `${VAR:-default}` image.
 - **Renovate's Node updates are off** for `.nvmrc` and the Containerfile, because it would propose Node's latest and cannot read Actual's `.nvmrc`.
+- **Renovate keeps `@types/node` to the `engines.node` major** (`allowedVersions`), so it proposes patches and minors but never the next major.
 - **The `node-follows-actual` check** (`npm run check:node`, a job in `test.yaml`) fetches Actual's `.nvmrc` at the tag matching the api pin and fails with the exact fix, so on the grouped PR a red check says which Node to set.
 
 Verify a `renovate.json` change with Renovate's own local dry run before relying on it: `GITHUB_COM_TOKEN=$(gh auth token) LOG_LEVEL=debug npx renovate --platform=local --dry-run=lookup`, then read the `branchName` of each update in the `packageFiles with updates` log line.
@@ -221,7 +223,7 @@ docker compose -f .devcontainer/docker-compose.yml --profile actual rm -sf actua
 
 Reach it at `http://localhost:5006` from outside the devcontainer, not `http://actual-server:5006` (that name only resolves on the compose network).
 `/data` is a tmpfs, so removing the container always yields a clean budget on the next start.
-Note the default pin is `actualbudget/actual-server:26.9.0` while `@actual-app/cli` pins its own bundled api — so a CLI newer than the server reproduces exactly the client-ahead skew ADR-007 is about, which makes this a useful place to test that gate rather than reason about it.
+Note the default pin is `actualbudget/actual-server:26.10.0` while `@actual-app/cli` pins its own bundled api — so a CLI newer than the server reproduces exactly the client-ahead skew ADR-007 is about, which makes this a useful place to test that gate rather than reason about it.
 
 ---
 

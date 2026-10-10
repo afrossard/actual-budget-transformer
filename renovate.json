@@ -28,6 +28,13 @@
         "node"
       ],
       "enabled": false
+    },
+    {
+      "description": "@types/node follows the major of engines.node, as Actual pins it to the major of its own engines floor rather than of the Node it runs (AGENTS.md, \"Versions: follow Actual\"). Newer types would typecheck against APIs the oldest supported Node lacks.",
+      "matchPackageNames": [
+        "@types/node"
+      ],
+      "allowedVersions": "22.x"
     }
   ],
   "semanticCommits": "enabled"
