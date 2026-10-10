@@ -1,0 +1,20 @@
+#!/bin/sh
+set -eu
+
+git config --global --add safe.directory "$PWD"
+
+# docker-outside-of-docker restores ~/.docker/config.json from the host on
+# every start, and a macOS host sets "credsStore": "desktop", whose helper
+# binary does not exist in this Linux container, so every pull fails.
+node -e '
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const file = path.join(os.homedir(), ".docker", "config.json");
+fs.mkdirSync(path.dirname(file), { recursive: true });
+const config = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {};
+delete config.credsStore;
+fs.writeFileSync(file, JSON.stringify(config, null, 2) + "\n");
+'
+
+dotfiles-bootstrap

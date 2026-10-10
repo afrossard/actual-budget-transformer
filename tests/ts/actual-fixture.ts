@@ -88,8 +88,7 @@ export function skipReason(reachable: boolean): string | false {
   return reachable
     ? false
     : `Actual server unreachable at ${SERVER_URL}. Start it with ` +
-        `\`docker compose -f .devcontainer/docker-compose.yml --profile actual up -d actual-server\` ` +
-        `and \`npm run bootstrap\`.`;
+        `\`npm run actual:up\` and \`npm run bootstrap\`.`;
 }
 
 /** The already-initialised api singleton behind an open gateway. */

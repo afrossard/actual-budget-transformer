@@ -1,0 +1,4 @@
+# .nvmrc is the only Node pin (AGENTS.md, "Versions: follow Actual").
+# Without this setting mise ignores it and runs the dev image's baked default.
+[settings]
+idiomatic_version_file_enable_tools = ["node"]

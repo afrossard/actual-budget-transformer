@@ -10,7 +10,7 @@
 
 - **Conventional Commits, squash-merged** (#87). The PR title becomes the commit release-please computes the next version from; `CONTRIBUTING.md` says which type bumps what. Never edit `CHANGELOG.md` by hand.
 - **Don't mark plan/checklist items "done" until validated.** Writing the code is not the same as confirming it works. Wait for the user to report results before editing a plan's status for anything only they can run. Pre-marking creates false signal that's worse than the unfinished state.
-- **Know which things actually need the human.** Docker availability depends on where the session runs, so check it rather than assuming: an agent session may run outside the devcontainer (`ls /.dockerenv`, `docker info`), in which case docker works but `actual-up`/`actual-down` do **not**, because the `dc` alias hardcodes `/workspaces/actual-budget-transformer`. Bring the test server up directly instead (see Devcontainer below).
+- **Know which things actually need the human.** Docker availability depends on where the session runs, so check it rather than assuming: an agent session may run outside the devcontainer (`ls /.dockerenv`, `docker info`). `npm run actual:up` works wherever docker does (see Devcontainer below).
   The real human-only boundary is **the user's own data and budget**, not docker: downloading statements from UBS e-banking, anything touching the real Actual budget, and verifying results in the Actual UI. A disposable test server is not a substitute for any of those.
 
 ## Project purpose
@@ -132,14 +132,16 @@ No grep can prove the next one absent.
 Unit tests need nothing. Integration tests need the disposable server and **skip themselves with an explanatory message** when it is unreachable:
 
 ```bash
-docker compose -f .devcontainer/docker-compose.yml --profile actual up -d actual-server
-ACTUAL_SERVER_URL=http://localhost:5006 npm run bootstrap
-ACTUAL_SERVER_URL=http://localhost:5006 npm test
+npm run actual:up
+npm run bootstrap
+npm test
 ```
+
+The devcontainer sets `ACTUAL_SERVER_URL`; anywhere else, export `ACTUAL_SERVER_URL=http://localhost:5006` first.
 
 - **Never mock `@actual-app/api`.** These tests exist because Actual's real behaviour is surprising; a mock would encode our assumptions instead of checking them.
 - **`tests/ts/actual-api.characterization.test.ts`** holds the five probes from `prototype/38-interactive-import`, turned into assertions, and the ActualQL filter shapes the gateway's reads are built on (#67), the silently wrong ones included. They are the guard that an api version bump cannot quietly invalidate the write path or the reads (ADR-007, ADR 0004). If one fails, the design they pin needs re-reading, not the test.
-- **Each integration run creates its own account.** The reconciled-through date is account-global server state, so owning the account is what lets this suite skip date partitioning altogether. Test accounts are named `TS <label> <tag>`; `actual-down` + `actual-up` + `npm run bootstrap` clears the debris.
+- **Each integration run creates its own account.** The reconciled-through date is account-global server state, so owning the account is what lets this suite skip date partitioning altogether. Test accounts are named `TS <label> <tag>`; `npm run actual:down` + `npm run actual:up` + `npm run bootstrap` clears the debris.
 
 ### Choices, so they are not re-litigated
 
@@ -203,24 +205,24 @@ There is no `python` or `python3` on `PATH` in this devcontainer, so reach any P
 
 ### Devcontainer
 
-The devcontainer uses Docker Compose (`.devcontainer/docker-compose.yml`). Only the main devcontainer starts automatically. Auxiliary services use compose profiles:
+`.devcontainer/Containerfile` is one `FROM ghcr.io/afrossard/container-base:<version>-dev` line, bumped by Renovate (#132).
+The dev image brings mise, uv, chezmoi and Claude Code; the shell setup is the operator's dotfiles, which `post-start` applies through `dotfiles-bootstrap` when `DOTFILES_REPO` is set on the host.
+Nothing in this repo writes to `~/.zshrc`.
+
+- **`mise.toml` makes mise read `.nvmrc`.** Without `idiomatic_version_file_enable_tools = ["node"]` mise ignores it and runs the image's baked default Node, so the pin in "Versions: follow Actual" would silently not apply here.
+- **`post-start` strips `credsStore` from `~/.docker/config.json`** on every start, because docker-outside-of-docker copies it from a macOS host, where it names a helper that does not exist in this container, and every pull fails.
+- **`gh auth login` again after a rebuild.** Its config is not kept in a volume.
+
+The devcontainer uses Docker Compose (`.devcontainer/docker-compose.yml`).
+Only the devcontainer starts automatically; the Actual test server is the `actual` profile, driven by npm scripts with a repo-relative path, so they work inside the devcontainer, in an agent runtime and on a host alike:
 
 ```bash
-actual-up       # start Actual Budget test server (profile: actual)
-actual-down     # stop AND remove the container — fresh tmpfs on next up
-claude-up       # start Claude Code container (profile: claude)
-claude-down     # stop it
+npm run actual:up      # start the Actual test server and wait until it is healthy
+curl -s http://localhost:5006/info      # reports the sync-server version
+npm run actual:down    # stop AND remove it - fresh tmpfs on next up
 ```
 
-Those aliases live in `.devcontainer/.zsh_aliases` and only work **inside** the devcontainer, because `dc` hardcodes the `/workspaces/...` compose path.
-Outside it, drive compose directly from the repo root — the `actual-server` service is standalone (no `depends_on`, no build, no workspace volume), so it comes up on its own:
-
-```bash
-docker compose -f .devcontainer/docker-compose.yml --profile actual up -d actual-server
-curl -s http://localhost:5006/info      # verified healthy, reports the sync-server version
-docker compose -f .devcontainer/docker-compose.yml --profile actual rm -sf actual-server
-```
-
+Inside the devcontainer, `ACTUAL_SERVER_URL` is already `http://actual-server:5006`: under docker-outside-of-docker a published port lands on the host's `localhost`, not the devcontainer's, so the compose network is the way in.
 Reach it at `http://localhost:5006` from outside the devcontainer, not `http://actual-server:5006` (that name only resolves on the compose network).
 `/data` is a tmpfs, so removing the container always yields a clean budget on the next start.
 Note the default pin is `actualbudget/actual-server:26.10.0` while `@actual-app/cli` pins its own bundled api — so a CLI on another version than the server reproduces exactly the skew ADR 0004 aborts on, which makes this a useful place to test that gate rather than reason about it.
