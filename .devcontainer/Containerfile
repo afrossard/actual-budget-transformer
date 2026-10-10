@@ -10,7 +10,7 @@ RUN sudo apt-get update \
   && sudo apt-get install --no-install-recommends --yes vim
 
 # Install UV - default for all python containers
-COPY --from=ghcr.io/astral-sh/uv:0.11.19 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.13.0 /uv /uvx /bin/
 
 # ---------------------------------------------------------------------------
 # Defaults for any devcontainer
