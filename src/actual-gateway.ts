@@ -31,7 +31,14 @@ export type GatewaySettings = {
   dataDir: string | null;
 };
 
-export type Account = { id: string; name: string; closed?: boolean };
+/**
+ * An account's ID in Actual. Branded so that an IBAN, a card number or an
+ * account name cannot reach a read or a write in its place: the gateway is the
+ * only module that makes one, from an account Actual listed.
+ */
+export type AccountId = string & { readonly __accountId: unique symbol };
+
+export type Account = { id: AccountId; name: string; closed?: boolean };
 
 /** A transaction to create. `importedId` may be blank, and then none is set. */
 export type NewTransaction = {
@@ -131,7 +138,7 @@ export class ActualGateway {
   async listAccounts(): Promise<Account[]> {
     const rows = await this.#require().getAccounts();
     return rows.map((a) => ({
-      id: a.id,
+      id: a.id as AccountId,
       name: a.name,
       closed: a.closed ?? false,
     }));
@@ -142,7 +149,7 @@ export class ActualGateway {
    * inclusive. Splits come back as their parent, with the parts inside it.
    */
   async getTransactions(
-    accountId: string,
+    accountId: AccountId,
     startDate: IsoDate,
     endDate: IsoDate,
   ): Promise<ActualTransaction[]> {
@@ -158,7 +165,7 @@ export class ActualGateway {
    * targeted questions below - but a test asserting on what a run left behind
    * needs all of it.
    */
-  async getAccountHistory(accountId: string): Promise<ActualTransaction[]> {
+  async getAccountHistory(accountId: AccountId): Promise<ActualTransaction[]> {
     return this.getTransactions(accountId, FIRST_DAY, LAST_DAY);
   }
 
@@ -174,7 +181,7 @@ export class ActualGateway {
    * alike, and should only one side carry the flag, the later date is the safe
    * error.
    */
-  async reconciledThroughDate(accountId: string): Promise<IsoDate | null> {
+  async reconciledThroughDate(accountId: AccountId): Promise<IsoDate | null> {
     const api = this.#require();
     const result = (await api.aqlQuery(
       api
@@ -203,7 +210,7 @@ export class ActualGateway {
    * Every holder comes back, not one per ID: Actual does not enforce uniqueness.
    */
   async findByImportedIds(
-    accountId: string,
+    accountId: AccountId,
     importedIds: readonly string[],
   ): Promise<ActualTransaction[]> {
     const wanted = [...new Set(importedIds)].filter((id) => id !== '');
@@ -263,7 +270,7 @@ export class ActualGateway {
    * Create a transaction, and only ever create: `addTransactions` runs no
    * matcher, so a confirmed create creates.
    */
-  async add(accountId: string, tx: NewTransaction): Promise<void> {
+  async add(accountId: AccountId, tx: NewTransaction): Promise<void> {
     await this.#require().addTransactions(accountId, [
       {
         date: tx.date,

@@ -7,6 +7,7 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
+import type { AccountId } from '../../src/actual-gateway.ts';
 import type { Config } from '../../src/config.ts';
 import { DEFAULT_FORMATS } from '../../src/sources/formats.ts';
 import { createScriptedIo } from '../../src/io.ts';
@@ -39,7 +40,7 @@ describe('integration: a whole run from a statement file', { skip }, () => {
   async function arrange(
     label: string,
     accountKey: string,
-  ): Promise<{ config: Config; accountId: string }> {
+  ): Promise<{ config: Config; accountId: AccountId }> {
     const account = await createRunAccount(session, label);
     return {
       accountId: account.id,
