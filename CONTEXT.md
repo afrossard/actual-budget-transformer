@@ -43,7 +43,7 @@ A statement transaction and the Actual transaction taken to be the same one: eit
 _Avoid_: blind duplicate, match, near-match
 
 **Unpaired Actual transaction**:
-An Actual transaction in the statement's account that no statement transaction pairs with, and either is dated within the statement's period or holds an imported ID the statement carries, wherever it is dated. The statement's period is the one the file states, or else its first to last statement transaction date; a holder of an imported ID is found wherever it now sits, so the period does not bound it. The bank does not hold it as Actual does, so it is listed in the statement report to be fixed in Actual.
+An Actual transaction in the statement's account that no statement transaction pairs with, and either is dated within the statement's period or holds an imported ID the statement carries, wherever it is dated. The statement's period is the one the file states, or else its first to last statement transaction date, so a statement with no transactions has one only if it states it; a holder of an imported ID is found wherever it now sits, so the period does not bound it. The bank does not hold it as Actual does, so it is listed in the statement report to be fixed in Actual.
 _Avoid_: orphan, extra, stray, unmatched
 
 **Duplicate**:

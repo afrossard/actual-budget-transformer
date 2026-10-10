@@ -41,7 +41,12 @@ export async function runImport(options: RunOptions): Promise<RunResult> {
       (target.mapped ? ` -> ${JSON.stringify(accountName)}` : ''),
   );
 
-  if (statement.transactions.length === 0) {
+  // A file with no transactions still has a period when it states one, and
+  // what Actual holds in it is listed (#121). One that states none - a cards
+  // CSV - has no dates to bound one, so there is nothing to compare.
+  const span = transactionSpan(statement.transactions);
+  const period = statement.period ?? span;
+  if (period === null) {
     io.write('no transactions in this file.');
     for (const row of statement.dropped) {
       io.write(`    line ${row.sourceLine}: ${row.reason}`);
@@ -50,9 +55,6 @@ export async function runImport(options: RunOptions): Promise<RunResult> {
   }
 
   const account = resolveAccount(target, await gateway.listAccounts());
-
-  const span = transactionSpan(statement.transactions);
-  const period = statement.period ?? span;
 
   // Three targeted reads instead of the account's whole history (#67), each
   // answering one question the classifier asks. Their union is every Actual
@@ -84,30 +86,28 @@ export async function runImport(options: RunOptions): Promise<RunResult> {
   return { ...result, accountName };
 }
 
-/** The first to last statement transaction date. */
-function transactionSpan(sources: readonly SourceTransaction[]): Period {
+/** The first to last statement transaction date, or null when there is none. */
+function transactionSpan(sources: readonly SourceTransaction[]): Period | null {
   // ISO dates sort as strings.
   const dates = sources.map((tx) => tx.date).sort();
   const from = dates[0];
   const to = dates.at(-1);
-  if (from === undefined || to === undefined) {
-    throw new Error('a statement with no transactions has no span');
-  }
-  return { from, to };
+  return from === undefined || to === undefined ? null : { from, to };
 }
 
 /**
  * The dates to read: wherever an amount-and-date pair of a statement
  * transaction could sit - its span, widened by the pairing window at each end -
  * and the whole period, where every Actual transaction is either paired or
- * unpaired.
+ * unpaired. A statement with no transactions has no span, only its period.
  *
  * A window is right here, and only here. Such a pair is *defined* by its date
  * being near the statement transaction's, whereas an imported ID has to be
  * found wherever the transaction now sits - which is why that read is
  * unbounded.
  */
-function readSpan(span: Period, period: Period): [string, string] {
+function readSpan(span: Period | null, period: Period): [string, string] {
+  if (span === null) return [period.from, period.to];
   const from = shiftDays(span.from, -PAIRING_WINDOW_DAYS);
   const to = shiftDays(span.to, PAIRING_WINDOW_DAYS);
   return [period.from < from ? period.from : from, period.to > to ? period.to : to];
