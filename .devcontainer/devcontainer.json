@@ -13,9 +13,7 @@
     "DOTFILES_REPO": "${localEnv:DOTFILES_REPO}",
     // docker-compose.yml mounts the workspace from this host path, which is
     // what a bind mount through docker-outside-of-docker has to name.
-    "LOCAL_WORKSPACE_FOLDER": "${localWorkspaceFolder}",
-    // The anonymize scripts' uv cache and the workspace sit on different mounts.
-    "UV_LINK_MODE": "copy"
+    "LOCAL_WORKSPACE_FOLDER": "${localWorkspaceFolder}"
   },
   "postCreateCommand": "${containerWorkspaceFolder}/.devcontainer/post-create",
   "postStartCommand": "${containerWorkspaceFolder}/.devcontainer/post-start",
