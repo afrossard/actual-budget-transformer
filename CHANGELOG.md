@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/afrossard/actual-budget-transformer/compare/0.2.1...0.2.2) (2026-10-10)
+
+
+### Bug Fixes
+
+* brand ISO dates and refuse a day the calendar does not have ([#137](https://github.com/afrossard/actual-budget-transformer/issues/137)) ([1ed9426](https://github.com/afrossard/actual-budget-transformer/commit/1ed9426086c5930e5b22aeb6c0bba3da6980c510))
+
 ## [0.2.1](https://github.com/afrossard/actual-budget-transformer/compare/0.2.0...0.2.1) (2026-10-10)
 
 
