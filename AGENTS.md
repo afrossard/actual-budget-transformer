@@ -81,6 +81,7 @@ src/
 ├── statement-report.ts # the statement report, the review blocks, and [?]
 ├── io.ts              # terminal input (single keystroke on a TTY, lines otherwise)
 ├── imported-id.ts     # minting
+├── iso-date.ts        # IsoDate: the only way to make one is a calendar check (#111)
 ├── money.ts           # integer cents; the debit/credit sign convention
 └── sources/
     ├── formats.ts      # what each export looks like, as overridable settings

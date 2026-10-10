@@ -13,13 +13,14 @@
  * was just written, which is a cascade of manufactured noise rather than a
  * finding (#50).
  */
+import type { IsoDate } from './iso-date.ts';
 import { MINTED_PREFIX } from './imported-id.ts';
 import type { Period, SourceTransaction } from './sources/types.ts';
 
 /** A transaction as Actual hands it back, narrowed to the fields we read. */
 export type ActualTransaction = {
   id: string;
-  date: string;
+  date: IsoDate;
   amount: number;
   imported_id?: string | null;
   /** Actual stores the payee as an id; the gateway resolves it to its name. */
@@ -125,7 +126,7 @@ export const PAIRING_WINDOW_DAYS = 1;
 
 const DAY_MS = 86_400_000;
 
-function daysApart(a: string, b: string): number {
+function daysApart(a: IsoDate, b: IsoDate): number {
   return Math.abs(Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`)) / DAY_MS;
 }
 
@@ -150,7 +151,7 @@ export function classify(
    */
   existing: readonly ActualTransaction[],
   /** The reconciled-through date, or null if nothing is reconciled. */
-  reconciledThrough: string | null,
+  reconciledThrough: IsoDate | null,
 ): Classified[] {
   const pairs: (Pair | null)[] = sources.map(() => null);
   // Actual id -> index of the statement transaction it is paired with.

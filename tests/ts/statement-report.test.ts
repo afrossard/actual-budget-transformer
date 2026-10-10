@@ -26,12 +26,13 @@ import {
   wrap,
 } from '../../src/statement-report.ts';
 import type { SourceTransaction } from '../../src/sources/types.ts';
+import { isoDate } from './iso-date-fixture.ts';
 
 let line = 10;
 function src(over: Partial<SourceTransaction> = {}): SourceTransaction {
   line += 1;
   return {
-    date: '2031-03-10',
+    date: isoDate('2031-03-10'),
     amountCents: -450,
     payee: 'CAFE LUGANO',
     notes: 'Carte',
@@ -47,7 +48,7 @@ function actual(over: Partial<ActualTransaction> = {}): ActualTransaction {
   seq += 1;
   return {
     id: `stored-${seq}`,
-    date: '2031-03-09',
+    date: isoDate('2031-03-09'),
     amount: -450,
     imported_id: null,
     payee: null,
@@ -60,12 +61,12 @@ function actual(over: Partial<ActualTransaction> = {}): ActualTransaction {
 
 const plain = { colour: false, width: 80 };
 
-const MARCH = { from: '2031-03-01', to: '2031-03-31' };
+const MARCH = { from: isoDate('2031-03-01'), to: isoDate('2031-03-31') };
 
 /** Two coffees on the bank's side, one typed by hand in Actual. */
 function coffeeTwins() {
   return classify(
-    [src({ date: '2031-03-09' }), src({ date: '2031-03-09' })],
+    [src({ date: isoDate('2031-03-09') }), src({ date: isoDate('2031-03-09') })],
     [actual()],
     null,
   );
@@ -96,7 +97,7 @@ test('the report says what the statement holds and what Actual holds', () => {
       period: MARCH,
       classified,
       unpaired: [],
-      reconciledThrough: '2020-06-30',
+      reconciledThrough: isoDate('2020-06-30'),
       dropped: [],
     },
     plain,
@@ -127,7 +128,7 @@ test('the report lists only the statement transactions to review', () => {
 });
 
 test('with nothing to review the report says so, and lists nothing', () => {
-  const classified = classify([src()], [actual({ date: '2031-03-10' })], null);
+  const classified = classify([src()], [actual({ date: isoDate('2031-03-10') })], null);
   const lines = report(
     { period: MARCH, classified, unpaired: [], reconciledThrough: null, dropped: [] },
     plain,
@@ -186,17 +187,17 @@ function section(lines: readonly string[], title: string): string[] {
 
 test('the Actual transactions the statement does not hold are listed, by date', () => {
   const lines = reportOf(
-    [src({ date: '2031-03-02', payee: 'GALAXUS', amountCents: -9010 })],
+    [src({ date: isoDate('2031-03-02'), payee: 'GALAXUS', amountCents: -9010 })],
     [
-      actual({ date: '2031-03-29', amount: -6500, payeeName: 'Shell' }),
+      actual({ date: isoDate('2031-03-29'), amount: -6500, payeeName: 'Shell' }),
       actual({
-        date: '2031-03-12',
+        date: isoDate('2031-03-12'),
         amount: -1200,
         payeeName: 'Café Bern',
         reconciled: true,
       }),
-      actual({ date: '2031-03-02', amount: -9010, payeeName: 'Galaxus' }),
-      actual({ date: '2031-03-03', amount: -9010, payeeName: 'Galaxus' }),
+      actual({ date: isoDate('2031-03-02'), amount: -9010, payeeName: 'Galaxus' }),
+      actual({ date: isoDate('2031-03-03'), amount: -9010, payeeName: 'Galaxus' }),
     ],
   );
   assert.equal(lines[7], '    - 3 not in the statement');
@@ -211,12 +212,16 @@ test('the Actual transactions the statement does not hold are listed, by date', 
 
 test('a duplicate couple stays together, sorted by its earlier date', () => {
   const lines = reportOf(
-    [src({ date: '2031-03-10', importedId: 'X' })],
+    [src({ date: isoDate('2031-03-10'), importedId: 'X' })],
     [
-      actual({ date: '2031-03-05', amount: -100, payeeName: 'Before' }),
-      actual({ date: '2031-03-20', imported_id: 'X', payeeName: 'Second copy' }),
-      actual({ date: '2031-03-10', imported_id: 'X', payeeName: 'Imported' }),
-      actual({ date: '2031-03-15', amount: -100, payeeName: 'Between' }),
+      actual({ date: isoDate('2031-03-05'), amount: -100, payeeName: 'Before' }),
+      actual({
+        date: isoDate('2031-03-20'),
+        imported_id: 'X',
+        payeeName: 'Second copy',
+      }),
+      actual({ date: isoDate('2031-03-10'), imported_id: 'X', payeeName: 'Imported' }),
+      actual({ date: isoDate('2031-03-15'), amount: -100, payeeName: 'Between' }),
     ],
   );
   assert.deepEqual(
@@ -228,7 +233,10 @@ test('a duplicate couple stays together, sorted by its earlier date', () => {
 test('a reconciled duplicate says so beside it', () => {
   const lines = reportOf(
     [src()],
-    [actual({ date: '2031-03-10' }), actual({ date: '2031-03-10', reconciled: true })],
+    [
+      actual({ date: isoDate('2031-03-10') }),
+      actual({ date: isoDate('2031-03-10'), reconciled: true }),
+    ],
   );
   assert.deepEqual(
     section(lines, '  in Actual, not in the statement').map(
@@ -243,9 +251,17 @@ test('an unpaired Actual transaction line never outgrows the terminal', () => {
     const lines = reportOf(
       [src()],
       [
-        actual({ date: '2031-03-10' }),
-        actual({ date: '2031-03-10', payeeName: 'P'.repeat(90), reconciled: true }),
-        actual({ date: '2031-03-20', payeeName: 'Q'.repeat(90), reconciled: true }),
+        actual({ date: isoDate('2031-03-10') }),
+        actual({
+          date: isoDate('2031-03-10'),
+          payeeName: 'P'.repeat(90),
+          reconciled: true,
+        }),
+        actual({
+          date: isoDate('2031-03-20'),
+          payeeName: 'Q'.repeat(90),
+          reconciled: true,
+        }),
       ],
       { colour: false, width },
     );
@@ -256,7 +272,7 @@ test('an unpaired Actual transaction line never outgrows the terminal', () => {
 test('a pair whose amount Actual holds differently is listed, to fix in Actual', () => {
   const classified = classify(
     [src(), src({ importedId: 'T-PRICE', amountCents: -7500, payee: 'PRICE CHANGED' })],
-    [actual({ imported_id: 'T-PRICE', amount: -8000, date: '2031-03-15' })],
+    [actual({ imported_id: 'T-PRICE', amount: -8000, date: isoDate('2031-03-15') })],
     null,
   );
   assert.deepEqual(fixLines(classified[1]!), [
@@ -275,9 +291,12 @@ test('a pair whose amount Actual holds differently is listed, to fix in Actual',
 test('the note says the reconciled period, the lookalike, and the repeat', () => {
   const twin = { importedId: '', importedIdOrigin: 'absent' as const };
   const classified = classify(
-    [src({ ...twin, date: '2020-06-30' }), src({ ...twin, date: '2020-06-30' })],
+    [
+      src({ ...twin, date: isoDate('2020-06-30') }),
+      src({ ...twin, date: isoDate('2020-06-30') }),
+    ],
     [],
-    '2020-06-30',
+    isoDate('2020-06-30'),
   );
   assert.equal(noteTag(classified[0]!), 'reconciled period');
   assert.equal(noteTag(classified[1]!), 'reconciled period · same as #1');
@@ -306,7 +325,7 @@ test('a list line never outgrows the terminal, however long the payee', () => {
   const [one] = classify(
     [src({ payee: 'A PAYEE NAME FAR LONGER THAN ANY COLUMN WOULD EVER HOLD' })],
     [],
-    '2040-01-01',
+    isoDate('2040-01-01'),
   );
   for (const width of [40, 60, 80, 120]) {
     const rendered = listLine(one!, { colour: false, width });
@@ -316,7 +335,7 @@ test('a list line never outgrows the terminal, however long the payee', () => {
 
 test('a wider terminal gives a long payee more room before it is cut', () => {
   const payee = 'EXAMPLE; Paiement UBS TWINT DE LA PART DE QUELQU UN';
-  const [one] = classify([src({ payee })], [], '2040-01-01');
+  const [one] = classify([src({ payee })], [], isoDate('2040-01-01'));
   assert.ok(!listLine(one!, plain).includes(payee));
   assert.ok(
     listLine(one!, { colour: false, width: 120 }, 0).includes(payee.slice(0, 39)),
@@ -368,12 +387,21 @@ test('a block never shows a bucket name', () => {
 
 test('a block never outgrows the terminal', () => {
   const [one] = classify(
-    [src({ payee: 'X'.repeat(90), notes: 'Y'.repeat(90), date: '2031-03-09' })],
+    [
+      src({
+        payee: 'X'.repeat(90),
+        notes: 'Y'.repeat(90),
+        date: isoDate('2031-03-09'),
+      }),
+    ],
     [actual({ payeeName: 'Z'.repeat(90) })],
     null,
   );
   const [, twin] = classify(
-    [src({ date: '2031-03-09' }), src({ payee: 'X'.repeat(90), date: '2031-03-09' })],
+    [
+      src({ date: isoDate('2031-03-09') }),
+      src({ payee: 'X'.repeat(90), date: isoDate('2031-03-09') }),
+    ],
     [actual({ payeeName: 'Z'.repeat(90) })],
     null,
   );
@@ -403,7 +431,11 @@ test('wrap breaks at spaces, and only inside a word too long for a line', () => 
 });
 
 test('the explanation says why it is reviewed, without naming an Actual transaction', () => {
-  const [alone] = classify([src({ date: '2020-06-01' })], [], '2020-06-30');
+  const [alone] = classify(
+    [src({ date: isoDate('2020-06-01') })],
+    [],
+    isoDate('2020-06-30'),
+  );
   assert.deepEqual(explain(alone!), [
     'not in Actual: no Actual transaction holds its imported ID or has its amount ' +
       'within a day of it',
@@ -418,7 +450,7 @@ test('the explanation says why it is reviewed, without naming an Actual transact
 test('the detail shows every lookalike in full, and never outgrows the terminal', () => {
   const notes = 'typed by hand on the day, and then some more words to wrap';
   const [, twin] = classify(
-    [src({ date: '2031-03-09' }), src({ date: '2031-03-09' })],
+    [src({ date: isoDate('2031-03-09') }), src({ date: isoDate('2031-03-09') })],
     [
       actual({
         notes,
@@ -443,8 +475,14 @@ test('the detail shows every lookalike in full, and never outgrows the terminal'
 
 test('an extra holder of an imported ID is called a duplicate, never a pair', () => {
   const [, other] = classify(
-    [src({ importedId: 'X' }), src({ importedId: 'OTHER', date: '2031-03-09' })],
-    [actual({ imported_id: 'X', date: '2031-06-30' }), actual({ imported_id: 'X' })],
+    [
+      src({ importedId: 'X' }),
+      src({ importedId: 'OTHER', date: isoDate('2031-03-09') }),
+    ],
+    [
+      actual({ imported_id: 'X', date: isoDate('2031-06-30') }),
+      actual({ imported_id: 'X' }),
+    ],
     null,
   );
   assert.equal(noteTag(other!), "like #1's duplicate");
@@ -488,20 +526,28 @@ test('with no note, a padded payee never ends a line in an ellipsis', () => {
     assert.equal(listLine(one!, style, 0), '  1 2031-03-10      -4.50 CAFE LUGANO');
     assert.ok(!listHeader(style, 0).endsWith('…'), listHeader(style, 0));
   }
-  const lines = reportOf([], [actual({ date: '2031-03-20', payeeName: 'Shell' })], {
-    colour: false,
-    width: 60,
-  });
+  const lines = reportOf(
+    [],
+    [actual({ date: isoDate('2031-03-20'), payeeName: 'Shell' })],
+    {
+      colour: false,
+      width: 60,
+    },
+  );
   assert.deepEqual(section(lines, '  in Actual, not in the statement'), [
     '  ! 2031-03-20      -4.50  Shell',
   ]);
 });
 
 test('a hung note wraps rather than being cut', () => {
-  const lines = reportOf([], [actual({ date: '2031-03-20', reconciled: true })], {
-    colour: false,
-    width: 40,
-  });
+  const lines = reportOf(
+    [],
+    [actual({ date: isoDate('2031-03-20'), reconciled: true })],
+    {
+      colour: false,
+      width: 40,
+    },
+  );
   assert.deepEqual(section(lines, '  in Actual, not in the statement').slice(1), [
     '      already reconciled, double check',
     '      reconciliation balance',

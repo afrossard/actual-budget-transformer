@@ -20,11 +20,13 @@ import {
   type Scenario,
   type Session,
 } from './actual-fixture.ts';
+import { isoDate } from './iso-date-fixture.ts';
+import type { IsoDate } from '../../src/iso-date.ts';
 
 const skip = skipReason(await serverReachable());
 
 /** The seeded statement's period; what Actual holds outside its pairs is not listed here. */
-const PERIOD = { from: '2030-06-01', to: '2031-03-31' };
+const PERIOD = { from: isoDate('2030-06-01'), to: isoDate('2031-03-31') };
 
 /** The seeded statement's unpaired transactions, in the order they are reviewed. */
 const TO_REVIEW = [
@@ -57,7 +59,7 @@ describe('integration: the review loop', { skip }, () => {
     accountId: string;
     scenario: Scenario;
     existing: ActualTransaction[];
-    reconciledThrough: string | null;
+    reconciledThrough: IsoDate | null;
   }> {
     const account = await createRunAccount(session, label);
     const scenario = await seedScenario(session, account.id);

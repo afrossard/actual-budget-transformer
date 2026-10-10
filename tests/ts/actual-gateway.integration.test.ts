@@ -19,6 +19,8 @@ import {
   type Session,
 } from './actual-fixture.ts';
 import { ActualGateway } from '../../src/actual-gateway.ts';
+import { isoDate } from './iso-date-fixture.ts';
+import type { IsoDate } from '../../src/iso-date.ts';
 
 const skip = skipReason(await serverReachable());
 
@@ -61,7 +63,7 @@ describe('integration: the gateway reads only what a question needs', { skip }, 
     return (await createRunAccount(session, `gateway-${label}`)).id;
   }
 
-  async function reconcile(accountId: string, date: string): Promise<void> {
+  async function reconcile(accountId: string, date: IsoDate): Promise<void> {
     const stored = await session.gateway.getTransactions(accountId, date, date);
     for (const tx of stored) {
       await session.api.updateTransaction(tx.id, { reconciled: true });
@@ -78,8 +80,8 @@ describe('integration: the gateway reads only what a question needs', { skip }, 
         { date: '2031-03-10', amount: -300, payee_name: 'Not reconciled' },
       ]);
       await session.api.sync();
-      await reconcile(id, '2031-01-10');
-      await reconcile(id, '2031-02-10');
+      await reconcile(id, isoDate('2031-01-10'));
+      await reconcile(id, isoDate('2031-02-10'));
 
       assert.equal(await session.gateway.reconciledThroughDate(id), '2031-02-10');
     });
@@ -100,7 +102,7 @@ describe('integration: the gateway reads only what a question needs', { skip }, 
         { date: '2099-12-31', amount: -100, payee_name: 'Future' },
       ]);
       await session.api.sync();
-      await reconcile(id, '2099-12-31');
+      await reconcile(id, isoDate('2099-12-31'));
 
       assert.equal(await session.gateway.reconciledThroughDate(id), '2099-12-31');
     });
@@ -112,7 +114,7 @@ describe('integration: the gateway reads only what a question needs', { skip }, 
         { date: '2031-05-10', amount: -100, payee_name: 'Elsewhere' },
       ]);
       await session.api.sync();
-      await reconcile(other, '2031-05-10');
+      await reconcile(other, isoDate('2031-05-10'));
 
       assert.equal(await session.gateway.reconciledThroughDate(mine), null);
     });

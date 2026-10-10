@@ -24,6 +24,7 @@ import {
 import { formatCents } from './money.ts';
 import type { ActualGateway } from './actual-gateway.ts';
 import type { DroppedRow, Period } from './sources/types.ts';
+import type { IsoDate } from './iso-date.ts';
 
 export type Action = 'import' | 'leave';
 
@@ -73,7 +74,7 @@ export type ReviewOptions = {
   unpaired: readonly UnpairedActual[];
   /** Rows the parser did not turn into transactions, so the report can say so. */
   dropped?: readonly DroppedRow[];
-  reconciledThrough: string | null;
+  reconciledThrough: IsoDate | null;
   io: ReviewIo;
   style?: ReportStyle | undefined;
 };

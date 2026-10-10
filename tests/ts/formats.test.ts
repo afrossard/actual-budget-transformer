@@ -44,3 +44,10 @@ test('parseDate rejects a field used twice rather than silently keeping one', ()
     /uses %Y more than once/,
   );
 });
+
+test('parseDate returns null for a date that does not exist', () => {
+  // The shape fits, so only a calendar check stops it: read as a date, the
+  // first throws further down and the second silently becomes 2 March.
+  assert.equal(parseDate('45.13.2031', '%d.%m.%Y'), null);
+  assert.equal(parseDate('30.02.2031', '%d.%m.%Y'), null);
+});

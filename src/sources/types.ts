@@ -1,3 +1,5 @@
+import type { IsoDate } from '../iso-date.ts';
+
 /** Where a source transaction's imported ID came from. */
 export type ImportedIdOrigin =
   /** The bank wrote a reference and we use it verbatim. */
@@ -12,8 +14,7 @@ export type ImportedIdOrigin =
  * classifier decides what to do with.
  */
 export type SourceTransaction = {
-  /** ISO `YYYY-MM-DD`. */
-  date: string;
+  date: IsoDate;
   /** Signed integer cents, Actual's convention: negative is an outflow. */
   amountCents: number;
   payee: string;
@@ -38,8 +39,8 @@ export type Pending = {
   accountCurrency: string;
 };
 
-/** The dates a statement covers, both included. ISO `YYYY-MM-DD`. */
-export type Period = { from: string; to: string };
+/** The dates a statement covers, both included. */
+export type Period = { from: IsoDate; to: IsoDate };
 
 /** A source row the parser did not turn into a transaction, and why. */
 export type DroppedRow = {

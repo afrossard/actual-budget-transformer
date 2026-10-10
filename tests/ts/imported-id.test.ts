@@ -6,9 +6,10 @@ import {
   MINTED_PREFIX,
 } from '../../src/imported-id.ts';
 import type { SourceTransaction } from '../../src/sources/types.ts';
+import { isoDate } from './iso-date-fixture.ts';
 
 const tx: SourceTransaction = {
-  date: '2031-03-20',
+  date: isoDate('2031-03-20'),
   amountCents: -1990,
   payee: 'PHARMACIE CENTRALE',
   notes: '',
@@ -29,7 +30,7 @@ test('minting is reproducible and content-sensitive', () => {
   );
   assert.notEqual(
     contentImportedId(tx),
-    contentImportedId({ ...tx, date: '2031-03-21' }),
+    contentImportedId({ ...tx, date: isoDate('2031-03-21') }),
   );
 });
 
@@ -44,7 +45,7 @@ test('a separator inside a field cannot collide two different transactions', () 
 
 test('a separator inside a payee cannot collide two statement transactions', () => {
   const base = {
-    date: '2031-03-20',
+    date: isoDate('2031-03-20'),
     amountCents: -1990,
     importedId: '',
     importedIdOrigin: 'absent' as const,

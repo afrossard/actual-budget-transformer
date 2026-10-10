@@ -14,6 +14,8 @@
  * working.
  */
 
+import { toIsoDate, type IsoDate } from '../iso-date.ts';
+
 /** Node's name for the encodings the config can ask for. */
 export type Encoding = 'utf8' | 'latin1';
 
@@ -140,13 +142,15 @@ export function toEncoding(name: string): Encoding {
  * Only `%Y`, `%m` and `%d` are supported, which covers every ordering and
  * separator a bank actually writes. Anything else is rejected by name rather
  * than silently mis-parsed, because a date read wrongly is worse than a date
- * not read at all.
+ * not read at all. For the same reason a day the calendar does not have, such as
+ * `30.02.2031`, is null rather than rolled over.
  */
-export function parseDate(value: string, format: string): string | null {
+export function parseDate(value: string, format: string): IsoDate | null {
   const pattern = datePattern(format);
   const trimmed = value.trim();
+  if (!pattern.test(trimmed)) return null;
   // Anchored, so a match replaces the whole value and nothing else survives.
-  return pattern.test(trimmed) ? trimmed.replace(pattern, '$<Y>-$<m>-$<d>') : null;
+  return toIsoDate(trimmed.replace(pattern, '$<Y>-$<m>-$<d>'));
 }
 
 const DATE_FIELDS = new Map([
