@@ -2,6 +2,7 @@
 
 **Type:** test finding + methodology
 **Drives:** ADR-007 (server-ahead direction is safe; only `api > server` requires abort)
+**Contradicted by:** #125 and ADR 0004 - a budget a newer client has migrated cannot be opened by an older api, so server-ahead is not safe in general
 
 ## Result
 

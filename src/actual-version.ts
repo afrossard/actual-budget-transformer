@@ -1,11 +1,11 @@
 /**
- * ADR-007: abort when `@actual-app/api` is newer than the server, and abort
- * whenever the skew cannot be assessed at all.
+ * ADR 0004: abort unless `@actual-app/api` is exactly the server's version,
+ * and abort whenever either version cannot be read at all.
  *
  * A newer API migrates the budget's schema forward; the older server's bundled
- * web client then refuses to load it. No data is lost, but the only review UI
- * is unusable until the server is upgraded, so the conservative move is not to
- * start.
+ * web client then refuses to load it (ADR-007). An older API cannot open a
+ * budget a newer client has already migrated (#125), and whether that has
+ * happened is server state this tool cannot see.
  */
 import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
@@ -25,6 +25,9 @@ function compareSemver(a: Semver, b: Semver): number {
   }
   return 0;
 }
+
+/** The image tag `:actual-<version>` moves to the newest release built for it. */
+const IMAGE = 'ghcr.io/afrossard/actual-budget-transformer';
 
 /**
  * The installed `@actual-app/api` version, read from the package itself.
@@ -193,13 +196,14 @@ function connectionFailure(error: unknown): string {
 
 /** Why the version matters, in the user's terms rather than this repo's. */
 const CONSEQUENCE =
-  'This tool does not open a budget while its @actual-app/api library is newer than ' +
-  "the server: the library would upgrade the budget to a format the server's web " +
-  'client cannot open.';
+  'This tool opens a budget only with the Actual server version its @actual-app/api ' +
+  'library is built for: a newer library would upgrade the budget to a format the ' +
+  "server's web client cannot open, and an older one cannot open a budget a newer " +
+  'Actual has already upgraded.';
 
 const REINSTALL = "Reinstall this tool's dependencies with `npm ci`.";
 
-/** Throws unless the API is at most as new as the server. */
+/** Throws unless the API is exactly the server's version, patch and suffix included. */
 export function assertVersionCompatible(
   apiVersion: string | null,
   server: ServerVersionProbe,
@@ -230,14 +234,30 @@ export function assertVersionCompatible(
         `as reported by ${server.url}.\n  ${CONSEQUENCE}`,
     );
   }
-  if (compareSemver(api, serverSemver) > 0) {
+  if (apiVersion === server.version) return;
+  // Equal numbers with a different suffix, such as a nightly server: it may
+  // carry migrations the release does not, so it counts as ahead.
+  const apiAhead = compareSemver(api, serverSemver) > 0;
+
+  const mismatch =
+    `aborting: the Actual server is ${server.version}, as reported by ${server.url}, ` +
+    `but this tool is built for ${apiVersion}.\n`;
+  const release =
+    `the abt-import release built for ${server.version}, if one has been published ` +
+    `(image ${IMAGE}:actual-${server.version})`;
+  if (!apiAhead) {
     throw new Error(
-      `aborting: this tool's @actual-app/api ${apiVersion} is newer than the Actual ` +
-        `server's ${server.version}, as reported by ${server.url}.\n` +
-        '  Opening the budget with it would upgrade the budget to a format the ' +
-        "server's web client cannot open, until the server is upgraded too. " +
-        'Nothing is lost, but the budget cannot be reviewed in Actual in the meantime.\n' +
-        `  Upgrade the Actual server to ${apiVersion} or later.`,
+      mismatch +
+        '  This tool cannot open a budget a newer Actual may already have upgraded, ' +
+        'so nothing is downloaded until the versions match.\n' +
+        `  Use ${release}.`,
     );
   }
+  throw new Error(
+    mismatch +
+      '  Opening the budget with it would upgrade the budget to a format the ' +
+      "server's web client cannot open, until the server is upgraded too. " +
+      'Nothing is lost, but the budget cannot be reviewed in Actual in the meantime.\n' +
+      `  Upgrade the Actual server to ${apiVersion}, or use ${release}.`,
+  );
 }

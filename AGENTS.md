@@ -45,7 +45,7 @@ Five pins move together, and they all follow whatever Actual is on. When upgradi
 
 | Ours | Set it to | Currently |
 | --- | --- | --- |
-| `@actual-app/api` in `package.json` | the server version you run, **exactly** — no caret. A range could pull a newer api and create the one skew ADR-007 aborts on | `26.10.0` |
+| `@actual-app/api` in `package.json` | the server version you run, **exactly** — no caret. A range could pull another api, which ADR 0004 aborts on | `26.10.0` |
 | `actualbudget/actual-server` in `.devcontainer/docker-compose.yml` and `.github/workflows/test.yaml` | the same version, so the characterization tests check the behaviour you actually run | `26.10.0` |
 | `.nvmrc` | Actual's own `.nvmrc` for that release (`actualbudget/actual` at tag `vX.Y.Z`). CI reads this file, so it is the single place to change | `24.18.1` |
 | `FROM` in `Containerfile`, both stages | `node:<.nvmrc>-trixie-slim`. `FROM` cannot read a file, so the version is written twice and `tests/ts/containerfile.test.ts` fails when the two disagree | `24.18.1` |
@@ -54,7 +54,7 @@ Five pins move together, and they all follow whatever Actual is on. When upgradi
 Renovate is configured to keep this rule (#97), and nothing else has to be remembered:
 
 - **One grouped `Actual` PR per release** (`renovate.json`) moves the api and both server lines together, so the api never lands ahead of the server.
-  It is titled `feat(deps): require actual server <version> or newer`, so it cuts a release whose notes say which server the image needs (#87).
+  It is titled `feat(deps): require actual server <version>`, so it cuts a release whose notes say which server the image needs (#87).
   The compose line is a literal tag for that reason: Renovate extracts nothing from a `${VAR:-default}` image.
 - **Renovate's Node updates are off** for `.nvmrc` and the Containerfile, because it would propose Node's latest and cannot read Actual's `.nvmrc`.
 - **Renovate keeps `@types/node` to the `engines.node` major** (`allowedVersions`), so it proposes patches and minors but never the next major.
@@ -76,7 +76,7 @@ src/
 ├── account-resolution.ts # which account a statement goes into; the not-found message
 ├── classify.ts        # THE CLASSIFIER SEAM — pairing; pure, no server, no I/O
 ├── actual-gateway.ts  # THE GATEWAY SEAM — the only module touching @actual-app/api
-├── actual-version.ts  # ADR-007 version-skew gate
+├── actual-version.ts  # ADR 0004: the server must be the api version
 ├── review.ts          # the review loop: import or leave, one confirmation each
 ├── statement-report.ts # the statement report, the review blocks, and [?]
 ├── io.ts              # terminal input (single keystroke on a TTY, lines otherwise)
@@ -138,7 +138,7 @@ ACTUAL_SERVER_URL=http://localhost:5006 npm test
 ```
 
 - **Never mock `@actual-app/api`.** These tests exist because Actual's real behaviour is surprising; a mock would encode our assumptions instead of checking them.
-- **`tests/ts/actual-api.characterization.test.ts`** holds the five probes from `prototype/38-interactive-import`, turned into assertions, and the ActualQL filter shapes the gateway's reads are built on (#67), the silently wrong ones included. They are the guard that an api version bump cannot quietly invalidate the write path or the reads (ADR-007). If one fails, the design they pin needs re-reading, not the test.
+- **`tests/ts/actual-api.characterization.test.ts`** holds the five probes from `prototype/38-interactive-import`, turned into assertions, and the ActualQL filter shapes the gateway's reads are built on (#67), the silently wrong ones included. They are the guard that an api version bump cannot quietly invalidate the write path or the reads (ADR-007, ADR 0004). If one fails, the design they pin needs re-reading, not the test.
 - **Each integration run creates its own account.** The reconciled-through date is account-global server state, so owning the account is what lets this suite skip date partitioning altogether. Test accounts are named `TS <label> <tag>`; `actual-down` + `actual-up` + `npm run bootstrap` clears the debris.
 
 ### Choices, so they are not re-litigated
@@ -223,7 +223,7 @@ docker compose -f .devcontainer/docker-compose.yml --profile actual rm -sf actua
 
 Reach it at `http://localhost:5006` from outside the devcontainer, not `http://actual-server:5006` (that name only resolves on the compose network).
 `/data` is a tmpfs, so removing the container always yields a clean budget on the next start.
-Note the default pin is `actualbudget/actual-server:26.10.0` while `@actual-app/cli` pins its own bundled api — so a CLI newer than the server reproduces exactly the client-ahead skew ADR-007 is about, which makes this a useful place to test that gate rather than reason about it.
+Note the default pin is `actualbudget/actual-server:26.10.0` while `@actual-app/cli` pins its own bundled api — so a CLI on another version than the server reproduces exactly the skew ADR 0004 aborts on, which makes this a useful place to test that gate rather than reason about it.
 
 ---
 

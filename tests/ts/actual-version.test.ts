@@ -43,24 +43,57 @@ async function serving(
   }
 }
 
-test('an api at most as new as the server proceeds', () => {
-  assertVersionCompatible('26.9.0', at('26.9.0')); // api == server, the ideal
-  assertVersionCompatible('25.3.1', at('26.4.0'));
-  assertVersionCompatible('26.9.0', at('26.10.0'));
+test('an api built for the server version proceeds', () => {
+  assertVersionCompatible('26.9.0', at('26.9.0'));
+  assertVersionCompatible('26.10.0', at('26.10.0'));
 });
 
-test('an api newer than the server aborts, and says what it would break and how to lift the block', () => {
+test('a server ahead of the api aborts, and names the release built for it', () => {
+  // #125: a budget a newer client has migrated carries migrations an older api
+  // does not ship, and `downloadBudget` then dies with "Database is out of sync
+  // with migrations". Whether that has happened is server state this tool cannot
+  // see, so a newer server aborts before anything is downloaded.
+  assert.throws(
+    () => assertVersionCompatible('26.9.0', at('26.10.0')),
+    (error: Error) => {
+      assert.match(
+        error.message,
+        /Actual server is 26\.10\.0, as reported by http:\/\/actual\.example\/info, but this tool is built for 26\.9\.0\./,
+      );
+      assert.match(error.message, /abt-import release built for 26\.10\.0/);
+      assert.match(error.message, /:actual-26\.10\.0/);
+      assert.doesNotMatch(error.message, /Upgrade the Actual server/);
+      return true;
+    },
+  );
+  // Patch included: nobody has to know which Actual releases carry migrations.
+  assert.throws(() => assertVersionCompatible('26.9.0', at('26.9.1')), /aborting/);
+  assert.throws(() => assertVersionCompatible('25.3.1', at('26.4.0')), /aborting/);
+  // A nightly server may carry migrations the release does not.
+  assert.throws(
+    () => assertVersionCompatible('26.10.0', at('26.10.0-nightly.20261009')),
+    /built for 26\.10\.0\./,
+  );
+});
+
+test('the suggested release is hedged, since it may not be published yet', () => {
+  assert.throws(
+    () => assertVersionCompatible('26.9.0', at('26.10.0')),
+    /if one has been published/,
+  );
+});
+
+test('an api ahead of the server aborts, and says what it would break and how to lift the block', () => {
   assert.throws(
     () => assertVersionCompatible('26.10.0', at('26.9.0')),
     (error: Error) => {
       assert.match(
         error.message,
-        /newer than the Actual server's 26\.9\.0, as reported by http:\/\/actual\.example\/info/,
+        /Actual server is 26\.9\.0, as reported by http:\/\/actual\.example\/info, but this tool is built for 26\.10\.0\./,
       );
-      assert.match(error.message, /26\.10\.0/);
-      assert.match(error.message, /26\.9\.0/);
       assert.match(error.message, /web client cannot open/);
-      assert.match(error.message, /Upgrade the Actual server to 26\.10\.0 or later/);
+      assert.match(error.message, /abt-import release built for 26\.9\.0/);
+      assert.match(error.message, /Upgrade the Actual server to 26\.10\.0/);
       return true;
     },
   );
@@ -78,7 +111,7 @@ test('a version that cannot be read aborts rather than proceeding', () => {
     (error: Error) => {
       assert.match(error.message, /http:\/\/actual\.example\/info: HTTP 404 Not Found/);
       assert.match(error.message, /Try this\./);
-      assert.match(error.message, /web client cannot open/);
+      assert.match(error.message, /only with the Actual server version/);
       return true;
     },
   );
@@ -95,6 +128,7 @@ test('a version that cannot be read aborts rather than proceeding', () => {
 test('no message names an ADR or a path inside this repo', () => {
   const messages = [
     () => assertVersionCompatible('26.10.0', at('26.9.0')),
+    () => assertVersionCompatible('26.9.0', at('26.10.0')),
     () => assertVersionCompatible(null, at('26.9.0')),
     () => assertVersionCompatible('26.9.0', unreadable('HTTP 500')),
     () => assertVersionCompatible('x', at('26.9.0')),

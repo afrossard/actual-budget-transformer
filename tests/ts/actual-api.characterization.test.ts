@@ -9,10 +9,10 @@
  * lightly (splits, and no reconciled guard), and so why this tool, which
  * pairs and never patches, leaves that fix to the human in Actual.
  *
- * ADR-007 exists because Actual version skew has broken assumptions before, so
- * these are the assertions that should fail loudly on a version bump rather
- * than be rediscovered against a real budget. They describe the library, not
- * this tool, which is why they call the api directly.
+ * ADR-007 and ADR 0004 exist because Actual version skew has broken assumptions
+ * before, so these are the assertions that should fail loudly on a version bump
+ * rather than be rediscovered against a real budget. They describe the library,
+ * not this tool, which is why they call the api directly.
  */
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';

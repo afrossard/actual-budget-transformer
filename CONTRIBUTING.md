@@ -24,8 +24,8 @@ From 1.0 on:
 | A parser fix after a UBS export change, wording, docs | `fix:` | patch |
 | Tests, CI, tooling, refactoring | `chore:`, `ci:`, `test:`, `refactor:` | no release |
 
-A new Actual version is a `feat(deps)`, not a `fix(deps)`, because it raises the minimum server version.
-Strict semver would call that breaking, but a major version every month is noise, and the CLI fails safely with a message naming both versions (ADR-007).
+A new Actual version is a `feat(deps)`, not a `fix(deps)`, because it changes the one server version the image works with.
+Strict semver would call that breaking, but a major version every month is noise, and the CLI fails safely with a message naming both versions and the image tag to use (ADR 0004).
 
 ## Releases
 
@@ -44,7 +44,7 @@ Each release, say `0.4.2`, publishes `ghcr.io/afrossard/actual-budget-transforme
 | `:actual-26.10.0` | yes | the newest release built against `@actual-app/api` 26.10.0 |
 
 The image also carries an `actual-api-version` label, so `docker inspect` says which Actual it was built against.
-It works with that server version and any newer one, never an older one.
+It works with exactly that server version, patch included (ADR 0004).
 
 ### Republishing
 
@@ -68,6 +68,6 @@ Leave an unwanted release PR open, which release-please updates in place; if it 
 
 `renovate.json` makes Renovate title its PRs as Conventional Commits:
 
-- **The grouped `Actual` PR** is `feat(deps): require actual server <version> or newer`, so it releases, and the release notes say which server the new image needs.
+- **The grouped `Actual` PR** is `feat(deps): require actual server <version>`, so it releases, and the release notes say which server the new image needs.
 - **Other runtime dependencies** (`csv-parse`, `yaml`) are `fix(deps)`, because they ship in the image.
 - **Everything else** (dev tooling, GitHub Actions) is `chore(deps)`: nothing shipped changes, so nothing is released.

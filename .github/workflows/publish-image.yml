@@ -37,8 +37,8 @@ jobs:
         with:
           ref: ${{ steps.release.outputs.version }}
 
-      # The image works with this Actual server version and any newer one,
-      # never an older one (ADR-007). `:actual-<version>` and the label say so.
+      # The image works with exactly this Actual server version (ADR 0004).
+      # `:actual-<version>` and the label say so.
       - name: Read the Actual api version
         id: actual
         run: echo "version=$(node -p "require('./package.json').dependencies['@actual-app/api']")" >> "$GITHUB_OUTPUT"

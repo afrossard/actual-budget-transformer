@@ -1,6 +1,6 @@
 # ADR-007: Version-skew policy — abort on `api > server`
 
-**Status:** Accepted, implemented 2026-05-09 (supersedes the original log-only policy from 2026-04)
+**Status:** Direction rule superseded by ADR 0004 (`docs/adr/0004-require-the-exact-server-version.md`, #125): the api must equal the server exactly. Accepted, implemented 2026-05-09 (supersedes the original log-only policy from 2026-04)
 
 ## Context
 
