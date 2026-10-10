@@ -5,7 +5,7 @@
   ],
   "packageRules": [
     {
-      "description": "One PR per Actual release: the api and the test server move together, or the api runs ahead of the server and ADR-007 aborts (AGENTS.md, \"Versions: follow Actual\"). It is a feat(deps), so a release, whose notes say which server it needs (CONTRIBUTING.md).",
+      "description": "One PR per Actual release: the api and the test server move together, or the api and the test server disagree, which ADR 0004 aborts on (AGENTS.md, \"Versions: follow Actual\"). It is a feat(deps), so a release, whose notes say which server it needs (CONTRIBUTING.md).",
       "matchPackageNames": [
         "@actual-app/api",
         "actualbudget/actual-server"
@@ -13,7 +13,7 @@
       "groupName": "Actual",
       "semanticCommitType": "feat",
       "commitMessageAction": "require",
-      "commitMessageExtra": "{{newVersion}} or newer",
+      "commitMessageExtra": "{{newVersion}}",
       "group": {
         "commitMessageTopic": "Actual server"
       }
