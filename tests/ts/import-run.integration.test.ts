@@ -315,6 +315,60 @@ describe('integration: a whole run from a statement file', { skip }, () => {
     );
   });
 
+  it('lists what Actual holds in the stated period of a statement with no transactions', async () => {
+    // A month the bank booked nothing in still states its period (#121).
+    const { config, accountId } = await arrange(
+      'empty-period',
+      'CH4200120123A12345678',
+    );
+    await session.api.addTransactions(accountId, [
+      { date: '2022-12-31', amount: -100, payee_name: 'Before the period' },
+      { date: '2023-01-15', amount: -200, payee_name: 'Within the period' },
+    ]);
+    await session.api.sync();
+
+    const { result, io } = await run(
+      config,
+      DATA + 'ubs_account_no_transactions.csv',
+      () => 'l',
+      0,
+    );
+    const transcript = io.transcript.join('\n');
+    assert.deepEqual(result.outcomes, []);
+    assert.match(transcript, /- From 2023-01-01 to 2023-01-31/);
+    assert.match(transcript, /- 0 transactions found/);
+    assert.match(transcript, /- 1 not in the statement/);
+    assert.match(
+      transcript,
+      /^ {2}in Actual, not in the statement\n {2}! 2023-01-15 +-2\.00 +Within the period$/im,
+    );
+    assert.equal(
+      (await session.gateway.getAccountHistory(accountId)).length,
+      2,
+      'nothing is written for it',
+    );
+  });
+
+  it('stops at a cards statement with no transactions, which states no period', async () => {
+    const { config, accountId } = await arrange('empty-cards', '9659086893219337559');
+    await session.api.addTransactions(accountId, [
+      { date: '2020-02-24', amount: -4100, payee_name: 'In Actual' },
+    ]);
+    await session.api.sync();
+
+    const { result, io } = await run(
+      config,
+      DATA + 'ubs_cards_no_readable_transactions.csv',
+      () => 'l',
+      0,
+    );
+    assert.deepEqual(result.outcomes, []);
+    assert.match(
+      io.transcript.join('\n'),
+      /\nno transactions in this file\.\n {4}line 3: unreadable date not a date$/,
+    );
+  });
+
   it('flags a duplicated Actual transaction, and both copies once the amount changes', async () => {
     // The owner's reproduction (#109), on a cards statement, which states no
     // period: it runs from its first to its last statement transaction.
