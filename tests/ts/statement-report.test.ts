@@ -151,14 +151,14 @@ test('the report says what the file held unread', () => {
       classified: classify([src()], [], null),
       unpaired: [],
       reconciledThrough: null,
-      dropped: [{ sourceLine: 14, reason: 'pending (not booked yet)', raw: '' }],
+      dropped: [{ sourceLine: 14, reason: 'unreadable date 31.02.2020', raw: '' }],
     },
     plain,
   );
   assert.deepEqual(lines.slice(4, 7), [
     '    - 1 to review',
     '    - 1 row in the file was not read as a transaction:',
-    '        line 14: pending (not booked yet)',
+    '        line 14: unreadable date 31.02.2020',
   ]);
 });
 

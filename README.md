@@ -6,7 +6,7 @@ See [Actual Budget](https://actualbudget.org/)
 
 - UBS Switzerland e-banking
   - Account transactions CSV files
-  - Credit card transactions CSV files (pending transactions are automatically skipped)
+  - Credit card transactions CSV files, pending purchases included: one in another currency is imported at its original amount, and says so before you confirm it
 
 ## Direct import
 

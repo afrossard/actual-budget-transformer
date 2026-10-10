@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { ubsAccountCsvParser } from '../../src/sources/ubs-account-csv.ts';
 import { ubsCardsCsvParser } from '../../src/sources/ubs-cards-csv.ts';
 import {
@@ -119,7 +122,7 @@ test('minted imported IDs are reproducible across runs and files', () => {
   // the identity is the original-currency fields, not the row's position.
   const withPending = cardsCsv.parse(DATA + 'ubs_cards_pending.csv');
   assert.deepEqual(
-    withPending.transactions.map((t) => t.importedId),
+    withPending.transactions.filter((t) => !t.pending).map((t) => t.importedId),
     first.transactions.map((t) => t.importedId),
   );
 });
@@ -154,15 +157,82 @@ test('a minted ID survives a change to date_format', () => {
   );
 });
 
-test('pending card rows are dropped, and said so rather than logged away', () => {
+test('pending card rows are read as debits of their original amount', () => {
   const statement = cardsCsv.parse(DATA + 'ubs_cards_pending.csv');
-  assert.equal(statement.transactions.length, 3);
-  const pending = statement.dropped.filter((d) => d.reason.startsWith('pending'));
-  assert.equal(pending.length, 2);
+  assert.equal(statement.transactions.length, 5);
   assert.deepEqual(
-    pending.map((d) => d.sourceLine),
-    [3, 4],
+    statement.dropped.map((d) => d.reason),
+    ['footer row', 'footer row'],
   );
+  const pending = statement.transactions.filter((t) => t.pending);
+  assert.deepEqual(
+    pending.map((t) => [t.sourceLine, t.date, t.amountCents, t.payee, t.pending]),
+    [
+      [
+        3,
+        '2020-02-26',
+        -2162,
+        'MERCHANT-PENDING1',
+        { originalCurrency: 'USD', accountCurrency: 'CHF' },
+      ],
+      [
+        4,
+        '2020-02-25',
+        -312,
+        'MERCHANT-PENDING2',
+        { originalCurrency: 'CHF', accountCurrency: 'CHF' },
+      ],
+    ],
+  );
+  assert.deepEqual(
+    pending.map((t) => [t.importedId, t.importedIdOrigin]),
+    [
+      [mintFromParts(['26.02.2020', 'MERCHANT-PENDING1', '21.62', 'USD', 0]), 'minted'],
+      [mintFromParts(['25.02.2020', 'MERCHANT-PENDING2', '3.12', 'CHF', 0]), 'minted'],
+    ],
+  );
+});
+
+test('a pending row and its booked row mint the same imported ID', () => {
+  // So once UBS books the purchase, it pairs with the copy imported while it
+  // was pending - provided the bank keeps the reference columns (#48).
+  const lines = (debit: string): string =>
+    [
+      'sep=;',
+      DEFAULT_CARDS_CSV.columns.join(';'),
+      `ACCT;9659086893219337559;HOLDER;26.02.2020;SHOP;SECTOR;21.62;USD;;CHF;${debit};;`,
+      '',
+    ].join('\n');
+  const dir = mkdtempSync(join(tmpdir(), 'abt-pending-'));
+  const pendingPath = join(dir, 'pending.csv');
+  const bookedPath = join(dir, 'booked.csv');
+  writeFileSync(pendingPath, lines(''), 'latin1');
+  writeFileSync(bookedPath, lines('20.35'), 'latin1');
+  const [pending] = cardsCsv.parse(pendingPath).transactions;
+  const [booked] = cardsCsv.parse(bookedPath).transactions;
+  assert.ok(pending?.pending);
+  assert.ok(booked);
+  assert.equal(booked.pending, undefined);
+  assert.equal(booked.amountCents, -2035);
+  assert.equal(pending.importedId, booked.importedId);
+});
+
+test('a cards row with an unreadable debit is still dropped with its problem', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'abt-pending-'));
+  const path = join(dir, 'bad.csv');
+  writeFileSync(
+    path,
+    [
+      'sep=;',
+      DEFAULT_CARDS_CSV.columns.join(';'),
+      'ACCT;9659086893219337559;HOLDER;26.02.2020;SHOP;SECTOR;21.62;USD;;CHF;abc;;',
+      '',
+    ].join('\n'),
+    'latin1',
+  );
+  const statement = cardsCsv.parse(path);
+  assert.equal(statement.transactions.length, 0);
+  assert.match(statement.dropped[0]!.reason, /not a decimal amount/);
 });
 
 test('a cards file whose first row has no card number still finds the card', () => {

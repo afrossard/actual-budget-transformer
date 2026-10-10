@@ -33,6 +33,9 @@ const COL = {
   date: 3,
   payee: 4,
   sector: 5,
+  originalAmount: 6,
+  originalCurrency: 7,
+  currency: 9,
   debit: 10,
   credit: 11,
 } as const;
@@ -108,15 +111,16 @@ export function ubsCardsCsvParser(format: CardsCsvFormat): StatementParser {
           continue;
         }
 
-        // Pending purchases have neither a debit nor a credit: the converted
-        // amount is not final yet. Out of scope for now (#47, #48).
-        const amount = readAmount(cell(row, COL.debit), cell(row, COL.credit));
+        // A pending purchase has neither a debit nor a credit: the bank has not
+        // converted it yet. It is imported as a debit of its original amount,
+        // whatever its currency, and says so on review (#47).
+        const booked = readAmount(cell(row, COL.debit), cell(row, COL.credit));
+        const pending = 'empty' in booked;
+        const amount = pending ? readAmount(cell(row, COL.originalAmount), '') : booked;
         if ('problem' in amount || 'empty' in amount) {
-          dropped.push({
-            sourceLine,
-            reason: 'problem' in amount ? amount.problem : 'pending (not booked yet)',
-            raw,
-          });
+          const reason =
+            'problem' in amount ? amount.problem : 'pending, with no amount';
+          dropped.push({ sourceLine, reason, raw });
           continue;
         }
 
@@ -133,6 +137,12 @@ export function ubsCardsCsvParser(format: CardsCsvFormat): StatementParser {
           importedId: mintFromParts([...identity, occurrence]),
           importedIdOrigin: 'minted',
           sourceLine,
+          ...(pending && {
+            pending: {
+              originalCurrency: cell(row, COL.originalCurrency),
+              accountCurrency: cell(row, COL.currency),
+            },
+          }),
         });
       }
 
