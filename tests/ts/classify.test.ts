@@ -438,6 +438,22 @@ test('a second holder of a paired imported ID is its duplicate, whatever its amo
   );
 });
 
+test('a second holder of a paired imported ID is its duplicate, whatever its date', () => {
+  // A cards statement's period is only the span of its transactions, and a
+  // copy re-dated to its booking date can sit weeks outside it.
+  assert.deepEqual(
+    unpaired(
+      [src({ importedId: 'X' })],
+      [
+        actual({ id: 'paired', imported_id: 'X' }),
+        actual({ id: 'booked', imported_id: 'X', date: '2031-04-20' }),
+        actual({ id: 'other', imported_id: 'Y', date: '2031-04-20' }),
+      ],
+    ),
+    ['booked~paired'],
+  );
+});
+
 test('the same amount two days from a paired one is no duplicate', () => {
   assert.deepEqual(
     unpaired(

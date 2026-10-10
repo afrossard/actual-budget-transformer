@@ -292,8 +292,9 @@ export function toFixInActual(classified: Classified): ToFix[] {
 }
 
 /**
- * An Actual transaction in the statement's account and period that no
- * statement transaction pairs with: the bank does not hold it as Actual does.
+ * An Actual transaction in the statement's account, dated within its period or
+ * holding one of its imported IDs, that no statement transaction pairs with:
+ * the bank does not hold it as Actual does.
  */
 export type UnpairedActual = {
   actual: ActualTransaction;
@@ -307,12 +308,16 @@ export type UnpairedActual = {
 
 /**
  * Pairing the other way round: every Actual transaction dated within the
- * period that no statement transaction took. Nothing is ever written for one;
- * the statement report lists it to be fixed in Actual.
+ * period that no statement transaction took, and every holder of an imported
+ * ID the file carries that none took, wherever it is dated (#119). Nothing is
+ * ever written for one; the statement report lists it to be fixed in Actual.
  */
 export function unpairedActual(
   classified: readonly Classified[],
-  /** What `classify` was given; only those dated within `period` count. */
+  /**
+   * What `classify` was given; only those dated within `period` count, and
+   * the holders of an imported ID the file carries.
+   */
   existing: readonly ActualTransaction[],
   period: Period,
 ): UnpairedActual[] {
@@ -329,8 +334,16 @@ export function unpairedActual(
       )
       .sort((a, b) => daysApart(a.date, tx.date) - daysApart(b.date, tx.date))[0] ??
     null;
+  // A holder re-dated far from the file (a card purchase moved to its booking
+  // date) is still a duplicate, so the period does not bound it.
+  const carried = new Set(
+    classified.map((c) => c.source.importedId).filter((id) => id !== ''),
+  );
+  const listed = (tx: ActualTransaction): boolean =>
+    (tx.date >= period.from && tx.date <= period.to) ||
+    (!!tx.imported_id && carried.has(tx.imported_id));
   return existing
-    .filter((tx) => !taken.has(tx.id) && tx.date >= period.from && tx.date <= period.to)
+    .filter((tx) => !taken.has(tx.id) && listed(tx))
     .map((actual) => ({ actual, twin: twinOf(actual) }));
 }
 

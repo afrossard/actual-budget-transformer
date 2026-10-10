@@ -69,7 +69,7 @@ export type ReviewOptions = {
   period: Period;
   /** Every statement transaction, paired or not, as the classifier left it. */
   classified: readonly Classified[];
-  /** The Actual transactions in the period the statement does not hold. */
+  /** The Actual transactions in the period, or holding one of its imported IDs, that the statement does not hold. */
   unpaired: readonly UnpairedActual[];
   /** Rows the parser did not turn into transactions, so the report can say so. */
   dropped?: readonly DroppedRow[];

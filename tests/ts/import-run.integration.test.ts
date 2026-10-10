@@ -253,6 +253,38 @@ describe('integration: a whole run from a statement file', { skip }, () => {
     assert.doesNotMatch(transcript, /to fix there/);
   });
 
+  it('lists a second holder of an imported ID dated outside the period as a duplicate', async () => {
+    // #119: a copy dated far from the file - a card purchase re-dated to its
+    // booking date - is still a duplicate, so the period does not bound it.
+    // Dated before the period: Actual returns the newest holder first, so the
+    // pairing takes the copy inside it, the case that went unlisted.
+    const { config, accountId } = await arrange(
+      'shared-id-outside',
+      'CH4200120123A12345678',
+    );
+    const path = DATA + 'ubs_valid.csv';
+
+    await run(config, path, () => 'i', 1);
+    await session.gateway.add(accountId, {
+      date: '2022-11-15',
+      amountCents: -18665,
+      payee: 'Typed early',
+      notes: '',
+      importedId: '1234563AB9269773',
+    });
+    await session.api.sync();
+
+    const { result, io } = await run(config, path, () => 'l', 0);
+    assert.deepEqual(result.outcomes, []);
+    const transcript = io.transcript.join('\n');
+    assert.match(transcript, /- From 2023-01-01 to 2023-01-31/);
+    assert.match(transcript, /- 1 not in the statement/);
+    assert.match(
+      transcript,
+      /^ {2}in Actual, not in the statement\n {2}! 2022-11-15 +-186\.65 +Typed early +duplicate, delete one\n {2}! 2023-01-13 +-186\.65 +Example; Paiement UBS TWINT +duplicate, delete one$/im,
+    );
+  });
+
   it('lists what Actual holds in the stated period and the statement does not', async () => {
     // The account CSV states its period, Du to Au, which reaches well past its
     // one transaction: what Actual holds anywhere in it counts, edges included.
