@@ -57,7 +57,8 @@ export async function runImport(options: RunOptions): Promise<RunResult> {
   // Three targeted reads instead of the account's whole history (#67), each
   // answering one question the classifier asks. Their union is every Actual
   // transaction a statement transaction could pair with, so it pairs exactly
-  // as it would against the whole history, and every one in the period.
+  // as it would against the whole history, and every one in the period or
+  // holding one of the file's imported IDs.
   const reconciledThrough = await gateway.reconciledThroughDate(account.id);
   const byImportedId = await gateway.findByImportedIds(
     account.id,
