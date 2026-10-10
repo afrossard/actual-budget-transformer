@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/afrossard/actual-budget-transformer/compare/0.2.0...0.2.1) (2026-10-10)
+
+
+### Bug Fixes
+
+* list unpaired Actual transactions for an account CSV with no transactions ([#135](https://github.com/afrossard/actual-budget-transformer/issues/135)) ([902d82b](https://github.com/afrossard/actual-budget-transformer/commit/902d82bf696f5dbd333703a6071a606e0368c156))
+
 ## [0.2.0](https://github.com/afrossard/actual-budget-transformer/compare/0.1.0...0.2.0) (2026-10-10)
 
 

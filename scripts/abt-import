@@ -35,7 +35,7 @@ set -euo pipefail
 # which the bash 3.2 macOS ships rejects.
 
 # The release this script belongs to; release-please bumps it.
-version="0.2.0" # x-release-please-version
+version="0.2.1" # x-release-please-version
 image=${ABT_IMAGE:-ghcr.io/afrossard/actual-budget-transformer:$version}
 config=${ACTUAL_BUDGET_TRANSFORMER_CONFIG:-}
 passthrough=()
