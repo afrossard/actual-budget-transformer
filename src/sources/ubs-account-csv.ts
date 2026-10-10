@@ -11,6 +11,7 @@
  */
 import { cell, joinNotes, readRows } from './delimited.ts';
 import { parseDate, type AccountCsvFormat } from './formats.ts';
+import type { IsoDate } from '../iso-date.ts';
 import { readAmount } from '../money.ts';
 import type {
   DroppedRow,
@@ -50,7 +51,7 @@ const TO_ROW = 3;
  * A preamble date, in the configured format or else ISO, which is how the
  * bank writes it whatever the transaction rows use. Null when it is neither.
  */
-function preambleDate(value: string, format: string): string | null {
+function preambleDate(value: string, format: string): IsoDate | null {
   return parseDate(value, format) ?? parseDate(value, '%Y-%m-%d');
 }
 

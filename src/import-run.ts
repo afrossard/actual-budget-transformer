@@ -18,6 +18,7 @@ import { parseStatement } from './sources/index.ts';
 import { review, type ReviewIo, type ReviewResult } from './review.ts';
 import type { ActualGateway } from './actual-gateway.ts';
 import type { Period, SourceTransaction } from './sources/types.ts';
+import { shiftDays, type IsoDate } from './iso-date.ts';
 import type { ReportStyle } from './statement-report.ts';
 
 export type RunOptions = {
@@ -106,17 +107,11 @@ function transactionSpan(sources: readonly SourceTransaction[]): Period | null {
  * found wherever the transaction now sits - which is why that read is
  * unbounded.
  */
-function readSpan(span: Period | null, period: Period): [string, string] {
+function readSpan(span: Period | null, period: Period): [IsoDate, IsoDate] {
   if (span === null) return [period.from, period.to];
   const from = shiftDays(span.from, -PAIRING_WINDOW_DAYS);
   const to = shiftDays(span.to, PAIRING_WINDOW_DAYS);
   return [period.from < from ? period.from : from, period.to > to ? period.to : to];
-}
-
-function shiftDays(date: string, days: number): string {
-  const shifted = new Date(`${date}T00:00:00Z`);
-  shifted.setUTCDate(shifted.getUTCDate() + days);
-  return shifted.toISOString().slice(0, 10);
 }
 
 /** A transaction both reads returned would otherwise be a candidate twice. */

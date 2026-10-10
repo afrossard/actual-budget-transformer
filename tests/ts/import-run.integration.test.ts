@@ -19,6 +19,7 @@ import {
   skipReason,
   type Session,
 } from './actual-fixture.ts';
+import { isoDate } from './iso-date-fixture.ts';
 
 const DATA = fileURLToPath(new URL('../data/', import.meta.url));
 const skip = skipReason(await serverReachable());
@@ -76,8 +77,8 @@ describe('integration: a whole run from a statement file', { skip }, () => {
 
     const stored = await session.gateway.getTransactions(
       accountId,
-      '2022-01-01',
-      '2024-12-31',
+      isoDate('2022-01-01'),
+      isoDate('2024-12-31'),
     );
     assert.equal(stored.length, 1);
     assert.equal(stored[0]!.date, '2023-01-13');
@@ -91,8 +92,13 @@ describe('integration: a whole run from a statement file', { skip }, () => {
       /- 1 already in Actual\n {4}- 0 to review/,
     );
     assert.equal(
-      (await session.gateway.getTransactions(accountId, '2022-01-01', '2024-12-31'))
-        .length,
+      (
+        await session.gateway.getTransactions(
+          accountId,
+          isoDate('2022-01-01'),
+          isoDate('2024-12-31'),
+        )
+      ).length,
       1,
     );
   });
@@ -109,8 +115,8 @@ describe('integration: a whole run from a statement file', { skip }, () => {
 
     const stored = await session.gateway.getTransactions(
       accountId,
-      '2019-12-01',
-      '2020-03-31',
+      isoDate('2019-12-01'),
+      isoDate('2020-03-31'),
     );
     assert.deepEqual(
       stored.map((t) => t.amount).sort((a, b) => a - b),
@@ -125,8 +131,13 @@ describe('integration: a whole run from a statement file', { skip }, () => {
     const second = await run(config, path, () => 'l', 0);
     assert.deepEqual(second.result.outcomes, []);
     assert.equal(
-      (await session.gateway.getTransactions(accountId, '2019-12-01', '2020-03-31'))
-        .length,
+      (
+        await session.gateway.getTransactions(
+          accountId,
+          isoDate('2019-12-01'),
+          isoDate('2020-03-31'),
+        )
+      ).length,
       3,
     );
   });
@@ -205,7 +216,7 @@ describe('integration: a whole run from a statement file', { skip }, () => {
       'CH4200120123A12345678',
     );
     await session.gateway.add(accountId, {
-      date: '2023-01-12',
+      date: isoDate('2023-01-12'),
       amountCents: -18665,
       payee: 'Yesterday',
       notes: '',
@@ -234,7 +245,7 @@ describe('integration: a whole run from a statement file', { skip }, () => {
 
     await run(config, path, () => 'i', 1);
     await session.gateway.add(accountId, {
-      date: '2023-01-30',
+      date: isoDate('2023-01-30'),
       amountCents: -18665,
       payee: 'Second copy',
       notes: '',
@@ -266,7 +277,7 @@ describe('integration: a whole run from a statement file', { skip }, () => {
 
     await run(config, path, () => 'i', 1);
     await session.gateway.add(accountId, {
-      date: '2022-11-15',
+      date: isoDate('2022-11-15'),
       amountCents: -18665,
       payee: 'Typed early',
       notes: '',

@@ -24,6 +24,7 @@ import {
   type UnpairedActual,
 } from './classify.ts';
 import type { DroppedRow, Period, SourceTransaction } from './sources/types.ts';
+import type { IsoDate } from './iso-date.ts';
 
 const ESC = `${String.fromCharCode(27)}[`;
 const RESET = `${ESC}0m`;
@@ -326,7 +327,7 @@ export function report(
     period: Period;
     classified: readonly Classified[];
     unpaired: readonly UnpairedActual[];
-    reconciledThrough: string | null;
+    reconciledThrough: IsoDate | null;
     dropped: readonly DroppedRow[];
   },
   style: ReportStyle,

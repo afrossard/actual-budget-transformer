@@ -15,6 +15,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ActualTransaction } from './classify.ts';
+import { toIsoDate, type IsoDate } from './iso-date.ts';
 import {
   assertVersionCompatible,
   installedApiVersion,
@@ -34,7 +35,7 @@ export type Account = { id: string; name: string; closed?: boolean };
 
 /** A transaction to create. `importedId` may be blank, and then none is set. */
 export type NewTransaction = {
-  date: string;
+  date: IsoDate;
   amountCents: number;
   payee: string;
   notes: string;
@@ -42,6 +43,10 @@ export type NewTransaction = {
 };
 
 type Api = typeof import('@actual-app/api');
+
+// The whole calendar Actual can store. Literals, so cast rather than checked.
+const FIRST_DAY = '1000-01-01' as IsoDate;
+const LAST_DAY = '9999-12-31' as IsoDate;
 
 /** A transaction as the api hands it back, before narrowing. */
 type TransactionRow = Awaited<ReturnType<Api['getTransactions']>>[number];
@@ -138,8 +143,8 @@ export class ActualGateway {
    */
   async getTransactions(
     accountId: string,
-    startDate: string,
-    endDate: string,
+    startDate: IsoDate,
+    endDate: IsoDate,
   ): Promise<ActualTransaction[]> {
     const rows = await this.#require().getTransactions(accountId, startDate, endDate);
     return this.#toActual(rows);
@@ -154,7 +159,7 @@ export class ActualGateway {
    * needs all of it.
    */
   async getAccountHistory(accountId: string): Promise<ActualTransaction[]> {
-    return this.getTransactions(accountId, '1000-01-01', '9999-12-31');
+    return this.getTransactions(accountId, FIRST_DAY, LAST_DAY);
   }
 
   /**
@@ -169,7 +174,7 @@ export class ActualGateway {
    * alike, and should only one side carry the flag, the later date is the safe
    * error.
    */
-  async reconciledThroughDate(accountId: string): Promise<string | null> {
+  async reconciledThroughDate(accountId: string): Promise<IsoDate | null> {
     const api = this.#require();
     const result = (await api.aqlQuery(
       api
@@ -180,7 +185,8 @@ export class ActualGateway {
         .select(['date'])
         .options({ splits: 'all' }),
     )) as { data: { date: string }[] };
-    return result.data[0]?.date ?? null;
+    const date = result.data[0]?.date;
+    return date === undefined ? null : actualDate(date);
   }
 
   /**
@@ -230,7 +236,7 @@ export class ActualGateway {
     const payees = await this.#payees();
     return rows.map((t) => ({
       id: t.id,
-      date: t.date,
+      date: actualDate(t.date),
       amount: t.amount,
       imported_id: t.imported_id ?? null,
       payee: t.payee ?? null,
@@ -283,4 +289,19 @@ export class ActualGateway {
     }
     return this.#api;
   }
+}
+
+/**
+ * A date Actual handed back, checked. Actual stores `YYYY-MM-DD` and nothing
+ * else, so anything other than a calendar date means the api has changed under
+ * us; pairing on it would decide on a date read wrongly, so it stops the run.
+ */
+function actualDate(value: string): IsoDate {
+  const date = toIsoDate(value);
+  if (date === null) {
+    throw new Error(
+      `Actual returned the date ${JSON.stringify(value)}, which is not a YYYY-MM-DD calendar date`,
+    );
+  }
+  return date;
 }

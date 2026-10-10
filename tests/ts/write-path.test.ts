@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { classify } from '../../src/classify.ts';
 import { ACTIONS, warnings } from '../../src/review.ts';
 import type { SourceTransaction } from '../../src/sources/types.ts';
+import { isoDate } from './iso-date-fixture.ts';
 
 const SRC = fileURLToPath(new URL('../../src/', import.meta.url));
 
@@ -64,7 +65,7 @@ test('review offers import and leave, and no more', () => {
 
 function src(over: Partial<SourceTransaction> = {}): SourceTransaction {
   return {
-    date: '2031-03-10',
+    date: isoDate('2031-03-10'),
     amountCents: -450,
     payee: 'CAFE LUGANO',
     notes: 'Carte',
@@ -77,9 +78,12 @@ function src(over: Partial<SourceTransaction> = {}): SourceTransaction {
 
 test('one dated in the reconciled period is warned about, and nothing else is', () => {
   const [inside, after] = classify(
-    [src({ date: '2020-06-30' }), src({ date: '2020-07-01', importedId: 'T-2' })],
+    [
+      src({ date: isoDate('2020-06-30') }),
+      src({ date: isoDate('2020-07-01'), importedId: 'T-2' }),
+    ],
     [],
-    '2020-06-30',
+    isoDate('2020-06-30'),
   );
   assert.deepEqual(warnings(inside!), [
     'dated in your reconciled period: importing it changes a reconciled balance',

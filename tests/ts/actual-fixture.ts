@@ -26,6 +26,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ActualGateway, type GatewaySettings } from '../../src/actual-gateway.ts';
 import type { SourceTransaction } from '../../src/sources/types.ts';
+import type { IsoDate } from '../../src/iso-date.ts';
+import { isoDate } from './iso-date-fixture.ts';
 
 export const SERVER_URL =
   process.env['ACTUAL_SERVER_URL'] ?? 'http://actual-server:5006';
@@ -145,11 +147,11 @@ export function runTag(): string {
   return cachedTag;
 }
 
-export const RECONCILED_THROUGH = '2030-06-30';
+export const RECONCILED_THROUGH = isoDate('2030-06-30');
 
 export type Scenario = {
   tag: string;
-  reconciledThrough: string;
+  reconciledThrough: IsoDate;
   source: SourceTransaction[];
   /** The reconciled transaction that sets the reconciled-through date. */
   reconciledId: string;
@@ -192,7 +194,7 @@ export function scenarioSource(tag: string): SourceTransaction[] {
     ['2031-03-25', 'UBS TWINT', 'Motif: loyer', -15000, 'T-0010'],
   ];
   return rows.map(([date, payee, notes, amountCents, reference], index) => ({
-    date,
+    date: isoDate(date),
     amountCents,
     payee,
     notes,
