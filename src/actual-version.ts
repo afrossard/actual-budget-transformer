@@ -203,7 +203,7 @@ const CONSEQUENCE =
 
 const REINSTALL = "Reinstall this tool's dependencies with `npm ci`.";
 
-/** Throws unless the API is exactly the server's version, patch included. */
+/** Throws unless the API is exactly the server's version, patch and suffix included. */
 export function assertVersionCompatible(
   apiVersion: string | null,
   server: ServerVersionProbe,
@@ -234,16 +234,18 @@ export function assertVersionCompatible(
         `as reported by ${server.url}.\n  ${CONSEQUENCE}`,
     );
   }
-  const skew = compareSemver(api, serverSemver);
-  if (skew === 0) return;
+  if (apiVersion === server.version) return;
+  // Equal numbers with a different suffix, such as a nightly server: it may
+  // carry migrations the release does not, so it counts as ahead.
+  const apiAhead = compareSemver(api, serverSemver) > 0;
 
   const mismatch =
     `aborting: the Actual server is ${server.version}, as reported by ${server.url}, ` +
     `but this tool is built for ${apiVersion}.\n`;
   const release =
-    `the abt-import release built for ${server.version} ` +
+    `the abt-import release built for ${server.version}, if one has been published ` +
     `(image ${IMAGE}:actual-${server.version})`;
-  if (skew < 0) {
+  if (!apiAhead) {
     throw new Error(
       mismatch +
         '  This tool cannot open a budget a newer Actual may already have upgraded, ' +

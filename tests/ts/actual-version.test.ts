@@ -69,6 +69,18 @@ test('a server ahead of the api aborts, and names the release built for it', () 
   // Patch included: nobody has to know which Actual releases carry migrations.
   assert.throws(() => assertVersionCompatible('26.9.0', at('26.9.1')), /aborting/);
   assert.throws(() => assertVersionCompatible('25.3.1', at('26.4.0')), /aborting/);
+  // A nightly server may carry migrations the release does not.
+  assert.throws(
+    () => assertVersionCompatible('26.10.0', at('26.10.0-nightly.20261009')),
+    /built for 26\.10\.0\./,
+  );
+});
+
+test('the suggested release is hedged, since it may not be published yet', () => {
+  assert.throws(
+    () => assertVersionCompatible('26.9.0', at('26.10.0')),
+    /if one has been published/,
+  );
 });
 
 test('an api ahead of the server aborts, and says what it would break and how to lift the block', () => {
