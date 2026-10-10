@@ -1,39 +1,28 @@
-// For format details, see https://aka.ms/devcontainer.json. For config options, see the
-// README at: https://github.com/devcontainers/templates/tree/main/src/python
 {
-  "name": "Python 3",
+  "name": "actual-budget-transformer",
   "dockerComposeFile": "docker-compose.yml",
   "service": "devcontainer",
   "workspaceFolder": "/workspaces/actual-budget-transformer",
   "shutdownAction": "stopCompose",
-
   "features": {
     "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
       "moby": false
     }
   },
-
-  // Use this environment variable if you need to bind mount your local source code into a new container.
   "remoteEnv": {
-    "LOCAL_WORKSPACE_FOLDER": "${localWorkspaceFolder}",
-    "UV_LINK_MODE": "copy"
+    "DOTFILES_REPO": "${localEnv:DOTFILES_REPO}",
+    // docker-compose.yml mounts the workspace from this host path, which is
+    // what a bind mount through docker-outside-of-docker has to name.
+    "LOCAL_WORKSPACE_FOLDER": "${localWorkspaceFolder}"
   },
-
-  "postCreateCommand": "./.devcontainer/postCreateCommand.sh",
-
-  // Avoid dubious ownership issue when git is run from inside the dev-container.
-  // Also neutralise the host's docker credsStore on every start (docker-outside-of-docker
-  // restores it from the host config on each start; macOS sets "desktop" whose helper
-  // binary doesn't exist inside this Linux container).
-  "postStartCommand": "git config --global --add safe.directory ${containerWorkspaceFolder} && mkdir -p ~/.docker && python3 -c \"import json,os; p=os.path.expanduser('~/.docker/config.json'); c=json.load(open(p)) if os.path.exists(p) else {}; c.pop('credsStore',None); json.dump(c,open(p,'w'))\"",
-
-  // Configure tool-specific properties.
+  "postCreateCommand": "${containerWorkspaceFolder}/.devcontainer/post-create",
+  "postStartCommand": "${containerWorkspaceFolder}/.devcontainer/post-start",
+  // Without this VS Code opens the first terminal before dotfiles-bootstrap
+  // has applied, and that terminal stays bare for its lifetime.
+  "waitFor": "postStartCommand",
+  "remoteUser": "vscode",
   "customizations": {
     "vscode": {
-      "settings": {
-        "terminal.integrated.fontFamily": "FiraCode Nerd Font, monospace",
-        "terminal.integrated.defaultProfile.linux": "zsh"
-      },
       "extensions": [
         "EditorConfig.EditorConfig",
         "esbenp.prettier-vscode",
