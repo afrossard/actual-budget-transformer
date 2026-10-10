@@ -18,7 +18,7 @@ import {
   testSettings,
   type Session,
 } from './actual-fixture.ts';
-import { ActualGateway } from '../../src/actual-gateway.ts';
+import { ActualGateway, type AccountId } from '../../src/actual-gateway.ts';
 import { isoDate } from './iso-date-fixture.ts';
 import type { IsoDate } from '../../src/iso-date.ts';
 
@@ -59,11 +59,11 @@ describe('integration: the gateway reads only what a question needs', { skip }, 
     await closeSession(session);
   });
 
-  async function account(label: string): Promise<string> {
+  async function account(label: string): Promise<AccountId> {
     return (await createRunAccount(session, `gateway-${label}`)).id;
   }
 
-  async function reconcile(accountId: string, date: IsoDate): Promise<void> {
+  async function reconcile(accountId: AccountId, date: IsoDate): Promise<void> {
     const stored = await session.gateway.getTransactions(accountId, date, date);
     for (const tx of stored) {
       await session.api.updateTransaction(tx.id, { reconciled: true });

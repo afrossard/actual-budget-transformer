@@ -24,7 +24,11 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ActualGateway, type GatewaySettings } from '../../src/actual-gateway.ts';
+import {
+  ActualGateway,
+  type AccountId,
+  type GatewaySettings,
+} from '../../src/actual-gateway.ts';
 import type { SourceTransaction } from '../../src/sources/types.ts';
 import type { IsoDate } from '../../src/iso-date.ts';
 import { isoDate } from './iso-date-fixture.ts';
@@ -129,10 +133,11 @@ let accountCounter = 0;
 export async function createRunAccount(
   session: Session,
   label: string,
-): Promise<{ id: string; name: string }> {
+): Promise<{ id: AccountId; name: string }> {
   accountCounter += 1;
   const name = `TS ${label} ${runTag()}-${accountCounter}`;
-  const id = await session.api.createAccount({ name }, 0);
+  // Made from what Actual returned, as the gateway does from its account list.
+  const id = (await session.api.createAccount({ name }, 0)) as AccountId;
   await session.api.sync();
   return { id, name };
 }

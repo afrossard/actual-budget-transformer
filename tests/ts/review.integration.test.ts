@@ -7,6 +7,7 @@
  */
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import type { AccountId } from '../../src/actual-gateway.ts';
 import { classify, tally, type ActualTransaction } from '../../src/classify.ts';
 import { createScriptedIo } from '../../src/io.ts';
 import { review } from '../../src/review.ts';
@@ -56,7 +57,7 @@ describe('integration: the review loop', { skip }, () => {
 
   /** A fresh account, seeded, read the way a run reads it. */
   async function arrange(label: string): Promise<{
-    accountId: string;
+    accountId: AccountId;
     scenario: Scenario;
     existing: ActualTransaction[];
     reconciledThrough: IsoDate | null;

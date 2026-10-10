@@ -2,13 +2,16 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parse as parseYaml } from 'yaml';
 import { resolveAccount } from '../../src/account-resolution.ts';
-import type { Account } from '../../src/actual-gateway.ts';
+import type { Account, AccountId } from '../../src/actual-gateway.ts';
 import type { AccountTarget } from '../../src/config.ts';
 
 const IBAN = 'CH4200120123A12345678';
 
+// Resolution reads only the name; the ID is carried, never inspected.
+const accountId = (value: string): AccountId => value as AccountId;
+
 function accounts(...names: string[]): Account[] {
-  return names.map((name, i) => ({ id: `id-${i}`, name, closed: false }));
+  return names.map((name, i) => ({ id: accountId(`id-${i}`), name, closed: false }));
 }
 
 function mapped(name: string): AccountTarget {
@@ -93,7 +96,7 @@ test('an accent difference is not a near match: it is a different word', () => {
 
 test('a closed account with the exact name is reported as closed', () => {
   const budget: Account[] = [
-    { id: 'old', name: 'My Checking', closed: true },
+    { id: accountId('old'), name: 'My Checking', closed: true },
     ...accounts('Savings'),
   ];
   const message = failure(mapped('My Checking'), budget);
@@ -105,14 +108,16 @@ test('a closed account with the exact name is reported as closed', () => {
 });
 
 test('a closed near match is not suggested', () => {
-  const budget: Account[] = [{ id: 'old', name: 'My Checking', closed: true }];
+  const budget: Account[] = [
+    { id: accountId('old'), name: 'My Checking', closed: true },
+  ];
   assert.doesNotMatch(failure(mapped('my checking'), budget), /Did you mean/);
 });
 
 test('the open accounts are listed sorted, closed ones left out', () => {
   const budget: Account[] = [
     ...accounts('savings', 'Checking', 'Brokerage'),
-    { id: 'old', name: 'Archive', closed: true },
+    { id: accountId('old'), name: 'Archive', closed: true },
   ];
   const message = failure(mapped('Nope'), budget);
   assert.ok(

@@ -22,7 +22,7 @@ import {
   type ReportStyle,
 } from './statement-report.ts';
 import { formatCents } from './money.ts';
-import type { ActualGateway } from './actual-gateway.ts';
+import type { AccountId, ActualGateway } from './actual-gateway.ts';
 import type { DroppedRow, Period } from './sources/types.ts';
 import type { IsoDate } from './iso-date.ts';
 
@@ -65,7 +65,7 @@ const PROMPT = `  ${ACTIONS.map((a) => LABEL[a]).join('  ')}  [?] detail  [q]uit
 
 export type ReviewOptions = {
   gateway: ActualGateway;
-  accountId: string;
+  accountId: AccountId;
   /** The dates the statement covers. */
   period: Period;
   /** Every statement transaction, paired or not, as the classifier left it. */
@@ -142,7 +142,7 @@ async function apply(
   action: Action,
   classified: Classified,
   gateway: ActualGateway,
-  accountId: string,
+  accountId: AccountId,
   io: ReviewIo,
 ): Promise<Outcome> {
   const { source } = classified;
