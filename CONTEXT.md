@@ -1,6 +1,6 @@
 # Actual Budget Transformer
 
-Imports bank statement files straight into a self-hosted Actual Budget server, one account at a time, writing nothing without a confirmation for that statement transaction.
+Imports bank statement files straight into a self-hosted Actual Budget server, one account at a time, writing every statement transaction Actual lacks except one dated in the reconciled period.
 It is governed by conservative-automation principles: it must never create a mess harder to clean up than doing it by hand.
 
 ## Language
@@ -50,8 +50,12 @@ _Avoid_: orphan, extra, stray, unmatched
 An unpaired Actual transaction that holds the imported ID of a paired Actual transaction, or has the same amount within ±1 day of one. The statement holds the transaction once and Actual holds it twice; which copy the pairing took is arbitrary, so both are shown and the human deletes one in Actual.
 
 **Review**:
-The human deciding, one at a time, what happens to each unpaired statement transaction. A paired statement transaction is never reviewed: it is already in Actual.
+The human deciding, one at a time, what happens to each unpaired statement transaction, when asked for instead of importing them unattended; the only way a statement transaction dated before the reconciled-through date is written. A paired statement transaction is never reviewed: it is already in Actual.
 
 **Statement report**:
-What the importer prints for one statement file before any review: the statement's period and how many of its statement transactions are already in Actual, the pairs that need fixing in Actual, the unpaired Actual transactions, and the statement transactions to review.
+What the importer prints for one statement file: the statement's period and how many of its statement transactions are already in Actual, the pairs that need fixing in Actual, the unpaired Actual transactions, the statement transactions it writes or, under review, asks about, and those it leaves out for being dated before the reconciled-through date.
 _Avoid_: tape, summary
+
+**Import summary**:
+What the importer prints once, after every statement report of a run: one line per statement file with what came of it, and every file it did not recognise as a statement, with why.
+_Avoid_: run report
