@@ -1,6 +1,6 @@
 /**
  * The statement report's rendering: the counts and fixes up front, one line per
- * statement transaction to review, one block per reviewed one.
+ * unpaired statement transaction, one block per reviewed one.
  *
  * Every line has to fit the terminal. A line that wraps puts its tail in
  * column 0, and from there on the columns stop meaning anything (#81).
@@ -99,6 +99,7 @@ test('the report says what the statement holds and what Actual holds', () => {
       unpaired: [],
       reconciledThrough: isoDate('2020-06-30'),
       dropped: [],
+      mode: 'review',
     },
     plain,
   );
@@ -117,7 +118,14 @@ test('the report says what the statement holds and what Actual holds', () => {
 test('the report lists only the statement transactions to review', () => {
   const classified = coffeeTwins();
   const lines = report(
-    { period: MARCH, classified, unpaired: [], reconciledThrough: null, dropped: [] },
+    {
+      period: MARCH,
+      classified,
+      unpaired: [],
+      reconciledThrough: null,
+      dropped: [],
+      mode: 'review',
+    },
     plain,
   );
   assert.deepEqual(lines.slice(8), [
@@ -130,7 +138,14 @@ test('the report lists only the statement transactions to review', () => {
 test('with nothing to review the report says so, and lists nothing', () => {
   const classified = classify([src()], [actual({ date: isoDate('2031-03-10') })], null);
   const lines = report(
-    { period: MARCH, classified, unpaired: [], reconciledThrough: null, dropped: [] },
+    {
+      period: MARCH,
+      classified,
+      unpaired: [],
+      reconciledThrough: null,
+      dropped: [],
+      mode: 'review',
+    },
     plain,
   );
   assert.deepEqual(lines, [
@@ -153,6 +168,7 @@ test('the report says what the file held unread', () => {
       unpaired: [],
       reconciledThrough: null,
       dropped: [{ sourceLine: 14, reason: 'unreadable date 31.02.2020', raw: '' }],
+      mode: 'review',
     },
     plain,
   );
@@ -172,7 +188,14 @@ function reportOf(
   const classified = classify(sources, existing, null);
   const unpaired = unpairedActual(classified, existing, MARCH);
   return report(
-    { period: MARCH, classified, unpaired, reconciledThrough: null, dropped: [] },
+    {
+      period: MARCH,
+      classified,
+      unpaired,
+      reconciledThrough: null,
+      dropped: [],
+      mode: 'review',
+    },
     style,
   );
 }
@@ -279,7 +302,14 @@ test('a pair whose amount Actual holds differently is listed, to fix in Actual',
     '#2 PRICE CHANGED: Actual holds -80.00, the bank says -75.00',
   ]);
   const lines = report(
-    { period: MARCH, classified, unpaired: [], reconciledThrough: null, dropped: [] },
+    {
+      period: MARCH,
+      classified,
+      unpaired: [],
+      reconciledThrough: null,
+      dropped: [],
+      mode: 'review',
+    },
     plain,
   );
   assert.deepEqual(section(lines, '  in Actual, but to fix there'), [
@@ -292,21 +322,104 @@ test('the note says the reconciled period, the lookalike, and the repeat', () =>
   const twin = { importedId: '', importedIdOrigin: 'absent' as const };
   const classified = classify(
     [
-      src({ ...twin, date: isoDate('2020-06-30') }),
-      src({ ...twin, date: isoDate('2020-06-30') }),
+      src({ ...twin, date: isoDate('2020-06-29') }),
+      src({ ...twin, date: isoDate('2020-06-29') }),
     ],
     [],
     isoDate('2020-06-30'),
   );
-  assert.equal(noteTag(classified[0]!), 'reconciled period');
-  assert.equal(noteTag(classified[1]!), 'reconciled period · same as #1');
-  assert.equal(noteTag(coffeeTwins()[1]!), "like #1's pair");
+  assert.equal(noteTag(classified[0]!, 'review'), 'reconciled period');
+  assert.equal(noteTag(classified[1]!, 'review'), 'reconciled period · same as #1');
+  assert.equal(noteTag(coffeeTwins()[1]!, 'review'), "like #1's pair");
+});
+
+test('unattended, the note says one in the reconciled period is left out', () => {
+  const [inside] = classify(
+    [src({ date: isoDate('2020-06-29') })],
+    [],
+    isoDate('2020-06-30'),
+  );
+  assert.equal(noteTag(inside!, 'unattended'), 'left out: reconciled period');
+  assert.equal(noteTag(coffeeTwins()[1]!, 'unattended'), "like #1's pair");
+});
+
+test("the note says a pending one is pending, and in which currency if not the account's", () => {
+  // Unattended, nothing else says so before it is written.
+  const [usd, chf] = classify(
+    [
+      src({ pending: { originalCurrency: 'USD', accountCurrency: 'CHF' } }),
+      src({ pending: { originalCurrency: 'CHF', accountCurrency: 'CHF' } }),
+    ],
+    [],
+    null,
+  );
+  for (const mode of ['unattended', 'review'] as const) {
+    assert.equal(noteTag(usd!, mode), 'pending, in USD');
+    assert.equal(noteTag(chf!, mode), 'pending');
+  }
+});
+
+test('unattended, the report counts what it imports and what it leaves out', () => {
+  const classified = classify(
+    [
+      src({ date: isoDate('2031-03-09') }),
+      src({ date: isoDate('2020-06-29'), payee: 'KIOSK' }),
+      src({ date: isoDate('2020-06-30'), payee: 'NEWSAGENT' }),
+    ],
+    [actual()],
+    isoDate('2020-06-30'),
+  );
+  const lines = report(
+    {
+      period: MARCH,
+      classified,
+      unpaired: [],
+      reconciledThrough: isoDate('2020-06-30'),
+      dropped: [],
+      mode: 'unattended',
+    },
+    plain,
+  );
+  assert.deepEqual(lines, [
+    '  Statement',
+    '    - From 2031-03-01 to 2031-03-31',
+    '    - 3 transactions found',
+    '    - 1 already in Actual',
+    '    - 1 to import',
+    '    - 1 left out, in the reconciled period',
+    '  Actual',
+    '    - Reconciled through 2020-06-30',
+    '    - 0 not in the statement',
+    '',
+    '  # date           amount payee                      note',
+    '  2 2020-06-29      -4.50 KIOSK                      left out: reconciled period',
+    '  3 2020-06-30      -4.50 NEWSAGENT',
+  ]);
+});
+
+test('unattended with nothing left out, the report does not mention it', () => {
+  const lines = report(
+    {
+      period: MARCH,
+      classified: classify([src()], [], null),
+      unpaired: [],
+      reconciledThrough: null,
+      dropped: [],
+      mode: 'unattended',
+    },
+    plain,
+  );
+  assert.deepEqual(lines.slice(3, 6), [
+    '    - 0 already in Actual',
+    '    - 1 to import',
+    '  Actual',
+  ]);
 });
 
 test('every list header label sits at the start of the field it names', () => {
   const classified = coffeeTwins()[1]!;
   const header = listHeader(plain);
-  const rendered = listLine(classified, plain);
+  const rendered = listLine(classified, 'review', plain);
   // The amount is right-aligned, so its label's right edge is what must line up.
   assert.equal(
     header.indexOf('amount') + 'amount'.length,
@@ -328,7 +441,7 @@ test('a list line never outgrows the terminal, however long the payee', () => {
     isoDate('2040-01-01'),
   );
   for (const width of [40, 60, 80, 120]) {
-    const rendered = listLine(one!, { colour: false, width });
+    const rendered = listLine(one!, 'review', { colour: false, width });
     assert.ok(rendered.length <= width, `${rendered.length} > ${width}: ${rendered}`);
   }
 });
@@ -336,16 +449,25 @@ test('a list line never outgrows the terminal, however long the payee', () => {
 test('a wider terminal gives a long payee more room before it is cut', () => {
   const payee = 'EXAMPLE; Paiement UBS TWINT DE LA PART DE QUELQU UN';
   const [one] = classify([src({ payee })], [], isoDate('2040-01-01'));
-  assert.ok(!listLine(one!, plain).includes(payee));
+  assert.ok(!listLine(one!, 'review', plain).includes(payee));
   assert.ok(
-    listLine(one!, { colour: false, width: 120 }, 0).includes(payee.slice(0, 39)),
+    listLine(one!, 'review', { colour: false, width: 120 }, 0).includes(
+      payee.slice(0, 39),
+    ),
   );
 });
 
 test('with no note anywhere, the header names no note column', () => {
   const classified = classify([src()], [], null);
   const lines = report(
-    { period: MARCH, classified, unpaired: [], reconciledThrough: null, dropped: [] },
+    {
+      period: MARCH,
+      classified,
+      unpaired: [],
+      reconciledThrough: null,
+      dropped: [],
+      mode: 'review',
+    },
     plain,
   );
   assert.ok(lines.at(-2)!.endsWith('payee'), lines.at(-2));
@@ -485,7 +607,7 @@ test('an extra holder of an imported ID is called a duplicate, never a pair', ()
     ],
     null,
   );
-  assert.equal(noteTag(other!), "like #1's duplicate");
+  assert.equal(noteTag(other!, 'review'), "like #1's duplicate");
   const shown = block(
     { position: 1, total: 1, classified: other!, warnings: [] },
     plain,
@@ -502,7 +624,7 @@ test('an Actual transaction under another bank reference is shown as such', () =
     [actual({ imported_id: 'REF-A' })],
     null,
   );
-  assert.equal(noteTag(one!), 'like REF-A');
+  assert.equal(noteTag(one!, 'review'), 'like REF-A');
   const shown = block({ position: 1, total: 1, classified: one!, warnings: [] }, plain);
   assert.ok(
     shown.includes(
@@ -523,7 +645,10 @@ test('with no note, a padded payee never ends a line in an ellipsis', () => {
   const [one] = classify([src()], [], null);
   for (const width of [60, 62, 66]) {
     const style = { colour: false, width };
-    assert.equal(listLine(one!, style, 0), '  1 2031-03-10      -4.50 CAFE LUGANO');
+    assert.equal(
+      listLine(one!, 'review', style, 0),
+      '  1 2031-03-10      -4.50 CAFE LUGANO',
+    );
     assert.ok(!listHeader(style, 0).endsWith('…'), listHeader(style, 0));
   }
   const lines = reportOf(

@@ -1,5 +1,6 @@
 /**
- * The review loop and the gateway, against a real Actual server.
+ * Writing what is not in Actual, unattended and under review, against a real
+ * Actual server.
  *
  * Nothing here is mocked. The reason these tests exist is that Actual's real
  * behaviour is surprising, and a mock would encode our assumptions rather than
@@ -7,10 +8,10 @@
  */
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import type { AccountId } from '../../src/actual-gateway.ts';
+import { ActualGateway, type AccountId } from '../../src/actual-gateway.ts';
 import { classify, tally, type ActualTransaction } from '../../src/classify.ts';
 import { createScriptedIo } from '../../src/io.ts';
-import { review } from '../../src/review.ts';
+import { complete, importUnpaired } from '../../src/review.ts';
 import {
   closeSession,
   createRunAccount,
@@ -18,10 +19,12 @@ import {
   seedScenario,
   serverReachable,
   skipReason,
+  testSettings,
   type Scenario,
   type Session,
 } from './actual-fixture.ts';
 import { isoDate } from './iso-date-fixture.ts';
+import type { SourceTransaction } from '../../src/sources/types.ts';
 import type { IsoDate } from '../../src/iso-date.ts';
 
 const skip = skipReason(await serverReachable());
@@ -44,7 +47,7 @@ const TO_REVIEW = [
   '#16 UBS TWINT',
 ];
 
-describe('integration: the review loop', { skip }, () => {
+describe('integration: writing what is not in Actual', { skip }, () => {
   let session: Session;
 
   before(async () => {
@@ -109,7 +112,8 @@ describe('integration: the review loop', { skip }, () => {
     const classified = classify(scenario.source, existing, reconciledThrough);
     const io = createScriptedIo(TO_REVIEW.map(() => 'l'));
 
-    const result = await review({
+    const result = await importUnpaired({
+      mode: 'review',
       gateway: session.gateway,
       accountId,
       period: PERIOD,
@@ -133,15 +137,163 @@ describe('integration: the review loop', { skip }, () => {
     assert.equal(io.transcript.at(-1), '0 imported, 11 left, 5 already in Actual.');
   });
 
-  it('imports one missing on the reconciled-through date, and says it changes a reconciled balance', async () => {
-    // Reported from a real run (#82): transactions deleted from Actual on the
-    // same day as the last reconciled one were set aside as "locked".
+  /**
+   * The seeded statement plus one dated the day before the reconciled-through
+   * date and missing from Actual, as if deleted there to be imported again.
+   */
+  function withOneBeforeReconciled(scenario: Scenario): SourceTransaction[] {
+    const kiosk = scenario.source[1]!;
+    return [
+      ...scenario.source,
+      {
+        ...kiosk,
+        date: isoDate('2030-06-29'),
+        payee: 'NEWSAGENT',
+        amountCents: -520,
+        importedId: `${scenario.tag}-T-9003`,
+        sourceLine: kiosk.sourceLine + scenario.source.length,
+      },
+    ];
+  }
+
+  it('unattended, writes everything unpaired except what is dated before the reconciled-through date', async () => {
+    const { accountId, scenario, existing, reconciledThrough } =
+      await arrange('unattended');
+    const source = withOneBeforeReconciled(scenario);
+    const classified = classify(source, existing, reconciledThrough);
+    const io = createScriptedIo([]);
+
+    const result = await importUnpaired({
+      mode: 'unattended',
+      gateway: session.gateway,
+      accountId,
+      period: PERIOD,
+      unpaired: [],
+      classified,
+      reconciledThrough,
+      io,
+    });
+
+    assert.equal(io.remaining(), 0, 'nothing is asked');
+    assert.equal(result.stopped, false);
+    assert.equal(complete(result), false, 'one is not in Actual');
+    assert.deepEqual(
+      result.outcomes
+        .filter((o) => o.action === 'left-out')
+        .map((o) => `#${o.classified.number} ${o.classified.source.payee}`),
+      ['#17 NEWSAGENT'],
+    );
+    const after = await session.gateway.getAccountHistory(accountId);
+    assert.equal(after.length, existing.length + TO_REVIEW.length);
+    const written = (ref: string) =>
+      after.find((t) => t.imported_id === `${scenario.tag}-${ref}`);
+    // On the reconciled-through date is written like any other (ADR 0005).
+    assert.equal(written('T-9002')?.date, '2030-06-30');
+    assert.equal(written('T-9003'), undefined);
+    // The reconciled transaction KIOSK sits beside is untouched.
+    assert.deepEqual(
+      after.find((t) => t.id === scenario.reconciledId),
+      existing.find((t) => t.id === scenario.reconciledId),
+    );
+
+    const transcript = io.transcript.join('\n');
+    assert.match(
+      transcript,
+      /^ {4}- 11 to import\n {4}- 1 left out, in the reconciled period$/m,
+    );
+    assert.match(
+      transcript,
+      /^ +17 2030-06-29 +-5\.20 NEWSAGENT +left out: reconciled period$/m,
+    );
+    assert.doesNotMatch(transcript, /──|> /, 'no block and no prompt');
+    assert.deepEqual(io.transcript.slice(-2), [
+      '11 imported, 1 left out, 5 already in Actual.',
+      'Run again with --review to import what was left out.',
+    ]);
+  });
+
+  it('unattended, a second run writes nothing and leaves out the same one', async () => {
+    const { accountId, scenario, existing, reconciledThrough } =
+      await arrange('unattended-again');
+    const source = withOneBeforeReconciled(scenario);
+    const options = {
+      mode: 'unattended' as const,
+      gateway: session.gateway,
+      accountId,
+      period: PERIOD,
+      unpaired: [],
+      reconciledThrough,
+    };
+    await importUnpaired({
+      ...options,
+      classified: classify(source, existing, reconciledThrough),
+      io: createScriptedIo([]),
+    });
+    const afterFirst = await session.gateway.getAccountHistory(accountId);
+
+    const io = createScriptedIo([]);
+    const second = await importUnpaired({
+      ...options,
+      classified: classify(source, afterFirst, reconciledThrough),
+      io,
+    });
+    assert.deepEqual(
+      second.outcomes.map((o) => o.action),
+      ['left-out'],
+    );
+    assert.equal(io.transcript.at(-2), '0 imported, 1 left out, 16 already in Actual.');
+    assert.equal(
+      (await session.gateway.getAccountHistory(accountId)).length,
+      afterFirst.length,
+    );
+  });
+
+  it('under review, imports one dated before the reconciled-through date, and says it changes a reconciled balance', async () => {
+    // Reported from a real run (#82): transactions deleted from Actual to be
+    // imported again were set aside as "locked". Unattended leaves them out;
+    // review is how they get in.
     const { accountId, scenario, existing, reconciledThrough } =
       await arrange('reconciled-period');
-    const classified = classify(scenario.source, existing, reconciledThrough);
-    const io = createScriptedIo(['i', 'q']);
+    const classified = classify(
+      withOneBeforeReconciled(scenario),
+      existing,
+      reconciledThrough,
+    );
+    const newsagent = classified.find((c) => c.source.payee === 'NEWSAGENT')!;
+    const io = createScriptedIo(['i']);
 
-    await review({
+    const result = await importUnpaired({
+      mode: 'review',
+      gateway: session.gateway,
+      accountId,
+      period: PERIOD,
+      unpaired: [],
+      classified: [newsagent],
+      reconciledThrough,
+      io,
+    });
+
+    assert.equal(complete(result), true);
+    const transcript = io.transcript.join('\n');
+    assert.match(transcript, /── 1 of 1 ─+\n {2}#17 +2030-06-29 +-5\.20 +NEWSAGENT/);
+    assert.match(
+      transcript,
+      /! dated in your reconciled period: importing it changes a reconciled balance/,
+    );
+    const after = await session.gateway.getAccountHistory(accountId);
+    const written = after.find((t) => t.imported_id === `${scenario.tag}-T-9003`);
+    assert.equal(written?.date, '2030-06-29');
+    assert.equal(written.amount, -520);
+  });
+
+  it('under review, one on the reconciled-through date carries no warning', async () => {
+    const { accountId, scenario, existing, reconciledThrough } =
+      await arrange('reconciled-date');
+    const classified = classify(scenario.source, existing, reconciledThrough);
+    const io = createScriptedIo(['q']);
+
+    await importUnpaired({
+      mode: 'review',
       gateway: session.gateway,
       accountId,
       period: PERIOD,
@@ -153,19 +305,7 @@ describe('integration: the review loop', { skip }, () => {
 
     const transcript = io.transcript.join('\n');
     assert.match(transcript, /── 1 of 11 ─+\n {2}#2 +2030-06-30 +-3\.00 +KIOSK/);
-    assert.match(
-      transcript,
-      /! dated in your reconciled period: importing it changes a reconciled balance/,
-    );
-    const after = await session.gateway.getAccountHistory(accountId);
-    const kiosk = after.find((t) => t.imported_id === `${scenario.tag}-T-9002`);
-    assert.equal(kiosk?.date, '2030-06-30');
-    assert.equal(kiosk.amount, -300);
-    // The reconciled transaction it sits beside is untouched.
-    assert.deepEqual(
-      after.find((t) => t.id === scenario.reconciledId),
-      existing.find((t) => t.id === scenario.reconciledId),
-    );
+    assert.doesNotMatch(transcript, /reconciled period/);
   });
 
   it('never asks about a pair, and lists the one Actual needs fixed', async () => {
@@ -174,7 +314,8 @@ describe('integration: the review loop', { skip }, () => {
     const classified = classify(scenario.source, existing, reconciledThrough);
     const io = createScriptedIo(['q']);
 
-    await review({
+    await importUnpaired({
+      mode: 'review',
       gateway: session.gateway,
       accountId,
       period: PERIOD,
@@ -206,7 +347,8 @@ describe('integration: the review loop', { skip }, () => {
     const coffee = classified.find((c) => c.number === 8)!;
     const io = createScriptedIo(['?', 'l']);
 
-    await review({
+    await importUnpaired({
+      mode: 'review',
       gateway: session.gateway,
       accountId,
       period: PERIOD,
@@ -234,7 +376,8 @@ describe('integration: the review loop', { skip }, () => {
     const { accountId, scenario, existing, reconciledThrough } =
       await arrange('idempotent');
     const first = classify(scenario.source, existing, reconciledThrough);
-    const firstResult = await review({
+    const firstResult = await importUnpaired({
+      mode: 'review',
       gateway: session.gateway,
       accountId,
       period: PERIOD,
@@ -251,7 +394,8 @@ describe('integration: the review loop', { skip }, () => {
     assert.deepEqual(tally(second), { paired: 16, toReview: 0 });
 
     const io = createScriptedIo([]);
-    const secondResult = await review({
+    const secondResult = await importUnpaired({
+      mode: 'review',
       gateway: session.gateway,
       accountId,
       period: PERIOD,
@@ -268,12 +412,42 @@ describe('integration: the review loop', { skip }, () => {
     );
   });
 
+  it('unattended, a failed write stops the run and says what was written', async () => {
+    const { accountId, scenario, existing, reconciledThrough } =
+      await arrange('failed-write');
+    const classified = classify(scenario.source, existing, reconciledThrough);
+    const io = createScriptedIo([]);
+    // Never opened, so its first write throws, as a write to a server gone
+    // away would.
+    const gateway = new ActualGateway(await testSettings());
+
+    await assert.rejects(
+      importUnpaired({
+        mode: 'unattended',
+        gateway,
+        accountId,
+        period: PERIOD,
+        unpaired: [],
+        classified,
+        reconciledThrough,
+        io,
+      }),
+      /not open/,
+    );
+    assert.equal(io.transcript.at(-1), '0 imported, 5 already in Actual.');
+    assert.equal(
+      (await session.gateway.getAccountHistory(accountId)).length,
+      existing.length,
+    );
+  });
+
   it('stops the run on quit and leaves the rest untouched', async () => {
     const { accountId, scenario, existing, reconciledThrough } = await arrange('quit');
     const classified = classify(scenario.source, existing, reconciledThrough);
     const io = createScriptedIo(['l', 'q']);
 
-    const result = await review({
+    const result = await importUnpaired({
+      mode: 'review',
       gateway: session.gateway,
       accountId,
       period: PERIOD,

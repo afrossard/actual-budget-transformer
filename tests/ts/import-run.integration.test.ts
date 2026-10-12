@@ -1,8 +1,7 @@
 /**
  * Both CSV inputs, end to end against a real Actual server: parse the file the
- * bank actually produces, pair against Actual, review the rest, write what is
- * confirmed - and then prove a second run of the same file has nothing to
- * review.
+ * bank actually produces, pair against Actual, write the rest unattended or
+ * under review - and then prove a second run of the same file writes nothing.
  */
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -12,6 +11,7 @@ import type { Config } from '../../src/config.ts';
 import { DEFAULT_FORMATS } from '../../src/sources/formats.ts';
 import { createScriptedIo } from '../../src/io.ts';
 import { runImport } from '../../src/import-run.ts';
+import { complete } from '../../src/review.ts';
 import {
   closeSession,
   createRunAccount,
@@ -57,14 +57,17 @@ describe('integration: a whole run from a statement file', { skip }, () => {
     };
   }
 
-  async function run(
-    config: Config,
-    path: string,
-    answer: (index: number) => string,
-    count: number,
-  ) {
-    const io = createScriptedIo(Array.from({ length: count }, (_, i) => answer(i)));
-    const result = await runImport({ path, config, gateway: session.gateway, io });
+  /** A run: unattended, or under review when given the answers to script. */
+  async function run(config: Config, path: string, answers?: readonly string[]) {
+    const io = createScriptedIo(answers ?? []);
+    const mode = answers === undefined ? ('unattended' as const) : ('review' as const);
+    const result = await runImport({
+      path,
+      config,
+      mode,
+      gateway: session.gateway,
+      io,
+    });
     return { result, io };
   }
 
@@ -72,7 +75,7 @@ describe('integration: a whole run from a statement file', { skip }, () => {
     const { config, accountId } = await arrange('account-csv', 'CH4200120123A12345678');
     const path = DATA + 'ubs_valid.csv';
 
-    const first = await run(config, path, () => 'i', 1);
+    const first = await run(config, path);
     assert.equal(first.result.outcomes.length, 1);
     assert.equal(first.result.outcomes[0]!.wrote, 'added');
 
@@ -86,11 +89,11 @@ describe('integration: a whole run from a statement file', { skip }, () => {
     assert.equal(stored[0]!.amount, -18665, 'the debit stayed an outflow');
     assert.equal(stored[0]!.imported_id, '1234563AB9269773');
 
-    const second = await run(config, path, () => 'l', 0);
+    const second = await run(config, path);
     assert.deepEqual(second.result.outcomes, []);
     assert.match(
       second.io.transcript.join('\n'),
-      /- 1 already in Actual\n {4}- 0 to review/,
+      /- 1 already in Actual\n {4}- 0 to import/,
     );
     assert.equal(
       (
@@ -108,7 +111,7 @@ describe('integration: a whole run from a statement file', { skip }, () => {
     const { config, accountId } = await arrange('cards-csv', '9659086893219337559');
     const path = DATA + 'ubs_cards_1.csv';
 
-    const first = await run(config, path, () => 'i', 3);
+    const first = await run(config, path);
     assert.deepEqual(
       first.result.outcomes.map((o) => o.wrote),
       ['added', 'added', 'added'],
@@ -129,7 +132,7 @@ describe('integration: a whole run from a statement file', { skip }, () => {
       'every card imported ID is minted and says so',
     );
 
-    const second = await run(config, path, () => 'l', 0);
+    const second = await run(config, path);
     assert.deepEqual(second.result.outcomes, []);
     assert.equal(
       (
@@ -152,7 +155,7 @@ describe('integration: a whole run from a statement file', { skip }, () => {
     const { config, accountId } = await arrange('re-dated', '9659086893219337559');
     const path = DATA + 'ubs_cards_1.csv';
 
-    await run(config, path, () => 'i', 3);
+    await run(config, path);
     const stored = await session.gateway.getAccountHistory(accountId);
     assert.equal(stored.length, 3);
 
@@ -162,7 +165,7 @@ describe('integration: a whole run from a statement file', { skip }, () => {
     await session.api.updateTransaction(moved.id, { date: '2026-03-16' });
     await session.api.sync();
 
-    const second = await run(config, path, () => 'l', 0);
+    const second = await run(config, path);
     assert.deepEqual(
       second.result.outcomes,
       [],
@@ -171,39 +174,72 @@ describe('integration: a whole run from a statement file', { skip }, () => {
     assert.equal((await session.gateway.getAccountHistory(accountId)).length, 3);
   });
 
-  it('reviews one missing from Actual on the reconciled-through date', async () => {
-    // Reported from a real run (#82): a transaction deleted from Actual on the
-    // same day as the last reconciled one came up "locked".
-    const { config, accountId } = await arrange(
-      'reconciled-period',
-      'CH4200120123A12345678',
-    );
+  /** Reconcile one typed by hand on `date`, which sets the reconciled-through date. */
+  async function reconcileOn(accountId: AccountId, date: string): Promise<void> {
     await session.api.addTransactions(accountId, [
-      { date: '2023-01-13', amount: -5000, payee_name: 'Groceries (typed by hand)' },
+      { date, amount: -5000, payee_name: 'Groceries (typed by hand)' },
     ]);
-    const [typed] = await session.api.getTransactions(
-      accountId,
-      '2023-01-13',
-      '2023-01-13',
-    );
+    const [typed] = await session.api.getTransactions(accountId, date, date);
     await session.api.updateTransaction(typed!.id, { reconciled: true });
     await session.api.sync();
+  }
 
-    const { result, io } = await run(config, DATA + 'ubs_valid.csv', () => 'i', 1);
+  it('writes one missing from Actual on the reconciled-through date', async () => {
+    // Reconciling in the morning and shopping in the afternoon puts new
+    // transactions on that date, so it is written like any other (ADR 0005).
+    const { config, accountId } = await arrange(
+      'reconciled-date',
+      'CH4200120123A12345678',
+    );
+    await reconcileOn(accountId, '2023-01-13');
+
+    const { result, io } = await run(config, DATA + 'ubs_valid.csv');
     assert.deepEqual(
       result.outcomes.map((o) => o.wrote),
       ['added'],
     );
+    assert.equal(complete(result), true);
     const transcript = io.transcript.join('\n');
     assert.match(transcript, /Reconciled through 2023-01-13/);
-    assert.match(transcript, /- 0 already in Actual\n {4}- 1 to review/);
+    assert.match(transcript, /- 0 already in Actual\n {4}- 1 to import\n {2}Actual/);
     // The reconciled one is in the statement's period and the bank does not hold it.
     assert.match(
       transcript,
       /^ {2}! 2023-01-13 +-50\.00 +Groceries \(typed by hand\)\n {6}already reconciled, double check reconciliation balance$/im,
     );
-    assert.match(transcript, /! dated in your reconciled period/);
-    assert.doesNotMatch(transcript, /locked/);
+    assert.doesNotMatch(transcript, /reconciled period|locked/);
+    const stored = await session.gateway.getAccountHistory(accountId);
+    assert.deepEqual(stored.map((t) => t.amount).sort(), [-18665, -5000]);
+  });
+
+  it('leaves out one dated before the reconciled-through date, which --review imports', async () => {
+    // Reported from a real run (#82): a transaction deleted from Actual to be
+    // imported again, in a period already reconciled.
+    const { config, accountId } = await arrange(
+      'reconciled-period',
+      'CH4200120123A12345678',
+    );
+    await reconcileOn(accountId, '2023-01-14');
+    const path = DATA + 'ubs_valid.csv';
+
+    const unattended = await run(config, path);
+    assert.deepEqual(
+      unattended.result.outcomes.map((o) => o.action),
+      ['left-out'],
+    );
+    assert.equal(complete(unattended.result), false);
+    assert.match(
+      unattended.io.transcript.join('\n'),
+      /- 0 to import\n {4}- 1 left out, in the reconciled period\n/,
+    );
+    assert.equal((await session.gateway.getAccountHistory(accountId)).length, 1);
+
+    const reviewed = await run(config, path, ['i']);
+    assert.equal(complete(reviewed.result), true);
+    assert.match(
+      reviewed.io.transcript.join('\n'),
+      /! dated in your reconciled period: importing it changes a reconciled balance/,
+    );
     const stored = await session.gateway.getAccountHistory(accountId);
     assert.deepEqual(stored.map((t) => t.amount).sort(), [-18665, -5000]);
   });
@@ -225,7 +261,7 @@ describe('integration: a whole run from a statement file', { skip }, () => {
     });
     await session.api.sync();
 
-    const { result, io } = await run(config, DATA + 'ubs_valid.csv', () => 'i', 1);
+    const { result, io } = await run(config, DATA + 'ubs_valid.csv', ['i']);
     assert.deepEqual(
       result.outcomes.map((o) => o.wrote),
       ['added'],
@@ -244,7 +280,7 @@ describe('integration: a whole run from a statement file', { skip }, () => {
     const { config, accountId } = await arrange('shared-id', 'CH4200120123A12345678');
     const path = DATA + 'ubs_valid.csv';
 
-    await run(config, path, () => 'i', 1);
+    await run(config, path);
     await session.gateway.add(accountId, {
       date: isoDate('2023-01-30'),
       amountCents: -18665,
@@ -254,7 +290,7 @@ describe('integration: a whole run from a statement file', { skip }, () => {
     });
     await session.api.sync();
 
-    const { result, io } = await run(config, path, () => 'l', 0);
+    const { result, io } = await run(config, path);
     assert.deepEqual(result.outcomes, []);
     const transcript = io.transcript.join('\n');
     assert.match(transcript, /- 1 not in the statement/);
@@ -276,7 +312,7 @@ describe('integration: a whole run from a statement file', { skip }, () => {
     );
     const path = DATA + 'ubs_valid.csv';
 
-    await run(config, path, () => 'i', 1);
+    await run(config, path);
     await session.gateway.add(accountId, {
       date: isoDate('2022-11-15'),
       amountCents: -18665,
@@ -286,7 +322,7 @@ describe('integration: a whole run from a statement file', { skip }, () => {
     });
     await session.api.sync();
 
-    const { result, io } = await run(config, path, () => 'l', 0);
+    const { result, io } = await run(config, path);
     assert.deepEqual(result.outcomes, []);
     const transcript = io.transcript.join('\n');
     assert.match(transcript, /- From 2023-01-01 to 2023-01-31/);
@@ -312,7 +348,7 @@ describe('integration: a whole run from a statement file', { skip }, () => {
     ]);
     await session.api.sync();
 
-    const { io } = await run(config, DATA + 'ubs_valid.csv', () => 'l', 1);
+    const { io } = await run(config, DATA + 'ubs_valid.csv', ['l']);
     const transcript = io.transcript.join('\n');
     assert.match(transcript, /- From 2023-01-01 to 2023-01-31/);
     assert.match(transcript, /- 2 not in the statement/);
@@ -339,12 +375,7 @@ describe('integration: a whole run from a statement file', { skip }, () => {
     ]);
     await session.api.sync();
 
-    const { result, io } = await run(
-      config,
-      DATA + 'ubs_account_no_transactions.csv',
-      () => 'l',
-      0,
-    );
+    const { result, io } = await run(config, DATA + 'ubs_account_no_transactions.csv');
     const transcript = io.transcript.join('\n');
     assert.deepEqual(result.outcomes, []);
     assert.match(transcript, /- From 2023-01-01 to 2023-01-31/);
@@ -371,8 +402,6 @@ describe('integration: a whole run from a statement file', { skip }, () => {
     const { result, io } = await run(
       config,
       DATA + 'ubs_cards_no_readable_transactions.csv',
-      () => 'l',
-      0,
     );
     assert.deepEqual(result.outcomes, []);
     assert.match(
@@ -393,7 +422,7 @@ describe('integration: a whole run from a statement file', { skip }, () => {
     ]);
     await session.api.sync();
 
-    const first = await run(config, path, () => 'l', 2);
+    const first = await run(config, path, ['l', 'l']);
     const transcript = first.io.transcript.join('\n');
     assert.match(transcript, /- From 2020-01-06 to 2020-02-24/);
     assert.match(transcript, /- 1 already in Actual/);
@@ -419,7 +448,7 @@ describe('integration: a whole run from a statement file', { skip }, () => {
     }
     await session.api.sync();
 
-    const second = await run(config, path, () => 'l', 3);
+    const second = await run(config, path, ['l', 'l', 'l']);
     const again = second.io.transcript.join('\n');
     assert.match(again, /- 0 already in Actual\n {4}- 3 to review/);
     assert.match(again, /- 2 not in the statement/);
@@ -432,12 +461,13 @@ describe('integration: a whole run from a statement file', { skip }, () => {
 
   it('imports a pending card purchase, warning that its amount is not final', async () => {
     const { config, accountId } = await arrange('cards-pending', '9659086893219337559');
-    const { io } = await run(
-      config,
-      DATA + 'ubs_cards_pending.csv',
-      (i) => (i < 2 ? 'i' : 'l'),
-      5,
-    );
+    const { io } = await run(config, DATA + 'ubs_cards_pending.csv', [
+      'i',
+      'i',
+      'l',
+      'l',
+      'l',
+    ]);
     const transcript = io.transcript.join('\n');
     assert.match(transcript, /2 rows in the file were not read as transactions/);
     assert.doesNotMatch(transcript, /not booked yet/);
@@ -473,6 +503,7 @@ describe('integration: a whole run from a statement file', { skip }, () => {
           runImport({
             path: DATA + 'ubs_valid.csv',
             config,
+            mode: 'unattended',
             gateway: session.gateway,
             io: createScriptedIo([]),
           }),
