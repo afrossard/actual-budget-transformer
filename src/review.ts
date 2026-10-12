@@ -1,17 +1,19 @@
 /**
- * The review loop.
+ * Writing the unpaired statement transactions, unattended or under review.
  *
  * Classification has already happened, once, for the whole statement. This
- * prints the statement report, then asks about each unpaired statement
- * transaction in turn, and nothing reaches Actual without a confirmation for
- * that one - including in the reconciled period, where Actual itself enforces
- * nothing. A paired statement transaction is already in Actual and is never
- * asked about; nothing is written for it.
+ * prints the statement report, then writes each unpaired statement
+ * transaction. Unattended, it writes every one without asking except one dated
+ * before the reconciled-through date, which it leaves out: Actual itself
+ * enforces nothing there, and writing it changes a balance already reconciled
+ * (ADR 0005). Under review it asks about each one in turn, those included, and
+ * writes only what the human confirms. A paired statement transaction is
+ * already in Actual and nothing is written for it either way.
  *
- * Two actions and no more: import it, or leave it (ADR 0003). Correcting an
- * Actual transaction from the bank's data and forcing a second copy had
- * nothing left to act on once only unpaired statement transactions are
- * reviewed.
+ * Review has two actions and no more: import it, or leave it (ADR 0003).
+ * Correcting an Actual transaction from the bank's data and forcing a second
+ * copy had nothing left to act on once only unpaired statement transactions
+ * are reviewed.
  */
 import type { Classified, UnpairedActual } from './classify.ts';
 import {
@@ -19,6 +21,7 @@ import {
   detail,
   DEFAULT_WIDTH,
   report,
+  type Mode,
   type ReportStyle,
 } from './statement-report.ts';
 import { formatCents } from './money.ts';
@@ -36,7 +39,8 @@ export type Wrote = 'added' | 'nothing';
 
 export type Outcome = {
   classified: Classified;
-  action: Action | 'quit';
+  /** `left-out`: unattended, and dated in the reconciled period. */
+  action: Action | 'quit' | 'left-out';
   wrote: Wrote;
 };
 
@@ -51,11 +55,20 @@ export type ReviewIo = {
   ask(prompt: string, allowed: readonly string[]): Promise<string>;
 };
 
-export type ReviewResult = {
+export type ImportResult = {
   outcomes: Outcome[];
   /** True when the human stopped the run early; the rest is left untouched. */
   stopped: boolean;
 };
+
+/**
+ * Whether every statement transaction is in Actual or was left by the human's
+ * own answer: false after a quit, or with one left out for being in the
+ * reconciled period, which only a run under review can write.
+ */
+export function complete(result: ImportResult): boolean {
+  return !result.stopped && result.outcomes.every((o) => o.action !== 'left-out');
+}
 
 /** The keystroke and the label for each action. Total, so none can lack one. */
 const KEY: Record<Action, string> = { import: 'i', leave: 'l' };
@@ -63,7 +76,9 @@ const LABEL: Record<Action, string> = { import: '[i]mport', leave: '[l]eave' };
 
 const PROMPT = `  ${ACTIONS.map((a) => LABEL[a]).join('  ')}  [?] detail  [q]uit > `;
 
-export type ReviewOptions = {
+export type ImportOptions = {
+  /** Unattended, or asking about each one. */
+  mode: Mode;
   gateway: ActualGateway;
   accountId: AccountId;
   /** The dates the statement covers. */
@@ -79,8 +94,8 @@ export type ReviewOptions = {
   style?: ReportStyle | undefined;
 };
 
-export async function review(options: ReviewOptions): Promise<ReviewResult> {
-  const { gateway, accountId, classified, io, reconciledThrough } = options;
+export async function importUnpaired(options: ImportOptions): Promise<ImportResult> {
+  const { gateway, accountId, classified, io, reconciledThrough, mode } = options;
   const style = options.style ?? { colour: false, width: DEFAULT_WIDTH };
 
   io.write('');
@@ -90,14 +105,56 @@ export async function review(options: ReviewOptions): Promise<ReviewResult> {
     unpaired: options.unpaired,
     reconciledThrough,
     dropped: options.dropped ?? [],
+    mode,
   };
   for (const line of report(statement, style)) io.write(line);
 
-  const toReview = classified.filter((c) => c.pair === null);
+  const notInActual = classified.filter((c) => c.pair === null);
   const outcomes: Outcome[] = [];
-  // Nothing to review: the report has said so, and there is nothing to sum up.
-  if (toReview.length === 0) return { outcomes, stopped: false };
+  // Nothing to write: the report has said so, and there is nothing to sum up.
+  if (notInActual.length === 0) return { outcomes, stopped: false };
 
+  try {
+    let stopped = false;
+    if (mode === 'review')
+      stopped = await reviewEach(notInActual, outcomes, gateway, accountId, io, style);
+    else await writeUnattended(notInActual, outcomes, gateway, accountId);
+    printSummary(outcomes, classified, mode, io);
+    return { outcomes, stopped };
+  } catch (error) {
+    // A failed write stops the run, and what was written before it still has
+    // to be said: re-running the file is the resume mechanism.
+    printSummary(outcomes, classified, mode, io);
+    throw error;
+  }
+}
+
+/** Write every one, except one in the reconciled period. */
+async function writeUnattended(
+  notInActual: readonly Classified[],
+  outcomes: Outcome[],
+  gateway: ActualGateway,
+  accountId: AccountId,
+): Promise<void> {
+  for (const current of notInActual) {
+    if (current.inReconciledPeriod) {
+      outcomes.push({ classified: current, action: 'left-out', wrote: 'nothing' });
+      continue;
+    }
+    await add(current, gateway, accountId);
+    outcomes.push({ classified: current, action: 'import', wrote: 'added' });
+  }
+}
+
+/** Ask about each one in turn; true when the human quit. */
+async function reviewEach(
+  toReview: readonly Classified[],
+  outcomes: Outcome[],
+  gateway: ActualGateway,
+  accountId: AccountId,
+  io: ReviewIo,
+  style: ReportStyle,
+): Promise<boolean> {
   const allowed = [...ACTIONS.map((a) => KEY[a]), '?', 'q'];
   for (const [index, current] of toReview.entries()) {
     io.write('');
@@ -119,10 +176,7 @@ export async function review(options: ReviewOptions): Promise<ReviewResult> {
       const left = toReview.length - index;
       io.conclude(`stopped, ${left} left untouched`);
       outcomes.push({ classified: current, action: 'quit', wrote: 'nothing' });
-      // A partial run still has to say what it wrote: re-running the file is
-      // the resume mechanism, and that only works if what happened is legible.
-      printSummary(outcomes, classified, io);
-      return { outcomes, stopped: true };
+      return true;
     }
 
     const action = ACTIONS.find((a) => KEY[a] === answer);
@@ -133,9 +187,7 @@ export async function review(options: ReviewOptions): Promise<ReviewResult> {
     }
     outcomes.push(await apply(action, current, gateway, accountId, io));
   }
-
-  printSummary(outcomes, classified, io);
-  return { outcomes, stopped: false };
+  return false;
 }
 
 async function apply(
@@ -150,14 +202,7 @@ async function apply(
     io.conclude('left, nothing written');
     return { classified, action, wrote: 'nothing' };
   }
-  await gateway.add(accountId, {
-    date: source.date,
-    amountCents: source.amountCents,
-    payee: source.payee,
-    notes: source.notes,
-    importedId: source.importedId,
-  });
-  await gateway.sync();
+  await add(classified, gateway, accountId);
   io.conclude(
     source.importedId === ''
       ? 'imported, with no imported ID: the bank wrote no reference'
@@ -166,14 +211,29 @@ async function apply(
   return { classified, action, wrote: 'added' };
 }
 
+async function add(
+  { source }: Classified,
+  gateway: ActualGateway,
+  accountId: AccountId,
+): Promise<void> {
+  await gateway.add(accountId, {
+    date: source.date,
+    amountCents: source.amountCents,
+    payee: source.payee,
+    notes: source.notes,
+    importedId: source.importedId,
+  });
+  await gateway.sync();
+}
+
 /**
  * What has to be said out loud before this statement transaction is answered,
  * one short line each.
  *
- * Dates decide nothing (ADR 0003): a statement transaction dated in the
- * reconciled period is reviewed like any other, because it is most probably
- * one deleted from Actual to be imported again. It is only said out loud,
- * since importing it moves a balance the human has already attested.
+ * Under review, a statement transaction dated in the reconciled period is
+ * asked about like any other, because it is most probably one deleted from
+ * Actual to be imported again. It is said out loud, since importing it moves a
+ * balance the human has already attested.
  *
  * A pending one is reviewed like any other too (#47), but its amount is not
  * final, so it must not be confirmed as if it were: in another currency it is
@@ -202,15 +262,24 @@ export function warnings(classified: Classified): string[] {
 function printSummary(
   outcomes: readonly Outcome[],
   classified: readonly Classified[],
+  mode: Mode,
   io: ReviewIo,
 ): void {
   const imported = outcomes.filter((o) => o.wrote === 'added').length;
   const already = classified.filter((c) => c.pair !== null).length;
-  // Everything reviewed and not imported is left, whether answered or not.
-  const left = classified.length - already - imported;
   io.write('');
+  // No account name: the run opened with it, and a long one would wrap.
+  if (mode === 'review') {
+    // Everything reviewed and not imported is left, whether answered or not.
+    const left = classified.length - already - imported;
+    io.write(`${imported} imported, ${left} left, ${already} already in Actual.`);
+    return;
+  }
+  const leftOut = outcomes.filter((o) => o.action === 'left-out').length;
   io.write(
-    // No account name: the run opened with it, and a long one would wrap.
-    `${imported} imported, ${left} left, ${already} already in Actual.`,
+    `${imported} imported, ` +
+      (leftOut > 0 ? `${leftOut} left out, ` : '') +
+      `${already} already in Actual.`,
   );
+  if (leftOut > 0) io.write('Run again with --review to import what was left out.');
 }

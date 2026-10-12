@@ -238,13 +238,15 @@ test('an imported ID pair takes its Actual transaction before any amount pair ca
   );
 });
 
-test('dates decide nothing: an unpaired one in the reconciled period is still reviewed', () => {
-  // Reported from a real run: two transactions deleted from Actual, on the
-  // same day as the last reconciled one, were set aside as "locked".
+test('only one dated before the reconciled-through date is in the reconciled period', () => {
+  // Reconciling in the morning and shopping in the afternoon puts new
+  // transactions on that date, so one dated on it is written like any other
+  // (ADR 0005). Pairing takes no notice of the date either way.
   const classified = classify(
     [
       src({ date: isoDate('2020-06-14') }),
       src({ date: isoDate('2020-06-15'), amountCents: -100 }),
+      src({ date: isoDate('2020-06-15'), amountCents: -200 }),
       src({ date: isoDate('2020-06-16') }),
     ],
     [
@@ -257,10 +259,10 @@ test('dates decide nothing: an unpaired one in the reconciled period is still re
     ],
     isoDate('2020-06-15'),
   );
-  assert.deepEqual(pairs(classified), [null, 'attested', null]);
+  assert.deepEqual(pairs(classified), [null, 'attested', null, null]);
   assert.deepEqual(
     classified.map((c) => c.inReconciledPeriod),
-    [true, true, false],
+    [true, false, false, false],
   );
 });
 

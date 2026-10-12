@@ -76,11 +76,12 @@ function src(over: Partial<SourceTransaction> = {}): SourceTransaction {
   };
 }
 
-test('one dated in the reconciled period is warned about, and nothing else is', () => {
-  const [inside, after] = classify(
+test('one dated before the reconciled-through date is warned about, and nothing else is', () => {
+  const [inside, on, after] = classify(
     [
-      src({ date: isoDate('2020-06-30') }),
-      src({ date: isoDate('2020-07-01'), importedId: 'T-2' }),
+      src({ date: isoDate('2020-06-29') }),
+      src({ date: isoDate('2020-06-30'), importedId: 'T-2' }),
+      src({ date: isoDate('2020-07-01'), importedId: 'T-3' }),
     ],
     [],
     isoDate('2020-06-30'),
@@ -88,5 +89,6 @@ test('one dated in the reconciled period is warned about, and nothing else is', 
   assert.deepEqual(warnings(inside!), [
     'dated in your reconciled period: importing it changes a reconciled balance',
   ]);
+  assert.deepEqual(warnings(on!), []);
   assert.deepEqual(warnings(after!), []);
 });

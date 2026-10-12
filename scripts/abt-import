@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # abt-import - run the import CLI's image on one statement file, under msb.
 #
-#   abt-import [-c <config.yaml>] [--no-colour] <statement file>
+#   abt-import [-c <config.yaml>] [--review] [--no-colour] <statement file>
 #
 # The config comes from -c, or else $ACTUAL_BUDGET_TRANSFORMER_CONFIG, exactly
 # as for `npm run import`. Server settings and their ACTUAL_BUDGET_URL,

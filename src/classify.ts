@@ -80,7 +80,12 @@ export type Classified = {
    * authoritative on the count.
    */
   repeatOf: number | null;
-  /** Dated on or before the reconciled-through date. Decides nothing; warns. */
+  /**
+   * Dated before the reconciled-through date, so writing it changes a balance
+   * already reconciled. Pairing takes no notice of it; unattended, it is left
+   * out, and under review it is warned about (ADR 0005). One dated on that date
+   * is not: transactions are still made on the day the human reconciles.
+   */
   inReconciledPeriod: boolean;
 };
 
@@ -269,8 +274,7 @@ export function classify(
       pair,
       lookalikes: [...lookalikes.values()],
       repeatOf,
-      inReconciledPeriod:
-        reconciledThrough !== null && source.date <= reconciledThrough,
+      inReconciledPeriod: reconciledThrough !== null && source.date < reconciledThrough,
     };
   });
 }

@@ -172,8 +172,8 @@ export function scenarioSource(tag: string): SourceTransaction[] {
     // In the reconciled period, and the same as the reconciled transaction:
     // it pairs, and nothing is written for it.
     [RECONCILED_THROUGH, 'SUPERMARKET CORRECTION', 'Carte', -12000, 'T-9001'],
-    // On the same day, and missing from Actual - as if deleted there to be
-    // imported again. Reviewed, with a warning, never set aside (#82).
+    // On the same day, and missing from Actual: written like any other, since
+    // transactions are still made on the day the human reconciles (ADR 0005).
     [RECONCILED_THROUGH, 'KIOSK', 'Carte', -300, 'T-9002'],
     ['2031-03-02', 'MIGROS', 'Carte', -2345, 'T-0001'],
     ['2031-03-03', 'SBB TICKET', 'Carte', -860, 'T-0002'],

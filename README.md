@@ -6,7 +6,7 @@ See [Actual Budget](https://actualbudget.org/)
 
 - UBS Switzerland e-banking
   - Account transactions CSV files
-  - Credit card transactions CSV files, pending purchases included: one in another currency is imported at its original amount, and says so before you confirm it
+  - Credit card transactions CSV files, pending purchases included: one in another currency is imported at its original amount, and `--review` says so before you confirm it
 
 ## Direct import
 
@@ -19,12 +19,18 @@ ACTUAL_BUDGET_URL=http://localhost:5006 npm run import -- -c config.yaml stateme
 It reads the account from the file, reads from Actual what each statement transaction could pair with, and pairs each one once.
 A pair is the Actual transaction that shares its imported ID, or failing that one with the same amount within a day, unless the two carry different bank references; each Actual transaction pairs at most once.
 
-A paired statement transaction is already in Actual, so it is never asked about and nothing is written for it.
-It then prints a statement report: how many are already in Actual, the pairs Actual needs fixed (an amount that differs, or two transactions holding one imported ID), and one line per statement transaction to review.
-Only the unpaired ones are reviewed, whatever their date; one dated in your reconciled period carries a warning, because importing it changes a reconciled balance.
+A paired statement transaction is already in Actual, so nothing is written for it.
+It then prints a statement report: how many are already in Actual, the pairs Actual needs fixed (an amount that differs, or two transactions holding one imported ID), and one line per unpaired statement transaction.
+
+It writes every unpaired one without asking, except one dated before your reconciled-through date - the date of the newest reconciled transaction - because writing it changes a reconciled balance.
+That one is left out, the report says so, and the run exits non-zero.
+One dated on the reconciled-through date is written like any other.
+What the report lists to fix in Actual never holds the file back: the fix is made in Actual.
+
+`--review` asks about each unpaired one instead, including one left out otherwise, which carries a warning.
 Two answers: **i**mport it or **l**eave it. `?` shows the detail and `q` stops the run.
 
-Nothing is written without an answer for that transaction, nothing in Actual is ever changed, and re-running the same file has nothing left to review - which is also how an interrupted run resumes.
+Nothing in Actual is ever changed, and re-running the same file has nothing left to write - which is also how an interrupted run resumes.
 
 Server settings come from the config's `actual_budget` block, overridden by `ACTUAL_BUDGET_URL`, `ACTUAL_BUDGET_PASSWORD` and `ACTUAL_BUDGET_SYNC_ID`.
 The budget is identified by its Sync ID, found in Actual under *Settings → Show advanced settings*, because two budgets on one server can share a name.

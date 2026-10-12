@@ -15,7 +15,7 @@
 
 ## Project purpose
 
-CLI tool that imports bank statement files into a self-hosted [Actual Budget](https://actualbudget.org/) server, one account at a time, asking about every transaction before it writes anything.
+CLI tool that imports bank statement files into a self-hosted [Actual Budget](https://actualbudget.org/) server, one account at a time, writing every transaction Actual lacks except one dated in the reconciled period (ADR 0005); `--review` asks about each one instead.
 It is one TypeScript codebase calling `@actual-app/api` in process (#41).
 
 The Python package that came before it, which wrote CSV and CAMT.053 files for Actual's own import dialog, was deleted in #41.
@@ -27,7 +27,7 @@ The CLI's own image is `ghcr.io/afrossard/actual-budget-transformer`, without th
 
 ## The TypeScript import CLI
 
-One account at a time: read a bank statement file, read Actual, classify once, prompt on every row, write only what the human confirms.
+One account at a time: read a bank statement file, read Actual, classify once, then write every unpaired statement transaction except one in the reconciled period - or, under `--review`, prompt on each and write only what the human confirms.
 
 ```bash
 npm ci                                   # once
@@ -77,7 +77,7 @@ src/
 ├── classify.ts        # THE CLASSIFIER SEAM — pairing; pure, no server, no I/O
 ├── actual-gateway.ts  # THE GATEWAY SEAM — the only module touching @actual-app/api
 ├── actual-version.ts  # ADR 0004: the server must be the api version
-├── review.ts          # the review loop: import or leave, one confirmation each
+├── review.ts          # writing what is not in Actual: unattended, or the review loop (import or leave)
 ├── statement-report.ts # the statement report, the review blocks, and [?]
 ├── io.ts              # terminal input (single keystroke on a TTY, lines otherwise)
 ├── imported-id.ts     # minting
@@ -97,12 +97,12 @@ src/
 | Rule | Where | Why |
 | --- | --- | --- |
 | Never `importTransactions` | `actual-gateway.ts`, guarded by a test in `tests/ts/write-path.test.ts` | It carries Actual's own matcher (same amount, ±7 days, any row with no imported ID). Two matchers over one decision caused every surprise in #38. |
-| Nothing is written without a confirmation for that statement transaction | `review.ts` | Including in the reconciled period, where Actual enforces nothing. Proven in `review.integration.test.ts`. |
+| Unattended, every unpaired statement transaction is written except one dated **before** the reconciled-through date | `review.ts` | ADR 0005. One dated before it is left out and listed, because writing it changes a balance already reconciled, and Actual enforces nothing there; only `--review` writes it, after a confirmation. One dated **on** that date is written like any other: transactions are still made on the day the human reconciles. Nothing the statement report lists holds the file back. A left-out one or a quit makes the exit code non-zero, and a failed write stops the run. Proven in `review.integration.test.ts`. |
 | Pair **one to one**, and never review a pair | `classify.ts`, `review.ts` | ADR 0003. A pair is a shared imported ID, or the same amount within ±1 day unless the two carry different **bank references** (minted `abt1-` IDs do not count: they can shift between exports); each Actual transaction pairs at most once, so of two identical statement transactions with one counterpart, one is reviewed. Amount pairs are a maximum matching, same-day first, so a run of entries typed a day late does not leave half of them reviewed. |
 | Nothing is written for a pair, and nothing patches an Actual transaction | `actual-gateway.ts`, guarded by a test in `tests/ts/write-path.test.ts` | A paired statement transaction is already in Actual. A pair Actual needs fixed (the amounts differ) is listed in the statement report and never prompted: the fix is made in Actual (#49 owns doing more). `updateTransaction` would also patch a reconciled transaction without complaint, so its absence is the guard. |
-| Dates decide nothing | `classify.ts`, `review.ts` `warnings()` | An unpaired statement transaction dated on or before the reconciled-through date is reviewed like any other - it is most probably one deleted from Actual to be imported again (#82) - and carries a warning that importing it changes a reconciled balance. |
+| Dates decide no pair | `classify.ts`, `review.ts` `warnings()` | Pairing takes no notice of the reconciled-through date. Under `--review`, an unpaired statement transaction dated before it is asked about like any other - it is most probably one deleted from Actual to be imported again (#82) - and carries a warning that importing it changes a reconciled balance. |
 | Every Actual transaction in the statement's period is paired or listed, and nothing is written for it | `classify.ts` `unpairedActual`, `statement-report.ts` | #109. An **unpaired Actual transaction** is one dated within the period that no statement transaction took, or one holding an imported ID the file carries, wherever it is dated (#119); a **duplicate** is one holding a paired one's imported ID, or its amount within ±1 day, and is listed beside that twin. The period is the file's own (`Du`-`Au` in the account CSV), or else its first to last transaction date, so `import-run.ts` reads the whole period as well as the pairing window. A file with no transactions is still compared when it states a period (#121); a cards CSV states none, so it stops there. The gateway gains no delete: the fix is made in Actual (#112 owns doing more). |
-| Pair once per batch | `import-run.ts` | Re-reading Actual between prompts would pair each statement transaction with what the last import wrote — #50's noise, manufactured. |
+| Pair once per batch | `import-run.ts` | Re-reading Actual between writes would pair each statement transaction with what the last import wrote — #50's noise, manufactured. |
 | A minted imported ID hashes the reference columns **verbatim** | `sources/ubs-cards-csv.ts` | Not the parsed date. Correcting `date_format` after a UBS change is exactly what the config is for, and it must not silently renumber every transaction already written. |
 | Two statement transactions sharing an identity key: the later one says **`identical to #N`** | `classify.ts` `identityKey` | **Kept deliberately** (review, 2026-09-28), from #38's closing recommendation to catch the twins by comparing statement transactions to each other. It is informational: both are reviewed if unpaired and both are written if confirmed, because the bank's file is authoritative on the count; it stops the human leaving one of two identical lines by mistake. A **repeated non-blank reference** pairs once per copy Actual holds, and only holders beyond the number of copies the file carries are left unpaired, to be listed as duplicates. |
 | Look imported IDs up **unbounded in date**, never in a window around the file's dates | `import-run.ts`, `gateway.findByImportedIds` | An imported ID has to be recognised wherever the transaction now sits. The cards parser dates a purchase by `Date d'achat` while the bank books it weeks later, so re-dating it in Actual moves it outside any sensible window — and a missed imported ID sends the statement transaction to review as "not in Actual". Guarded by the `re-dated` test. Unbounded in date is not the same as reading everything: the lookup is bounded in rows instead (#67). |

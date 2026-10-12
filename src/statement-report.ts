@@ -1,9 +1,10 @@
 /**
- * The statement report, printed before any review: what the statement holds
- * and what Actual holds, the pairs Actual needs fixed, the Actual transactions
- * the statement does not hold, and one line per statement transaction to
- * review. Then one block per statement transaction as it is reviewed, and what
- * `[?]` shows.
+ * The statement report, printed before anything is written: what the
+ * statement holds and what Actual holds, the pairs Actual needs fixed, the
+ * Actual transactions the statement does not hold, and one line per unpaired
+ * statement transaction - to import, or left out for being in the reconciled
+ * period, or under review to review. Then, under review, one block per
+ * statement transaction as it is reviewed, and what `[?]` shows.
  *
  * Paired statement transactions are never listed one by one: they are already
  * in Actual. The exception is a pair Actual needs fixed, which is listed and
@@ -112,12 +113,28 @@ function lookalikeName(lookalike: Lookalike): string {
   }
 }
 
-/** The review list's `note` column: what to know about it, in a few words. */
-export function noteTag(classified: Classified): string {
+/**
+ * How a run treats the unpaired statement transactions: write them without
+ * asking, except one in the reconciled period, which it leaves out; or review
+ * each one (ADR 0005).
+ */
+export type Mode = 'unattended' | 'review';
+
+/** The list's `note` column: what to know about it, in a few words. */
+export function noteTag(classified: Classified, mode: Mode): string {
   const { lookalikes, repeatOf, inReconciledPeriod } = classified;
+  const { pending } = classified.source;
   const [only] = lookalikes;
+  const reconciled =
+    mode === 'unattended' ? 'left out: reconciled period' : 'reconciled period';
   return [
-    ...(inReconciledPeriod ? ['reconciled period'] : []),
+    ...(inReconciledPeriod ? [reconciled] : []),
+    // Its amount is not final, and unattended nothing else says so (#47).
+    ...(pending === undefined
+      ? []
+      : pending.originalCurrency === pending.accountCurrency
+        ? ['pending']
+        : [`pending, in ${pending.originalCurrency}`]),
     ...(only === undefined
       ? []
       : lookalikes.length === 1
@@ -195,9 +212,10 @@ export function listHeader(style: ReportStyle, noteRoom = NOTE_ROOM): string {
   );
 }
 
-/** One statement transaction to review, as the report lists it. */
+/** One unpaired statement transaction, as the report lists it. */
 export function listLine(
   classified: Classified,
+  mode: Mode,
   style: ReportStyle,
   /** The same for every line of one report, so that its columns line up. */
   noteRoom = NOTE_ROOM,
@@ -209,7 +227,7 @@ export function listLine(
       date: source.date,
       amount: formatCents(source.amountCents, COLUMN.amount),
       payee: source.payee,
-      note: { text: noteTag(classified), code: DIM },
+      note: { text: noteTag(classified, mode), code: DIM },
     }),
     style.width,
     style,
@@ -329,11 +347,13 @@ export function report(
     unpaired: readonly UnpairedActual[];
     reconciledThrough: IsoDate | null;
     dropped: readonly DroppedRow[];
+    mode: Mode;
   },
   style: ReportStyle,
 ): string[] {
-  const { period, classified, unpaired, reconciledThrough, dropped } = statement;
+  const { period, classified, unpaired, reconciledThrough, dropped, mode } = statement;
   const { paired, toReview } = tally(classified);
+  const leftOut = classified.filter((c) => c.pair === null && c.inReconciledPeriod);
   const line = (text: string, code?: string): string =>
     fit([{ text, code }], style.width, style);
   const lines = [
@@ -341,7 +361,14 @@ export function report(
     line(`    - From ${period.from} to ${period.to}`),
     line(`    - ${plural(classified.length, 'transaction', 'transactions')} found`),
     line(`    - ${paired} already in Actual`),
-    line(`    - ${toReview} to review`),
+    ...(mode === 'review'
+      ? [line(`    - ${toReview} to review`)]
+      : [
+          line(`    - ${toReview - leftOut.length} to import`),
+          ...(leftOut.length > 0
+            ? [line(`    - ${leftOut.length} left out, in the reconciled period`)]
+            : []),
+        ]),
   ];
   if (dropped.length > 0) {
     lines.push(
@@ -372,14 +399,14 @@ export function report(
     lines.push('', line('  in Actual, not in the statement'));
     lines.push(...unpairedLines(unpaired, style));
   }
-  const reviewed = classified.filter((c) => c.pair === null);
-  if (reviewed.length > 0) {
+  const listed = classified.filter((c) => c.pair === null);
+  if (listed.length > 0) {
     const noteRoom = Math.min(
       NOTE_ROOM,
-      Math.max(0, ...reviewed.map((c) => noteTag(c).length)),
+      Math.max(0, ...listed.map((c) => noteTag(c, mode).length)),
     );
     lines.push('', listHeader(style, noteRoom));
-    for (const c of reviewed) lines.push(listLine(c, style, noteRoom));
+    for (const c of listed) lines.push(listLine(c, mode, style, noteRoom));
   }
   return lines;
 }

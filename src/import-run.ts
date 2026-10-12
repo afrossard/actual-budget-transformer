@@ -1,8 +1,9 @@
 /**
- * One run: read a statement file, read Actual, pair once, review.
+ * One run: read a statement file, read Actual, pair once, write what is not in
+ * Actual, unattended or under review.
  *
- * The whole file is one batch. Pairing happens before the first prompt and is
- * never redone, because re-reading Actual between prompts would pair each
+ * The whole file is one batch. Pairing happens before the first write and is
+ * never redone, because re-reading Actual between writes would pair each
  * statement transaction with whatever the last import wrote - a cascade of
  * manufactured noise rather than a finding.
  */
@@ -15,21 +16,22 @@ import {
 import { resolveAccount } from './account-resolution.ts';
 import { accountTargetFor, type Config } from './config.ts';
 import { parseStatement } from './sources/index.ts';
-import { review, type ReviewIo, type ReviewResult } from './review.ts';
+import { importUnpaired, type ImportResult, type ReviewIo } from './review.ts';
 import type { ActualGateway } from './actual-gateway.ts';
 import type { Period, SourceTransaction } from './sources/types.ts';
 import { shiftDays, type IsoDate } from './iso-date.ts';
-import type { ReportStyle } from './statement-report.ts';
+import type { Mode, ReportStyle } from './statement-report.ts';
 
 export type RunOptions = {
   path: string;
   config: Config;
+  mode: Mode;
   gateway: ActualGateway;
   io: ReviewIo;
   style?: ReportStyle;
 };
 
-export type RunResult = ReviewResult & { accountName: string };
+export type RunResult = ImportResult & { accountName: string };
 
 export async function runImport(options: RunOptions): Promise<RunResult> {
   const { path, config, gateway, io } = options;
@@ -73,7 +75,8 @@ export async function runImport(options: RunOptions): Promise<RunResult> {
   const classified = classify(statement.transactions, existing, reconciledThrough);
   const unpaired = unpairedActual(classified, existing, period);
 
-  const result = await review({
+  const result = await importUnpaired({
+    mode: options.mode,
     gateway,
     accountId: account.id,
     period,
