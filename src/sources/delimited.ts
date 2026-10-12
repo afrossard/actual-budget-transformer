@@ -9,6 +9,7 @@
 import { readFileSync } from 'node:fs';
 import { parse } from 'csv-parse/sync';
 import type { Encoding } from './formats.ts';
+import type { Likeness } from './types.ts';
 
 const BOM = String.fromCharCode(0xfeff);
 
@@ -45,4 +46,37 @@ export function joinNotes(parts: readonly string[]): string {
     .map((p) => p.trim())
     .filter((p) => p !== '')
     .join(' ');
+}
+
+/**
+ * Each label a format expects, against what the file holds in its place: how
+ * many are there, and which are not.
+ */
+export function compare(
+  expectations: readonly (readonly [expected: string, actual: string])[],
+): Likeness {
+  const missing = expectations
+    .filter(([expected, actual]) => actual !== expected)
+    .map(([expected]) => expected);
+  return { found: expectations.length - missing.length, missing };
+}
+
+/**
+ * How near a delimited file comes to a format, or null when it is not a CSV
+ * or cannot be read.
+ */
+export function likenessOf(
+  path: string,
+  encoding: Encoding,
+  delimiter: string,
+  expectations: (rows: readonly string[][]) => Likeness,
+): Likeness | null {
+  if (!path.toLowerCase().endsWith('.csv')) return null;
+  let rows;
+  try {
+    rows = readRows(path, encoding, delimiter);
+  } catch {
+    return null;
+  }
+  return expectations(rows);
 }

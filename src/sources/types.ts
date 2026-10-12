@@ -69,9 +69,21 @@ export type ParsedStatement = {
   dropped: DroppedRow[];
 };
 
+/**
+ * How near a file comes to what a parser reads: how many of the labels and
+ * columns it expects are where it expects them, and which are not.
+ */
+export type Likeness = { found: number; missing: string[] };
+
 /** A statement parser: claims a file, then reads it. */
 export type StatementParser = {
   format: string;
+  /**
+   * Null when it does not read this kind of file at all, or cannot read it.
+   * Never raises, so a directory of mixed downloads can be walked.
+   */
+  likeness(path: string): Likeness | null;
+  /** True when nothing it expects is missing. */
   canParse(path: string): boolean;
   parse(path: string): ParsedStatement;
 };

@@ -13,12 +13,13 @@
  * Column names, encoding, separator, date format and the reference columns all
  * come from the format settings - see `formats.ts` for why they are settings.
  */
-import { cell, readRows } from './delimited.ts';
+import { cell, compare, likenessOf, readRows } from './delimited.ts';
 import { parseDate, type CardsCsvFormat } from './formats.ts';
 import { mintFromParts } from '../imported-id.ts';
 import { readAmount } from '../money.ts';
 import type {
   DroppedRow,
+  Likeness,
   ParsedStatement,
   SourceTransaction,
   StatementParser,
@@ -46,22 +47,25 @@ export function ubsCardsCsvParser(format: CardsCsvFormat): StatementParser {
   const headerRow = format.headerRow - 1; // config is 1-based
   const firstTransactionRow = headerRow + 1;
 
-  const looksRight = (rows: readonly string[][]): boolean => {
-    if (cell(rows[SEP_ROW] ?? [], 0) !== 'sep=') return false;
+  const expectations = (rows: readonly string[][]): Likeness => {
     const header = rows[headerRow] ?? [];
-    return format.columns.every((name, i) => cell(header, i) === name);
+    return compare([
+      ['sep=', cell(rows[SEP_ROW] ?? [], 0)],
+      ...format.columns.map((name, i) => [name, cell(header, i)] as const),
+    ]);
   };
+  const looksRight = (rows: readonly string[][]): boolean =>
+    expectations(rows).missing.length === 0;
+  const likeness = (path: string): Likeness | null =>
+    likenessOf(path, format.encoding, format.separator, expectations);
 
   return {
     format: FORMAT,
 
+    likeness,
+
     canParse(path: string): boolean {
-      if (!path.toLowerCase().endsWith('.csv')) return false;
-      try {
-        return looksRight(readRows(path, format.encoding, format.separator));
-      } catch {
-        return false;
-      }
+      return likeness(path)?.missing.length === 0;
     },
 
     parse(path: string): ParsedStatement {

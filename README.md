@@ -16,7 +16,11 @@ read -s ACTUAL_BUDGET_PASSWORD && export ACTUAL_BUDGET_PASSWORD # Sets a passwor
 ACTUAL_BUDGET_URL=http://localhost:5006 npm run import -- -c config.yaml statement.csv
 ```
 
-It reads the account from the file, reads from Actual what each statement transaction could pair with, and pairs each one once.
+It takes any mix of statement files and directories, e.g. `downloads/` or `downloads/*.csv`.
+A directory is read one level deep, its files in name order; its subdirectories and hidden files are passed over.
+The budget is downloaded once, and each file is paired against what the files before it wrote, so overlapping exports do not import a transaction twice.
+
+For each file, it reads the account from the file, reads from Actual what each statement transaction could pair with, and pairs each one once.
 A pair is the Actual transaction that shares its imported ID, or failing that one with the same amount within a day, unless the two carry different bank references; each Actual transaction pairs at most once.
 
 A paired statement transaction is already in Actual, so nothing is written for it.
@@ -28,9 +32,14 @@ One dated on the reconciled-through date is written like any other.
 What the report lists to fix in Actual never holds the file back: the fix is made in Actual.
 
 `--review` asks about each unpaired one instead, including one left out otherwise, which carries a warning.
-Two answers: **i**mport it or **l**eave it. `?` shows the detail and `q` stops the run.
+Two answers: **i**mport it or **l**eave it. `?` shows the detail and `q` stops the run, files not yet reached included.
 
-Nothing in Actual is ever changed, and re-running the same file has nothing left to write - which is also how an interrupted run resumes.
+A run ends with an import summary: one line per file saying what came of it.
+A file not recognised as a statement, or whose account is not in the budget, is skipped with the reason there, and the run goes on; for a CSV that comes close to a format, the reason names the columns that format expected and did not find, which is how a changed UBS export shows.
+A failed write stops the run.
+The exit code is 0 only when everything is in Actual: a skipped file, a failure, a quit or a left-out transaction makes it 1.
+
+Nothing in Actual is ever changed, and re-running the same files has nothing left to write - which is also how an interrupted run resumes.
 
 Server settings come from the config's `actual_budget` block, overridden by `ACTUAL_BUDGET_URL`, `ACTUAL_BUDGET_PASSWORD` and `ACTUAL_BUDGET_SYNC_ID`.
 The budget is identified by its Sync ID, found in Actual under *Settings → Show advanced settings*, because two budgets on one server can share a name.
@@ -43,14 +52,14 @@ The account names in `account_names` must match the account names in your budget
 Each release is tagged with its version, `:latest` is the newest, and `:actual-<version>` is the newest built for that Actual version, e.g. `:actual-26.9.0`.
 An image works with exactly its Actual version, patch included, and refuses any other server; `CONTRIBUTING.md` lists every tag.
 
-`scripts/abt-import` runs it under [msb](https://github.com/superradcompany/microsandbox), pinned to its own release, with the config and the statement mounted read-only.
+`scripts/abt-import` runs it under [msb](https://github.com/superradcompany/microsandbox), pinned to its own release, with the config and each statement file or directory mounted read-only.
 Its sandbox is allowed to reach private addresses, which is where a self-hosted Actual server is.
 Homebrew installs it as `abt-import`; msb is not installed with it, so get it with `brew install superradcompany/tap/microsandbox` or its own installer if it is not on your `PATH` yet:
 
 ```bash
 brew install afrossard/tap/actual-budget-transformer
 read -s ACTUAL_BUDGET_PASSWORD && export ACTUAL_BUDGET_PASSWORD
-abt-import -c config.yaml statement.csv
+abt-import -c config.yaml statements/
 ```
 
 From a checkout, `scripts/abt-import` runs the same way.
@@ -61,10 +70,10 @@ With docker instead, `-it` gives the prompts a terminal and `--init` lets Ctrl-C
 docker run --rm -it --init \
  --user "$(id -u):$(id -g)" \
  -v "$PWD/config.yaml":/abt/config.yaml:ro \
- -v "$PWD/statement.csv":/abt/statement/statement.csv:ro \
+ -v "$PWD/statements":/abt/statements:ro \
  -e ACTUAL_BUDGET_PASSWORD \
  ghcr.io/afrossard/actual-budget-transformer:latest \
- -c /abt/config.yaml /abt/statement/statement.csv
+ -c /abt/config.yaml /abt/statements
 ```
 
 Inside the container `localhost` is the container itself, so `server_url` must name the server's host as the container sees it.

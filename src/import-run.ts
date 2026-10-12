@@ -1,8 +1,15 @@
 /**
- * One run: read a statement file, read Actual, pair once, write what is not in
- * Actual, unattended or under review.
+ * One run: for each statement file in turn, read it, read Actual, pair once,
+ * write what is not in Actual, unattended or under review - then the import
+ * summary.
  *
- * The whole file is one batch. Pairing happens before the first write and is
+ * The budget is opened once for the run, and each file is paired against a
+ * fresh read of it, so an export overlapping an earlier one pairs with what
+ * that one wrote. A file that fails before anything is written for it - not
+ * recognised, unparseable, its account not resolved - is explained and the run
+ * goes on; any other failure, or a quit, stops it.
+ *
+ * Within a file, the whole file is one batch. Pairing happens before the first write and is
  * never redone, because re-reading Actual between writes would pair each
  * statement transaction with whatever the last import wrote - a cascade of
  * manufactured noise rather than a finding.
@@ -20,7 +27,8 @@ import { importUnpaired, type ImportResult, type ReviewIo } from './review.ts';
 import type { ActualGateway } from './actual-gateway.ts';
 import type { Period, SourceTransaction } from './sources/types.ts';
 import { shiftDays, type IsoDate } from './iso-date.ts';
-import type { Mode, ReportStyle } from './statement-report.ts';
+import { DEFAULT_WIDTH, type Mode, type ReportStyle } from './statement-report.ts';
+import { importSummary, type FileOutcome } from './import-summary.ts';
 
 export type RunOptions = {
   path: string;
@@ -31,12 +39,57 @@ export type RunOptions = {
   style?: ReportStyle;
 };
 
-export type RunResult = ImportResult & { accountName: string };
+export type RunResult = ImportResult & {
+  accountName: string;
+  /** How many statement transactions the file holds. */
+  statementTransactions: number;
+  /** How many of them paired: already in Actual, so nothing was written. */
+  alreadyInActual: number;
+};
+
+export type BatchOptions = Omit<RunOptions, 'path'> & { paths: readonly string[] };
+
+/**
+ * A statement file skipped before anything was written for it. The message is
+ * the whole explanation, for the import summary.
+ */
+export class NotImported extends Error {}
+
+/** Every file in turn, then the import summary; what came of each. */
+export async function runImports(options: BatchOptions): Promise<FileOutcome[]> {
+  const { paths, io } = options;
+  const outcomes: FileOutcome[] = [];
+  let stopped = false;
+  for (const [index, path] of paths.entries()) {
+    if (stopped) {
+      outcomes.push({ path, kind: 'not-reached' });
+      continue;
+    }
+    if (index > 0) io.write('');
+    try {
+      const result = await runImport({ ...options, path });
+      outcomes.push({ path, kind: 'imported', result });
+      stopped = result.stopped;
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      if (error instanceof NotImported) {
+        io.write(`${path}: not imported, see the import summary.`);
+        outcomes.push({ path, kind: 'not-imported', reason });
+      } else {
+        outcomes.push({ path, kind: 'failed', reason });
+        stopped = true;
+      }
+    }
+  }
+  const width = options.style?.width ?? DEFAULT_WIDTH;
+  for (const line of importSummary(outcomes, width)) io.write(line);
+  return outcomes;
+}
 
 export async function runImport(options: RunOptions): Promise<RunResult> {
   const { path, config, gateway, io } = options;
 
-  const statement = parseStatement(path, config.formats);
+  const statement = beforeWriting(() => parseStatement(path, config.formats));
   const target = accountTargetFor(config, statement.accountKey);
   const accountName = target.name;
   io.write(
@@ -54,10 +107,17 @@ export async function runImport(options: RunOptions): Promise<RunResult> {
     for (const row of statement.dropped) {
       io.write(`    line ${row.sourceLine}: ${row.reason}`);
     }
-    return { accountName, outcomes: [], stopped: false };
+    return {
+      accountName,
+      outcomes: [],
+      stopped: false,
+      statementTransactions: 0,
+      alreadyInActual: 0,
+    };
   }
 
-  const account = resolveAccount(target, await gateway.listAccounts());
+  const accounts = await gateway.listAccounts();
+  const account = beforeWriting(() => resolveAccount(target, accounts));
 
   // Three targeted reads instead of the account's whole history (#67), each
   // answering one question the classifier asks. Their union is every Actual
@@ -87,7 +147,21 @@ export async function runImport(options: RunOptions): Promise<RunResult> {
     io,
     style: options.style,
   });
-  return { ...result, accountName };
+  return {
+    ...result,
+    accountName,
+    statementTransactions: classified.length,
+    alreadyInActual: classified.filter((c) => c.pair !== null).length,
+  };
+}
+
+/** A failure in `step` skips the file rather than stopping the run. */
+function beforeWriting<T>(step: () => T): T {
+  try {
+    return step();
+  } catch (error) {
+    throw new NotImported(error instanceof Error ? error.message : String(error));
+  }
 }
 
 /** The first to last statement transaction date, or null when there is none. */

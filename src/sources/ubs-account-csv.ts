@@ -9,12 +9,13 @@
  * Column names, encoding, separator and date format all come from the format
  * settings - see `formats.ts` for why they are settings.
  */
-import { cell, joinNotes, readRows } from './delimited.ts';
+import { cell, compare, joinNotes, likenessOf, readRows } from './delimited.ts';
 import { parseDate, type AccountCsvFormat } from './formats.ts';
 import type { IsoDate } from '../iso-date.ts';
 import { readAmount } from '../money.ts';
 import type {
   DroppedRow,
+  Likeness,
   ParsedStatement,
   SourceTransaction,
   StatementParser,
@@ -60,25 +61,27 @@ export function ubsAccountCsvParser(format: AccountCsvFormat): StatementParser {
   const tableHeaderRow = format.headerRows + 1;
   const firstTransactionRow = tableHeaderRow + 1;
 
-  const looksRight = (rows: readonly string[][]): boolean => {
-    if (rows.length <= tableHeaderRow) return false;
-    for (const [i, label] of format.preambleLabels.entries()) {
-      if (cell(rows[i] ?? [], 0) !== label) return false;
-    }
+  const expectations = (rows: readonly string[][]): Likeness => {
     const header = rows[tableHeaderRow] ?? [];
-    return format.transactionColumns.every((name, i) => cell(header, i) === name);
+    return compare([
+      ...format.preambleLabels.map(
+        (label, i) => [label, cell(rows[i] ?? [], 0)] as const,
+      ),
+      ...format.transactionColumns.map((name, i) => [name, cell(header, i)] as const),
+    ]);
   };
+  const looksRight = (rows: readonly string[][]): boolean =>
+    expectations(rows).missing.length === 0;
+  const likeness = (path: string): Likeness | null =>
+    likenessOf(path, format.encoding, format.separator, expectations);
 
   return {
     format: FORMAT,
 
+    likeness,
+
     canParse(path: string): boolean {
-      if (!path.toLowerCase().endsWith('.csv')) return false;
-      try {
-        return looksRight(readRows(path, format.encoding, format.separator));
-      } catch {
-        return false;
-      }
+      return likeness(path)?.missing.length === 0;
     },
 
     parse(path: string): ParsedStatement {
