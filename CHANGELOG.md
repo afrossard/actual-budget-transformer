@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0](https://github.com/afrossard/actual-budget-transformer/compare/0.2.2...0.3.0) (2026-10-13)
+
+
+### Features
+
+* accept several statement files and directories in one run ([#145](https://github.com/afrossard/actual-budget-transformer/issues/145)) ([7d7220b](https://github.com/afrossard/actual-budget-transformer/commit/7d7220b210cfd8b5035439cbd29564eac7478927))
+* import unpaired statement transactions without review ([#143](https://github.com/afrossard/actual-budget-transformer/issues/143)) ([e609bb0](https://github.com/afrossard/actual-budget-transformer/commit/e609bb0a1f59ff75598fd3a3a89f0bec1c2593b6))
+
 ## [0.2.2](https://github.com/afrossard/actual-budget-transformer/compare/0.2.1...0.2.2) (2026-10-10)
 
 
