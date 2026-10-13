@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import {
   chmodSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   realpathSync,
@@ -80,13 +81,39 @@ test('mounts the config and the statement read-only and passes their in-sandbox 
     '--mount-file',
     `${config}:/abt/config.yaml:ro`,
     '--mount-file',
-    `${statement}:/abt/statement/cards 2031.csv:ro`,
+    `${statement}:/abt/host${statement}:ro`,
     `ghcr.io/afrossard/actual-budget-transformer:${released}`,
     '--',
     '--no-colour',
     '-c',
     '/abt/config.yaml',
-    '/abt/statement/cards 2031.csv',
+    `/abt/host${statement}`,
+  ]);
+});
+
+test('mounts directories and several files, each at its own path, in the order given', () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'abt-files-')));
+  const statements = join(dir, 'statements');
+  mkdirSync(statements);
+  const [account, cards] = files(dir, ['account.csv', 'cards.csv']);
+
+  // The trailing slash is how a shell completes a directory.
+  const { msb } = run([`${statements}/`, account!, cards!, account!]);
+
+  assert.ok(msb);
+  const mounts = msb.flatMap((arg, i) =>
+    msb[i - 1]?.startsWith('--mount-') ? [`${msb[i - 1]} ${arg}`] : [],
+  );
+  assert.deepEqual(mounts, [
+    `--mount-dir ${statements}:/abt/host${statements}:ro`,
+    `--mount-file ${account}:/abt/host${account}:ro`,
+    `--mount-file ${cards}:/abt/host${cards}:ro`,
+  ]);
+  assert.deepEqual(msb.slice(msb.indexOf('--') + 1), [
+    `/abt/host${statements}`,
+    `/abt/host${account}`,
+    `/abt/host${cards}`,
+    `/abt/host${account}`,
   ]);
 });
 
@@ -137,12 +164,22 @@ test('refuses a path with a colon, which would split the mount spec', () => {
   assert.equal(msb, null);
 });
 
-test('stops before msb when a file is missing', () => {
-  const missingStatement = run(['nope.csv']);
-  assert.equal(missingStatement.status, 2);
-  assert.match(missingStatement.stderr, /no statement file at nope\.csv/);
-  assert.equal(missingStatement.msb, null);
+test('passes a missing statement through unmounted, for the CLI to report', () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'abt-files-')));
+  const [statement] = files(dir, ['account.csv']);
 
+  const { status, msb } = run([statement!, 'nope.csv']);
+
+  assert.equal(status, 0);
+  assert.ok(msb);
+  assert.ok(!msb.some((arg) => arg.includes('nope.csv:')), 'not mounted');
+  assert.deepEqual(msb.slice(msb.indexOf('--') + 1), [
+    `/abt/host${statement}`,
+    'nope.csv',
+  ]);
+});
+
+test('stops before msb when the config is missing', () => {
   const missingConfig = run(['-c', 'nope.yaml']);
   assert.equal(missingConfig.status, 2);
   assert.match(missingConfig.stderr, /no config file at nope\.yaml/);

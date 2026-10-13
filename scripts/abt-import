@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# abt-import - run the import CLI's image on one statement file, under msb.
+# abt-import - run the import CLI's image on statement files, under msb.
 #
-#   abt-import [-c <config.yaml>] [--review] [--no-colour] <statement file>
+#   abt-import [-c <config.yaml>] [--review] [--no-colour] <statement file or directory>...
 #
 # The config comes from -c, or else $ACTUAL_BUDGET_TRANSFORMER_CONFIG, exactly
 # as for `npm run import`. Server settings and their ACTUAL_BUDGET_URL,
@@ -10,8 +10,10 @@
 #
 #   read -s ACTUAL_BUDGET_PASSWORD && export ACTUAL_BUDGET_PASSWORD
 #
-# The config and the statement are mounted read-only, and the CLI runs as the
-# calling user. ABT_IMAGE overrides the image, e.g. for a local build.
+# The config and each statement file or directory are mounted read-only, and
+# the CLI runs as the calling user. A statement path is mounted at its own
+# absolute path under /abt/host, so the import summary names it recognisably
+# and two files of the same name cannot collide. ABT_IMAGE overrides the image, e.g. for a local build.
 #
 # The same run under docker. `--init` is what lets Ctrl-C reach node, which is
 # PID 1 there; under msb it is not:
@@ -19,10 +21,10 @@
 #   docker run --rm -it --init \
 #     --user "$(id -u):$(id -g)" \
 #     -v "$PWD/config.yaml":/abt/config.yaml:ro \
-#     -v "$PWD/statement.csv":/abt/statement/statement.csv:ro \
+#     -v "$PWD/statements":/abt/statements:ro \
 #     -e ACTUAL_BUDGET_PASSWORD \
 #     ghcr.io/afrossard/actual-budget-transformer:<version> \
-#     -c /abt/config.yaml /abt/statement/statement.csv
+#     -c /abt/config.yaml /abt/statements
 #
 # CSV and CAMT.053 file output is the retired Python image's, pinned by digest
 # (see README.md, "File output (retired)"):
@@ -90,8 +92,8 @@ mountable() {
   printf "%s" "$path"
 }
 
-# Mounted only when given, so `abt-import --help` and a missing statement
-# reach the CLI, which owns the usage message.
+# Mounted only when given, so `abt-import --help` reaches the CLI, which owns
+# the usage message.
 if [[ -n $config ]]; then
   if [[ ! -f $config ]]; then
     echo "abt-import: no config file at $config" >&2
@@ -102,17 +104,36 @@ if [[ -n $config ]]; then
   args+=(-c /abt/config.yaml)
 fi
 
+# Whether a statement path is already mounted there.
+mounted() {
+  local guest
+  for guest in ${guests[@]+"${guests[@]}"}; do
+    [[ $guest == "$1" ]] && return 0
+  done
+  return 1
+}
+
+guests=()
 for statement in ${statements[@]+"${statements[@]}"}; do
-  if [[ ! -f $statement ]]; then
-    echo "abt-import: no statement file at $statement" >&2
-    exit 2
+  if [[ -d $statement ]]; then
+    kind=--mount-dir
+  elif [[ -f $statement ]]; then
+    kind=--mount-file
+  else
+    # Passed through unmounted, so the CLI says so in its import summary and
+    # the other files still import, as they do without this script.
+    args+=("$statement")
+    continue
   fi
   host=$(mountable "$statement")
   # The file keeps its name, and above all its extension, which the parser is
-  # picked by.
-  name=$(basename "$statement")
-  mounts+=(--mount-file "$host:/abt/statement/$name:ro")
-  args+=("/abt/statement/$name")
+  # picked by. A path given twice is mounted once and read twice, as asked.
+  guest=/abt/host$host
+  if ! mounted "$guest"; then
+    mounts+=("$kind" "$host:$guest:ro")
+    guests+=("$guest")
+  fi
+  args+=("$guest")
 done
 
 # msb's -e takes KEY=value only, so a forwarded value is visible in this

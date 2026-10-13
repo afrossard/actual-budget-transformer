@@ -10,7 +10,8 @@ import type { AccountId } from '../../src/actual-gateway.ts';
 import type { Config } from '../../src/config.ts';
 import { DEFAULT_FORMATS } from '../../src/sources/formats.ts';
 import { createScriptedIo } from '../../src/io.ts';
-import { runImport } from '../../src/import-run.ts';
+import { runImport, runImports } from '../../src/import-run.ts';
+import { allInActual } from '../../src/import-summary.ts';
 import { complete } from '../../src/review.ts';
 import {
   closeSession,
@@ -487,6 +488,73 @@ describe('integration: a whole run from a statement file', { skip }, () => {
       ['2020-02-25', -312],
       ['2020-02-26', -2162],
     ]);
+  });
+
+  describe('several statement files in one run', () => {
+    it('pairs each file against what the earlier ones wrote, and goes on past one it cannot import', async () => {
+      const { config, accountId } = await arrange('batch', 'CH4200120123A12345678');
+      const paths = [
+        DATA + 'ubs_valid.csv',
+        DATA + 'camt_single_debit.xml',
+        // Its card number is not in account_names.
+        DATA + 'ubs_cards_1.csv',
+        DATA + 'ubs_valid.csv',
+      ];
+      const io = createScriptedIo([]);
+
+      const outcomes = await runImports({
+        paths,
+        config,
+        mode: 'unattended',
+        gateway: session.gateway,
+        io,
+      });
+
+      assert.deepEqual(
+        outcomes.map((o) => o.kind),
+        ['imported', 'not-imported', 'not-imported', 'imported'],
+      );
+      assert.equal(allInActual(outcomes), false);
+      const stored = await session.gateway.getAccountHistory(accountId);
+      assert.equal(stored.length, 1, 'the second copy paired with the first');
+
+      const summary = io.transcript.slice(io.transcript.indexOf('Import summary:'));
+      assert.deepEqual(summary.slice(0, 5), [
+        'Import summary:',
+        `  ${paths[0]}: 1 imported, 0 already in Actual`,
+        `  ${paths[1]}: not imported`,
+        '    not recognised as a statement (known formats: ubs-account-csv,',
+        '    ubs-cards-csv)',
+      ]);
+      assert.equal(summary[5], `  ${paths[2]}: not imported`);
+      assert.match(summary[6]!, /^ {4}9659086893219337559 is not in account_names\./);
+      assert.equal(summary.at(-1), `  ${paths[3]}: 0 imported, 1 already in Actual`);
+    });
+
+    it('stops at a quit, and does not reach the files after it', async () => {
+      const { config, accountId } = await arrange('batch-quit', '9659086893219337559');
+      const paths = [DATA + 'ubs_cards_1.csv', DATA + 'ubs_valid.csv'];
+      const io = createScriptedIo(['i', 'q']);
+
+      const outcomes = await runImports({
+        paths,
+        config,
+        mode: 'review',
+        gateway: session.gateway,
+        io,
+      });
+
+      assert.deepEqual(
+        outcomes.map((o) => o.kind),
+        ['imported', 'not-reached'],
+      );
+      assert.equal(allInActual(outcomes), false);
+      assert.equal((await session.gateway.getAccountHistory(accountId)).length, 1);
+      assert.deepEqual(io.transcript.slice(-2), [
+        `  ${paths[0]}: stopped, 1 imported, 2 left, 0 already in Actual`,
+        `  ${paths[1]}: not reached`,
+      ]);
+    });
   });
 
   describe('when the budget has no account to import into', () => {

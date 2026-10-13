@@ -249,10 +249,40 @@ test('pickParser routes each file to its own parser', () => {
   assert.equal(pickParser(DATA + 'camt_single_debit.xml'), null);
 });
 
-test('parseStatement names the file it could not read', () => {
+test('a file no parser reads is not recognised, with the formats it could have been', () => {
   assert.throws(
     () => parseStatement(DATA + 'camt_single_debit.xml'),
-    /no parser recognises/,
+    /^Error: not recognised as a statement \(known formats: ubs-account-csv, ubs-cards-csv\)$/,
+  );
+});
+
+test('a CSV close to a format names it and the columns it did not find', () => {
+  // A changed UBS export reads as a missing column, not as "not recognised".
+  assert.throws(
+    () => parseStatement(DATA + 'ubs_invalid_transaction_columns.csv'),
+    (error: Error) => {
+      assert.equal(
+        error.message,
+        'not recognised: closest is ubs-account-csv, which expected "Heure de transaction" ' +
+          'and did not find it. If the bank changed its export, correct the column ' +
+          'names under processors.* in your config.',
+      );
+      return true;
+    },
+  );
+});
+
+test('a CSV like no format is not recognised, without a closest one', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'abt-unrelated-'));
+  const path = join(dir, 'other.csv');
+  writeFileSync(path, 'a;b;c\n1;2;3\n');
+  assert.throws(() => parseStatement(path), /^Error: not recognised as a statement \(/);
+});
+
+test('a missing file says so', () => {
+  assert.throws(
+    () => parseStatement(DATA + 'does_not_exist.csv'),
+    /^Error: no such file$/,
   );
 });
 
