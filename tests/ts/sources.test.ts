@@ -80,6 +80,28 @@ test('an account row with no transaction number keeps a blank imported ID', () =
   assert.equal(byPayee.get('PAIEMENT CARTE')?.importedId, '99887766554433');
 });
 
+test('an account row with no booking date is pending, under no imported ID', () => {
+  // UBS gives a row a provisional transaction number until it books it, then a
+  // final one (#147), so the provisional one must not reach Actual.
+  const statement = accountCsv.parse(DATA + 'ubs_account_pending.csv');
+  const [pending, booked] = statement.transactions;
+  assert.deepEqual(pending, {
+    date: '2031-10-09',
+    amountCents: -4215,
+    payee: 'MIGROS  ZURICH HB',
+    notes: 'Paiement carte de débit Motif du paiement: N° de transaction:',
+    importedId: '',
+    importedIdOrigin: 'pending',
+    sourceLine: 11,
+    pending: { originalCurrency: 'CHF', accountCurrency: 'CHF' },
+  });
+  // A booked row in the same file keeps its reference, and its notes whole.
+  assert.ok(booked);
+  assert.equal(booked.pending, undefined);
+  assert.equal(booked.importedId, '9930279TI1200001');
+  assert.match(booked.notes, /9930279TI1200001/);
+});
+
 test('an account credit is an inflow', () => {
   const statement = accountCsv.parse(DATA + 'ubs_account_no_reference.csv');
   const salary = statement.transactions.find((t) => t.payee === 'SALAIRE');

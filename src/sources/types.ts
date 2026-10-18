@@ -7,7 +7,12 @@ export type ImportedIdOrigin =
   /** The format never carries one, so we minted it deterministically. */
   | 'minted'
   /** The format normally carries one and this row did not. Stays blank. */
-  | 'absent';
+  | 'absent'
+  /**
+   * The row is pending, and the bank gives it another reference once it is
+   * booked, so a later export would never match this one. Stays blank (#147).
+   */
+  | 'pending';
 
 /**
  * A transaction parsed from a bank statement file: the raw input the
@@ -30,7 +35,8 @@ export type SourceTransaction = {
 
 /**
  * A pending statement transaction's amount is not final: it is the purchase's
- * original amount, in its original currency, until the bank books it.
+ * original amount, in its original currency, until the bank books it. On an
+ * account CSV both currencies are the account's own.
  */
 export type Pending = {
   /** The currency its amount is stated in, e.g. `USD`. */

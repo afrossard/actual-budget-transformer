@@ -245,33 +245,39 @@ describe('integration: a whole run from a statement file', { skip }, () => {
     assert.deepEqual(stored.map((t) => t.amount).sort(), [-18665, -5000]);
   });
 
-  it('reviews one whose lookalike in Actual carries another bank reference', async () => {
-    // A second purchase of the same amount the day after one already imported:
-    // the bank gave them two references, so they are two transactions and the
-    // second must not be taken as already in Actual (#82's review).
+  it('pairs a pending account row with its booked copy from a later export', async () => {
+    // UBS renumbers a row when it books it (#147): the booked copy carries
+    // another reference, and still pairs on amount and date.
     const { config, accountId } = await arrange(
-      'other-reference',
+      'pending-booked',
       'CH4200120123A12345678',
     );
-    await session.gateway.add(accountId, {
-      date: isoDate('2023-01-12'),
-      amountCents: -18665,
-      payee: 'Yesterday',
-      notes: '',
-      importedId: 'REF-YESTERDAY',
-    });
-    await session.api.sync();
+    const paths = [DATA + 'ubs_account_pending.csv', DATA + 'ubs_account_booked.csv'];
+    const io = createScriptedIo([]);
 
-    const { result, io } = await run(config, DATA + 'ubs_valid.csv', ['i']);
+    const outcomes = await runImports({
+      paths,
+      config,
+      mode: 'unattended',
+      gateway: session.gateway,
+      io,
+    });
+
+    assert.equal(allInActual(outcomes), true);
+    const transcript = io.transcript.join('\n');
+    assert.match(transcript, /2031-10-09 +-42\.15 +MIGROS {2}ZURICH HB +pending$/m);
+    const summary = io.transcript.slice(io.transcript.indexOf('Import summary:'));
+    assert.equal(summary.at(-1), `  ${paths[1]}: 0 imported, 2 already in Actual`);
+    const stored = await session.gateway.getAccountHistory(accountId);
     assert.deepEqual(
-      result.outcomes.map((o) => o.wrote),
-      ['added'],
+      stored.map((t) => [t.date, t.amount, t.imported_id ?? null]).sort(),
+      [
+        ['2031-10-06', -4550, '9930279TI1200001'],
+        ['2031-10-09', -4215, null],
+      ],
     );
-    assert.match(
-      io.transcript.join('\n'),
-      /^ {2}not in Actual · looks like REF-YESTERDAY: 2023-01-12 -186\.65 Yesterday$/m,
-    );
-    assert.equal((await session.gateway.getAccountHistory(accountId)).length, 2);
+    const pending = stored.find((t) => t.date === '2031-10-09');
+    assert.doesNotMatch(pending?.notes ?? '', /9930282TI7700001/);
   });
 
   it('lists two Actual transactions sharing one imported ID as a duplicate couple', async () => {

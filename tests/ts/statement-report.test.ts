@@ -595,6 +595,18 @@ test('the detail shows every lookalike in full, and never outgrows the terminal'
   assert.match(text, /imported ID T-\d+, the bank's reference/);
 });
 
+test('the detail says why a pending account row carries no imported ID', () => {
+  const [one] = classify(
+    [src({ importedId: '', importedIdOrigin: 'pending' })],
+    [],
+    null,
+  );
+  assert.match(
+    detail(one!, plain).join(' ').replace(/\s+/g, ' '),
+    /imported ID none: the bank has not booked it, and renumbers it when it does/,
+  );
+});
+
 test('an extra holder of an imported ID is called a duplicate, never a pair', () => {
   const [, other] = classify(
     [
@@ -616,27 +628,6 @@ test('an extra holder of an imported ID is called a duplicate, never a pair', ()
   const text = detail(other!, plain).join('\n');
   assert.match(text, /in Actual, a second holder of #1's imported ID/);
   assert.doesNotMatch(text, /the pair of/);
-});
-
-test('an Actual transaction under another bank reference is shown as such', () => {
-  const [one] = classify(
-    [src({ importedId: 'REF-B' })],
-    [actual({ imported_id: 'REF-A' })],
-    null,
-  );
-  assert.equal(noteTag(one!, 'review'), 'like REF-A');
-  const shown = block({ position: 1, total: 1, classified: one!, warnings: [] }, plain);
-  assert.ok(
-    shown.includes(
-      '  not in Actual · looks like REF-A: 2031-03-09 -4.50 Coffee (typed by hand)',
-    ),
-    shown.join('\n'),
-  );
-  assert.deepEqual(explain(one!), [
-    'not in Actual: an Actual transaction alike to it carries another bank ' +
-      'reference, so it is a different transaction',
-  ]);
-  assert.match(detail(one!, plain).join('\n'), /in Actual under bank reference REF-A/);
 });
 
 test('with no note, a padded payee never ends a line in an ellipsis', () => {

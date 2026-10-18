@@ -19,8 +19,9 @@ Minted deterministically only where the bank never supplies one, as on the UBS c
 _Avoid_: dedup key, hash, fingerprint
 
 **Pending**:
-The state of a statement transaction the bank has authorised but not yet booked, as a UBS cards CSV states some card purchases.
+The state of a statement transaction the bank has authorised but not yet booked: a card purchase a UBS cards CSV states with no booked amount, or a row a UBS account CSV states with no booking date.
 Its amount is not final: a purchase in another currency is stated in that currency only, and the booked amount may differ.
+Its reference is not final either: the bank renumbers an account CSV row when it books it, so a pending one carries no imported ID.
 _Avoid_: unbooked, provisional, authorisation
 
 ### Actual side
@@ -39,7 +40,7 @@ _Avoid_: reconciliation boundary, last reconciled date, lock date
 ### Direct-import side
 
 **Pair**:
-A statement transaction and the Actual transaction taken to be the same one: either they share an imported ID, or they have the same amount within ±1 day of each other and do not carry two different bank references. Each Actual transaction pairs with at most one statement transaction, so of two identical statement transactions with one counterpart in Actual, one stays unpaired.
+A statement transaction and the Actual transaction taken to be the same one: either they share an imported ID, or they have the same amount within ±1 day of each other, whatever reference each carries. Each Actual transaction pairs with at most one statement transaction, so of two identical statement transactions with one counterpart in Actual, one stays unpaired.
 _Avoid_: blind duplicate, match, near-match
 
 **Unpaired Actual transaction**:

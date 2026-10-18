@@ -5,7 +5,7 @@ See [Actual Budget](https://actualbudget.org/)
 ## Supported input formats
 
 - UBS Switzerland e-banking
-  - Account transactions CSV files
+  - Account transactions CSV files, pending rows included: one the bank has not booked yet is imported without its provisional transaction number, and pairs with its booked copy in a later export
   - Credit card transactions CSV files, pending purchases included: one in another currency is imported at its original amount, and `--review` says so before you confirm it
 
 ## Direct import
@@ -21,7 +21,7 @@ A directory is read one level deep, its files in name order; its subdirectories 
 The budget is downloaded once, and each file is paired against what the files before it wrote, so overlapping exports do not import a transaction twice.
 
 For each file, it reads the account from the file, reads from Actual what each statement transaction could pair with, and pairs each one once.
-A pair is the Actual transaction that shares its imported ID, or failing that one with the same amount within a day, unless the two carry different bank references; each Actual transaction pairs at most once.
+A pair is the Actual transaction that shares its imported ID, or failing that one with the same amount within a day, whatever reference each carries; each Actual transaction pairs at most once.
 
 A paired statement transaction is already in Actual, so nothing is written for it.
 It then prints a statement report: how many are already in Actual, the pairs Actual needs fixed (an amount that differs, or two transactions holding one imported ID), and one line per unpaired statement transaction.
