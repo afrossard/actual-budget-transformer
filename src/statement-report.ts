@@ -232,15 +232,21 @@ export function listLine(
   );
 }
 
-/** What Actual needs fixed about one pair, one line each. */
-export function fixLines(classified: Classified): string[] {
+/**
+ * What Actual needs fixed about one pair, one line each, no wider than `width`.
+ * The payee is cut first, because the amounts are the fix, and unattended
+ * there is no `[?]` to read them from.
+ */
+export function fixLines(classified: Classified, width = Infinity): string[] {
   const { number, source } = classified;
-  const subject = `#${number} ${source.payee}`.trimEnd();
-  return toFixInActual(classified).map(
-    (fix) =>
-      `${subject}: Actual holds ${amount(fix.actualAmount)}, ` +
-      `the bank says ${amount(source.amountCents)}`,
-  );
+  return toFixInActual(classified).map((fix) => {
+    const head = `#${number} `;
+    const tail =
+      `: Actual holds ${amount(fix.actualAmount)}, ` +
+      `the bank says ${amount(source.amountCents)}`;
+    const room = Math.max(1, width - head.length - tail.length);
+    return `${head}${clip(source.payee, room)}`.trimEnd() + tail;
+  });
 }
 
 const DUPLICATE = 'duplicate, delete one';
@@ -388,10 +394,11 @@ export function report(
     ),
     line(`    - ${unpaired.length} not in the statement`),
   );
-  const fixes = classified.flatMap(fixLines);
+  const bullet = '  ! ';
+  const fixes = classified.flatMap((c) => fixLines(c, style.width - bullet.length));
   if (fixes.length > 0) {
     lines.push('', line('  in Actual, but to fix there'));
-    for (const fix of fixes) lines.push(line(`  ! ${fix}`, WARN));
+    for (const fix of fixes) lines.push(line(bullet + fix, WARN));
   }
   if (unpaired.length > 0) {
     lines.push('', line('  in Actual, not in the statement'));

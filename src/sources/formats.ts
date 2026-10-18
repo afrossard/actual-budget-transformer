@@ -43,8 +43,9 @@ export type CardsCsvFormat = {
    * The columns whose values are hashed into a card transaction's imported ID.
    *
    * Changing these changes every minted ID, so transactions already written
-   * stop matching and come back as new. Change them only on a fresh account, or
-   * expect to work through a run of duplicates by hand.
+   * stop pairing by imported ID. Booked ones still pair on amount and date; a
+   * pending one already written does not pair with its booked copy, and is
+   * listed as an unpaired Actual transaction.
    */
   referenceColumns: string[];
 };
@@ -102,7 +103,7 @@ export const DEFAULT_CARDS_CSV: CardsCsvFormat = {
     'Ecriture',
   ],
   dateFormat: '%d.%m.%Y',
-  referenceColumns: ["Date d'achat", 'Texte comptable', 'Montant', 'Monnaie originale'],
+  referenceColumns: ["Date d'achat", 'Montant', 'Monnaie originale'],
 };
 
 export type Formats = {

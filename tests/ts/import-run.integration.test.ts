@@ -128,7 +128,7 @@ describe('integration: a whole run from a statement file', { skip }, () => {
       [-4100, -2800, 5000].sort((a, b) => a - b),
     );
     assert.equal(
-      stored.every((t) => t.imported_id?.startsWith('abt1-')),
+      stored.every((t) => t.imported_id?.startsWith('abt2-')),
       true,
       'every card imported ID is minted and says so',
     );
@@ -278,6 +278,39 @@ describe('integration: a whole run from a statement file', { skip }, () => {
     );
     const pending = stored.find((t) => t.date === '2031-10-09');
     assert.doesNotMatch(pending?.notes ?? '', /9930282TI7700001/);
+  });
+
+  it('pairs a pending card purchase with its booked copy, listing the amount to fix', async () => {
+    // Booking rewrites the merchant text and converts the amount (#48): the
+    // booked copy pairs by imported ID, and the CHF amount is fixed in Actual.
+    const { config, accountId } = await arrange(
+      'cards-pending-booked',
+      '9659086893219337559',
+    );
+    const paths = [DATA + 'ubs_cards_pending_fx.csv', DATA + 'ubs_cards_booked_fx.csv'];
+    const io = createScriptedIo([]);
+
+    const outcomes = await runImports({
+      paths,
+      config,
+      mode: 'unattended',
+      gateway: session.gateway,
+      io,
+    });
+
+    assert.equal(allInActual(outcomes), true);
+    const transcript = io.transcript.join('\n');
+    assert.match(
+      transcript,
+      /in Actual, but to fix there\n {2}! #1 MERCHANT\*7K2Q9X4M.*: Actual holds -14\.95, the bank says -12\.90$/m,
+    );
+    const summary = io.transcript.slice(io.transcript.indexOf('Import summary:'));
+    assert.equal(summary.at(-1), `  ${paths[1]}: 0 imported, 1 already in Actual`);
+    const stored = await session.gateway.getAccountHistory(accountId);
+    assert.deepEqual(
+      stored.map((t) => [t.date, t.amount]),
+      [['2026-10-10', -1495]],
+    );
   });
 
   it('lists two Actual transactions sharing one imported ID as a duplicate couple', async () => {

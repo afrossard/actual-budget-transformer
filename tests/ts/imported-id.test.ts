@@ -59,10 +59,7 @@ test('a separator inside a payee cannot collide two statement transactions', () 
 
 test('minting stays stable for the ordinary case', () => {
   // A regression guard on the encoding itself: if this changes, every minted ID
-  // changes, every transaction already written stops matching, and a re-run
-  // proposes the lot again. Only ever change it deliberately.
-  assert.equal(
-    mintFromParts(['23.02.2020', 'MERCHANT-30A2B4C6', '30', 'EUR', 0]),
-    'abt1-1567b00a76b98372',
-  );
+  // changes, and every transaction already written stops pairing by it. Only
+  // ever change it deliberately, and bump the prefix with it.
+  assert.equal(mintFromParts(['23.02.2020', '30', 'EUR', 0]), 'abt2-f1eacbed62c52a49');
 });

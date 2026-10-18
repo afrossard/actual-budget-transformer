@@ -4,8 +4,10 @@
  *
  * The format carries no bank reference at all, so every imported ID is
  * **minted** - deterministically, from the configured reference columns, which
- * default to the original-currency fields because those are stable across
- * exports in a way the converted CHF amount is not. A per-group occurrence
+ * default to the fields a purchase keeps from pending to booked: its date and
+ * its original amount and currency. The converted CHF amount is only set at
+ * booking, and `Texte comptable` is rewritten then (#48), so neither is in it.
+ * A per-group occurrence
  * counter keeps n identical purchases in one file as n distinct imported IDs:
  * the bank's file is authoritative on the count, and without the counter our own
  * Skip bucket would drop the copies.
