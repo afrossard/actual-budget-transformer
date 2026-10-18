@@ -1,6 +1,6 @@
 # Pair one to one, review only the unpaired
 
-**Status:** accepted (2026-10-04); review offering only import and leave stands, but review itself is opt-in since ADR 0005, and two different bank references pair since ADR 0006
+**Status:** accepted (2026-10-04); review offering only import and leave stands, but review itself is opt-in since ADR 0005, and two different bank references pair since ADR 0006, and an amount paired by imported ID is corrected since ADR 0007
 
 The direct import pairs each statement transaction with at most one Actual transaction - by shared imported ID, or by the same amount within ±1 day - and only the unpaired statement transactions go to review.
 A pair is accepted without asking, and nothing is written for it.

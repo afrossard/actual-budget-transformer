@@ -50,11 +50,15 @@ _Avoid_: orphan, extra, stray, unmatched
 **Duplicate**:
 An unpaired Actual transaction that holds the imported ID of a paired Actual transaction, or has the same amount within ±1 day of one. The statement holds the transaction once and Actual holds it twice; which copy the pairing took is arbitrary, so both are shown and the human deletes one in Actual.
 
+**Correction**:
+Setting an Actual transaction's amount to the one a booked statement transaction states, when the two are paired by imported ID and the amounts differ. The bank's amount wins; a pending statement transaction never corrects, because its amount is not final.
+_Avoid_: fix, patch, update
+
 **Review**:
-The human deciding, one at a time, what happens to each unpaired statement transaction, when asked for instead of importing them unattended; the only way a statement transaction dated before the reconciled-through date is written. A paired statement transaction is never reviewed: it is already in Actual.
+The human deciding, one at a time, what happens to each unpaired statement transaction and each correction, when asked for instead of importing them unattended; the only way a statement transaction dated before the reconciled-through date is written, or a reconciled Actual transaction corrected. A paired statement transaction is otherwise never reviewed: it is already in Actual.
 
 **Statement report**:
-What the importer prints for one statement file: the statement's period and how many of its statement transactions are already in Actual, the pairs that need fixing in Actual, the unpaired Actual transactions, the statement transactions it writes or, under review, asks about, and those it leaves out for being dated before the reconciled-through date.
+What the importer prints for one statement file: the statement's period and how many of its statement transactions are already in Actual, the corrections it makes, the pairs that need fixing in Actual, the unpaired Actual transactions, the statement transactions it writes or, under review, asks about, and those it leaves out for being dated before the reconciled-through date.
 _Avoid_: tape, summary
 
 **Import summary**:
