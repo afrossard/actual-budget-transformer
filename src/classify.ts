@@ -5,6 +5,8 @@
  * Pairing is one to one (ADR 0003). A statement transaction pairs with the
  * Actual transaction that shares its imported ID, or failing that with one of
  * the same amount within a day, and each Actual transaction pairs at most once.
+ * Two different bank references do not keep an amount pair apart: the bank
+ * renumbers a row when it books it (ADR 0006).
  * A paired statement transaction is already in Actual and is never reviewed;
  * every unpaired one is, whatever its date.
  *
@@ -14,7 +16,6 @@
  * finding (#50).
  */
 import type { IsoDate } from './iso-date.ts';
-import { MINTED_PREFIX } from './imported-id.ts';
 import type { Period, SourceTransaction } from './sources/types.ts';
 
 /** A transaction as Actual hands it back, narrowed to the fields we read. */
@@ -42,24 +43,17 @@ export type Pair = {
  * An Actual transaction alike to an unpaired one - the same amount within a
  * day, or holding its imported ID - that is not its pair, and why not.
  */
-export type Lookalike =
-  | {
-      actual: ActualTransaction;
-      /**
-       * `pair`: it is the pair of statement transaction `#of`. `extra-holder`:
-       * it holds `#of`'s imported ID beside its pair, a duplicate the
-       * statement report lists among the unpaired Actual transactions.
-       */
-      role: 'pair' | 'extra-holder';
-      /** The `#` of the statement transaction it belongs to. */
-      of: number;
-    }
-  | {
-      actual: ActualTransaction;
-      /** It carries another bank reference, so it is a different transaction. */
-      role: 'other-reference';
-      of: null;
-    };
+export type Lookalike = {
+  actual: ActualTransaction;
+  /**
+   * `pair`: it is the pair of statement transaction `#of`. `extra-holder`: it
+   * holds `#of`'s imported ID beside its pair, a duplicate the statement report
+   * lists among the unpaired Actual transactions.
+   */
+  role: 'pair' | 'extra-holder';
+  /** The `#` of the statement transaction it belongs to. */
+  of: number;
+};
 
 export type Classified = {
   source: SourceTransaction;
@@ -96,35 +90,6 @@ export type Classified = {
  * duplicate, listed with the unpaired Actual transactions.
  */
 export type ToFix = { kind: 'amount-differs'; actualAmount: number };
-
-/**
- * Whether both carry a reference from the bank, and they differ. The bank says
- * these are two transactions, so they never pair on amount and date (#82).
- *
- * Only bank references count. A minted ID is derived by this tool and can
- * shift between two exports of one purchase (the cards occurrence counter),
- * and a transaction typed by hand carries no ID at all.
- */
-function otherBankReference(source: SourceTransaction, tx: ActualTransaction): boolean {
-  return (
-    source.importedIdOrigin === 'bank-reference' &&
-    source.importedId !== '' &&
-    !!tx.imported_id &&
-    !tx.imported_id.startsWith(MINTED_PREFIX) &&
-    tx.imported_id !== source.importedId
-  );
-}
-
-/**
- * Whether two Actual transactions carry two different bank references, which
- * makes them two transactions however alike they are, as `otherBankReference`
- * does for a pair.
- */
-function twoBankReferences(a: ActualTransaction, b: ActualTransaction): boolean {
-  const bank = (tx: ActualTransaction): boolean =>
-    !!tx.imported_id && !tx.imported_id.startsWith(MINTED_PREFIX);
-  return bank(a) && bank(b) && a.imported_id !== b.imported_id;
-}
 
 /** How many days apart two amounts may be and still pair. */
 export const PAIRING_WINDOW_DAYS = 1;
@@ -207,11 +172,7 @@ export function classify(
   // unpaired. Same-day pairs are made first, and the day-apart phase starts
   // from them, so a pair is a day off only where the count needs it to be.
   const candidates = sources.map((source, i) =>
-    pairs[i] === null
-      ? alike(source).filter(
-          (tx) => !reserved.has(tx.id) && !otherBankReference(source, tx),
-        )
-      : [],
+    pairs[i] === null ? alike(source).filter((tx) => !reserved.has(tx.id)) : [],
   );
   const byAmount = new Map<string, number>();
   const tryPair = (i: number, maxDays: number, visited: Set<string>): boolean => {
@@ -263,8 +224,6 @@ export function classify(
           lookalikes.set(tx.id, { actual: tx, of: paired + 1, role: 'pair' });
         } else if (holderOf !== undefined && !lookalikes.has(tx.id)) {
           lookalikes.set(tx.id, { actual: tx, of: holderOf + 1, role: 'extra-holder' });
-        } else if (otherBankReference(source, tx)) {
-          lookalikes.set(tx.id, { actual: tx, of: null, role: 'other-reference' });
         }
       }
     }
@@ -333,9 +292,7 @@ export function unpairedActual(
     paired
       .filter(
         (p) =>
-          p.amount === tx.amount &&
-          daysApart(p.date, tx.date) <= PAIRING_WINDOW_DAYS &&
-          !twoBankReferences(p, tx),
+          p.amount === tx.amount && daysApart(p.date, tx.date) <= PAIRING_WINDOW_DAYS,
       )
       .sort((a, b) => daysApart(a.date, tx.date) - daysApart(b.date, tx.date))[0] ??
     null;

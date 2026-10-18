@@ -108,20 +108,33 @@ test('a different amount never pairs, however close the date', () => {
   assert.equal(one!.pair, null);
 });
 
-test('two different bank references never pair, however alike', () => {
-  // The bank gave them different references, so they are two transactions: a
-  // second coffee the day after one already imported must reach review.
-  const imported = actual({
-    imported_id: 'REF-A',
-    id: 'yesterday',
-    date: isoDate('2031-03-09'),
-  });
-  const [one] = classify([src({ importedId: 'REF-B' })], [imported], null);
-  assert.equal(one!.pair, null);
-  // Still shown, so the human can tell the two apart.
+test('two different bank references pair on amount and date', () => {
+  // A pending account row and its booked copy carry two numbers (#147): the
+  // bank's date and amount are what say they are one transaction.
+  const pendingCopy = actual({ imported_id: 'PROVISIONAL', id: 'pending-copy' });
+  const [one] = classify([src({ importedId: 'FINAL' })], [pendingCopy], null);
   assert.deepEqual(
-    one!.lookalikes.map((l) => [l.actual.id, l.of, l.role]),
-    [['yesterday', null, 'other-reference']],
+    [one!.pair?.actual.id, one!.pair?.by],
+    ['pending-copy', 'amount-and-date'],
+  );
+});
+
+test('a second purchase of the same amount the day after one in Actual is unpaired', () => {
+  // #82: the first purchase takes its own Actual transaction by imported ID,
+  // so the second finds none left.
+  const classified = classify(
+    [
+      src({ importedId: 'REF-A', date: isoDate('2031-03-09') }),
+      src({ importedId: 'REF-B' }),
+    ],
+    [actual({ imported_id: 'REF-A', id: 'yesterday', date: isoDate('2031-03-09') })],
+    null,
+  );
+  assert.deepEqual(pairs(classified), ['yesterday', null]);
+  assert.equal(classified[0]!.pair?.by, 'imported-id');
+  assert.deepEqual(
+    classified[1]!.lookalikes.map((l) => [l.actual.id, l.of, l.role]),
+    [['yesterday', 1, 'pair']],
   );
 });
 
@@ -541,8 +554,9 @@ test('a paired Actual transaction outside the period still has its duplicates fo
   );
 });
 
-test('an Actual transaction under another bank reference is no duplicate', () => {
-  // The bank says these are two transactions, as it does for pairing (#82).
+test('an Actual transaction under another bank reference is still a duplicate', () => {
+  // A provisional reference and the final one are one transaction (#147), so a
+  // different reference says nothing about whether they are two.
   assert.deepEqual(
     unpaired(
       [src({ importedId: 'R1' })],
@@ -551,6 +565,6 @@ test('an Actual transaction under another bank reference is no duplicate', () =>
         actual({ id: 'other', imported_id: 'R2' }),
       ],
     ),
-    ['other'],
+    ['other~paired'],
   );
 });

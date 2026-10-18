@@ -6,6 +6,12 @@
  * than being minted, because a reference the bank could have written and did not
  * is a fact about the row, not something to paper over.
  *
+ * A row with no booking date is **pending**, and its transaction number is
+ * provisional: the bank gives the booked row another one (#147). So it too
+ * keeps a blank imported ID, and the number is cut from its notes, where
+ * `Description3` repeats it, rather than leave Actual a reference that no
+ * longer exists.
+ *
  * Column names, encoding, separator and date format all come from the format
  * settings - see `formats.ts` for why they are settings.
  */
@@ -33,6 +39,8 @@ export const FORMAT = 'ubs-account-csv';
  */
 const COL = {
   date: 0,
+  bookingDate: 2,
+  currency: 4,
   debit: 5,
   credit: 6,
   reference: 9,
@@ -54,6 +62,14 @@ const TO_ROW = 3;
  */
 function preambleDate(value: string, format: string): IsoDate | null {
   return parseDate(value, format) ?? parseDate(value, '%Y-%m-%d');
+}
+
+/**
+ * Notes with every occurrence of one exact value cut out. Only the value
+ * itself: nothing around it is guessed at.
+ */
+function withoutValue(notes: string, value: string): string {
+  return joinNotes(notes.split(value));
 }
 
 export function ubsAccountCsvParser(format: AccountCsvFormat): StatementParser {
@@ -124,19 +140,26 @@ export function ubsAccountCsvParser(format: AccountCsvFormat): StatementParser {
         }
 
         const reference = cell(row, COL.reference);
+        const pending = cell(row, COL.bookingDate) === '';
+        const notes = joinNotes([
+          cell(row, COL.note1),
+          cell(row, COL.note2),
+          cell(row, COL.footnote),
+          cell(row, COL.trailing),
+        ]);
+        const currency = cell(row, COL.currency);
         transactions.push({
           date,
           amountCents: amount.cents,
           payee: cell(row, COL.payee),
-          notes: joinNotes([
-            cell(row, COL.note1),
-            cell(row, COL.note2),
-            cell(row, COL.footnote),
-            cell(row, COL.trailing),
-          ]),
-          importedId: reference,
-          importedIdOrigin: reference === '' ? 'absent' : 'bank-reference',
+          notes: pending && reference !== '' ? withoutValue(notes, reference) : notes,
+          importedId: pending ? '' : reference,
+          importedIdOrigin:
+            reference === '' ? 'absent' : pending ? 'pending' : 'bank-reference',
           sourceLine,
+          ...(pending && {
+            pending: { originalCurrency: currency, accountCurrency: currency },
+          }),
         });
       }
 

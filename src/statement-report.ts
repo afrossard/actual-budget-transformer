@@ -101,15 +101,13 @@ function amount(cents: number): string {
   return formatCents(cents).trim();
 }
 
-/** A lookalike in a few words: whose it is, or under which reference. */
+/** A lookalike in a few words: whose it is. */
 function lookalikeName(lookalike: Lookalike): string {
   switch (lookalike.role) {
     case 'pair':
       return `#${lookalike.of}'s pair`;
     case 'extra-holder':
       return `#${lookalike.of}'s duplicate`;
-    case 'other-reference':
-      return lookalike.actual.imported_id ?? '';
   }
 }
 
@@ -535,25 +533,13 @@ export function wrap(text: string, width: number): string[] {
  */
 export function explain(classified: Classified): string[] {
   const { source, lookalikes, repeatOf, inReconciledPeriod } = classified;
-  const why = [
-    ...(lookalikes.some((l) => l.role !== 'other-reference')
-      ? ['an Actual transaction alike to it belongs to another statement transaction']
-      : []),
-    ...(lookalikes.some((l) => l.role === 'other-reference')
-      ? [
-          'an Actual transaction alike to it carries another bank reference, so it ' +
-            'is a different transaction',
-        ]
-      : []),
-  ];
-  const [
-    first = 'no Actual transaction holds its imported ID or has its amount ' +
-      'within a day of it',
-    ...more
-  ] = why;
+  const why =
+    lookalikes.length > 0
+      ? 'an Actual transaction alike to it belongs to another statement transaction'
+      : 'no Actual transaction holds its imported ID or has its amount within a ' +
+        'day of it';
   return [
-    `not in Actual: ${first}`,
-    ...more,
+    `not in Actual: ${why}`,
     ...(repeatOf === null
       ? []
       : [`identical to #${repeatOf} in this file, which the bank lists as well`]),
@@ -568,6 +554,7 @@ const ORIGIN: Record<SourceTransaction['importedIdOrigin'], string> = {
   'bank-reference': "the bank's reference",
   minted: 'minted from the transaction, as this format carries no reference',
   absent: 'none: the bank wrote no reference',
+  pending: 'none: the bank has not booked it, and renumbers it when it does',
 };
 
 /**
@@ -609,7 +596,7 @@ export function detail(classified: Classified, style: ReportStyle): string[] {
     [
       'imported ID',
       source.importedId === ''
-        ? ORIGIN.absent
+        ? ORIGIN[source.importedIdOrigin]
         : `${source.importedId}, ${ORIGIN[source.importedIdOrigin]}`,
     ],
   ]);
@@ -619,7 +606,6 @@ export function detail(classified: Classified, style: ReportStyle): string[] {
     const whose = {
       pair: `in Actual, the pair of #${lookalike.of}`,
       'extra-holder': `in Actual, a second holder of #${lookalike.of}'s imported ID`,
-      'other-reference': `in Actual under bank reference ${tx.imported_id ?? ''}, so a different transaction`,
     }[lookalike.role];
     section('alike', [
       ['', whose],
