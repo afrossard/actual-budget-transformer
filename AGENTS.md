@@ -116,6 +116,7 @@ src/
 
 Three commands, three jobs, no overlap: `npm run typecheck` checks types, `npm run lint` checks what types alone cannot, `npm run format:check` checks formatting.
 Prettier stays the only formatter - `eslint-plugin-prettier` is deliberately not installed, because formatting is already a checked step.
+`format:check` also covers every YAML file, because the editor formats YAML on save (`.vscode/settings.json`); `.prettierrc` keeps double quotes there, so a save leaves the template as written.
 
 `tsconfig.json` runs `strict` plus the seven flags `strict` does not imply (#64).
 Two of them are worth knowing by name:
@@ -124,7 +125,7 @@ Two of them are worth knowing by name:
 - **`noUncheckedIndexedAccess`** makes `rows[i]` a `T | undefined` read, which is what it has always been at runtime.
   It is why a `!` in the parsers is load-bearing rather than decorative.
 
-`eslint.config.js` is flat config, type-aware (`parserOptions.projectService`), and scoped to the same files `typecheck` and `format:check` cover.
+`eslint.config.js` is flat config, type-aware (`parserOptions.projectService`), and scoped to the same TypeScript files `typecheck` and `format:check` cover.
 The rule it exists for is **`@typescript-eslint/no-floating-promises`**: every write is `await gateway.add(…)` / `sync()`, and a dropped `await` there is a silently skipped write or a race, in a tool whose whole premise is that nothing reaches Actual without a confirmation for that statement transaction.
 No grep can prove the next one absent.
 `node:test`'s `test` / `it` / `before` and friends are listed under `allowForKnownSafeCalls`, because the runner owns those promises; nothing in `src/` is exempt.
