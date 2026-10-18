@@ -1,7 +1,7 @@
 /**
  * UBS account CSV: a preamble, a blank line, then the transaction table.
  *
- * Every row normally carries `N° de transaction`, which becomes the imported ID
+ * Every row normally carries `No de transaction`, which becomes the imported ID
  * verbatim; where the bank leaves it empty the imported ID stays **blank** rather
  * than being minted, because a reference the bank could have written and did not
  * is a fact about the row, not something to paper over.

@@ -7,6 +7,6 @@ Solde final:;912.35;
 Évaluation en:;CHF;
 Nombre de transactions dans cette période:;2;
 
-Date de transaction;Heure de transaction;Date de comptabilisation;Date de valeur;Monnaie;Débit;Crédit;Sous-montant;Solde;N° de transaction;Description1;Description2;Description3;Notes de bas de page;
+Date de transaction;Heure de transaction;Date de comptabilisation;Date de valeur;Devise;Débit;Crédit;Sous-montant;Solde;No de transaction;Description1;Description2;Description3;Notes de bas de page;
 2031-10-09;;2031-10-10;2031-10-09;CHF;-42.15;;;912.35;9930283TI8800002;"Migros Zurich HB";Paiement carte de débit;"Motif du paiement: N° de transaction: 9930283TI8800002";;
 2031-10-06;;2031-10-07;2031-10-06;CHF;-45.50;;;954.50;9930279TI1200001;"Coop Bern";Paiement carte de débit;"Motif du paiement: N° de transaction: 9930279TI1200001";;
