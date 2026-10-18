@@ -142,9 +142,9 @@ test('a minted imported ID that differs still pairs on amount and date', () => {
   // The cards occurrence counter shifts across overlapping exports, so the same
   // purchase can arrive under a new minted ID.
   const minted = { importedIdOrigin: 'minted' as const };
-  const reExported = actual({ imported_id: 'abt1-0000000000000001', id: 'prev' });
+  const reExported = actual({ imported_id: 'abt2-0000000000000001', id: 'prev' });
   const [one] = classify(
-    [src({ ...minted, importedId: 'abt1-0000000000000002' })],
+    [src({ ...minted, importedId: 'abt2-0000000000000002' })],
     [reExported],
     null,
   );
@@ -158,7 +158,7 @@ test('a bank reference pairs with an Actual transaction holding a minted or no I
       src({ importedId: 'REF-C', date: isoDate('2031-03-20') }),
     ],
     [
-      actual({ imported_id: 'abt1-0000000000000001', id: 'minted' }),
+      actual({ imported_id: 'abt2-0000000000000001', id: 'minted' }),
       actual({ imported_id: null, id: 'typed', date: isoDate('2031-03-20') }),
     ],
     null,

@@ -5,14 +5,14 @@
  * the same ID, so a re-run pairs each statement transaction with its own
  * earlier write, and re-running a file is a resume mechanism rather than a
  * data loss. Every minted ID carries
- * a prefix so it is distinguishable from a bank's own reference, and the `1` in
+ * a prefix so it is distinguishable from a bank's own reference, and the `2` in
  * that prefix versions the scheme: changing how IDs are derived must be
  * visible, not silent.
  */
 import { createHash } from 'node:crypto';
 import type { SourceTransaction } from './sources/types.ts';
 
-export const MINTED_PREFIX = 'abt1-';
+export const MINTED_PREFIX = 'abt2-';
 
 /**
  * Hash the parts into a minted ID.

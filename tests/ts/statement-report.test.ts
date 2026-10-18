@@ -318,6 +318,31 @@ test('a pair whose amount Actual holds differently is listed, to fix in Actual',
   assert.equal(lines[3], '    - 1 already in Actual');
 });
 
+test('a long payee is cut on a line to fix, never the amounts', () => {
+  // A booked card purchase's text runs long (#48), and unattended there is no
+  // [?] to read the amounts from.
+  const payee = 'MERCHANT*7K2Q9X4M        NEWARK       USANJ';
+  const classified = classify(
+    [src({ importedId: 'T-FX', amountCents: -1290, payee })],
+    [actual({ imported_id: 'T-FX', amount: -1495 })],
+    null,
+  );
+  const lines = report(
+    {
+      period: MARCH,
+      classified,
+      unpaired: [],
+      reconciledThrough: null,
+      dropped: [],
+      mode: 'unattended',
+    },
+    plain,
+  );
+  assert.deepEqual(section(lines, '  in Actual, but to fix there'), [
+    '  ! #1 MERCHANT*7K2Q9X4M        NEWA…: Actual holds -14.95, the bank says -12.90',
+  ]);
+});
+
 test('the note says the reconciled period, the lookalike, and the repeat', () => {
   const twin = { importedId: '', importedIdOrigin: 'absent' as const };
   const classified = classify(

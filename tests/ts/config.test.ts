@@ -98,7 +98,6 @@ test('format settings default to the shipped UBS layout', () => {
   assert.equal(config.formats.ubsCardsCsv.headerRow, 2);
   assert.deepEqual(config.formats.ubsCardsCsv.referenceColumns, [
     "Date d'achat",
-    'Texte comptable',
     'Montant',
     'Monnaie originale',
   ]);

@@ -1,0 +1,6 @@
+sep=;
+Numéro de compte;Numéro de carte;Titulaire de compte/carte;Date d'achat;Texte comptable;Secteur;Montant;Monnaie originale;Cours;Monnaie;Débit;Crédit;Ecriture
+ANON-ACCT-9C509B35;9659086893219337559;ANON-88738581;10.10.2026;MERCHANT NEWARK USA;SECTOR-A;14.95;USD;;CHF;;;
+
+;;;;Total par monnaie;;;;;;;;Total
+;;;;Total des écritures de carte;;;;;CHF;0;0;0

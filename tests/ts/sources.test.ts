@@ -121,7 +121,7 @@ test('the cards CSV mints an imported ID per purchase', () => {
   );
   for (const tx of statement.transactions) {
     assert.equal(tx.importedIdOrigin, 'minted');
-    assert.match(tx.importedId, /^abt1-[0-9a-f]{16}$/);
+    assert.match(tx.importedId, /^abt2-[0-9a-f]{16}$/);
   }
 });
 
@@ -149,11 +149,24 @@ test('minted imported IDs are reproducible across runs and files', () => {
   );
 });
 
+test('a pending card purchase and its booked copy mint the same imported ID', () => {
+  // UBS rewrites `Texte comptable` when it books a purchase, and converts the
+  // amount; the purchase date and the original amount and currency stay (#48).
+  const [pending] = cardsCsv.parse(DATA + 'ubs_cards_pending_fx.csv').transactions;
+  const [booked] = cardsCsv.parse(DATA + 'ubs_cards_booked_fx.csv').transactions;
+  assert.ok(pending?.pending);
+  assert.ok(booked);
+  assert.equal(booked.pending, undefined);
+  assert.notEqual(pending.payee, booked.payee);
+  assert.deepEqual([pending.amountCents, booked.amountCents], [-1495, -1290]);
+  assert.equal(pending.importedId, booked.importedId);
+});
+
 test('the minted ID hashes the reference columns verbatim, not the parsed date', () => {
   // Verbatim matters: the ID must not depend on `date_format`. Correcting that
   // setting after a UBS change is exactly the kind of edit this config exists
   // for, and it must not silently renumber every transaction already written.
-  const stable = mintFromParts(['23.02.2020', 'MERCHANT-30A2B4C6', '30', 'EUR', 0]);
+  const stable = mintFromParts(['23.02.2020', '30', 'EUR', 0]);
   const fromFile = cardsCsv
     .parse(DATA + 'ubs_cards_1.csv')
     .transactions.find((t) => t.payee === 'MERCHANT-30A2B4C6');
@@ -161,10 +174,7 @@ test('the minted ID hashes the reference columns verbatim, not the parsed date',
   assert.equal(fromFile.importedId, stable);
   // And the converted CHF amount (28) is not in it, because it moves with the
   // exchange rate between exports.
-  assert.notEqual(
-    fromFile.importedId,
-    mintFromParts(['23.02.2020', 'MERCHANT-30A2B4C6', '28', 'CHF', 0]),
-  );
+  assert.notEqual(fromFile.importedId, mintFromParts(['23.02.2020', '28', 'CHF', 0]));
 });
 
 test('a minted ID survives a change to date_format', () => {
@@ -209,34 +219,10 @@ test('pending card rows are read as debits of their original amount', () => {
   assert.deepEqual(
     pending.map((t) => [t.importedId, t.importedIdOrigin]),
     [
-      [mintFromParts(['26.02.2020', 'MERCHANT-PENDING1', '21.62', 'USD', 0]), 'minted'],
-      [mintFromParts(['25.02.2020', 'MERCHANT-PENDING2', '3.12', 'CHF', 0]), 'minted'],
+      [mintFromParts(['26.02.2020', '21.62', 'USD', 0]), 'minted'],
+      [mintFromParts(['25.02.2020', '3.12', 'CHF', 0]), 'minted'],
     ],
   );
-});
-
-test('a pending row and its booked row mint the same imported ID', () => {
-  // So once UBS books the purchase, it pairs with the copy imported while it
-  // was pending - provided the bank keeps the reference columns (#48).
-  const lines = (debit: string): string =>
-    [
-      'sep=;',
-      DEFAULT_CARDS_CSV.columns.join(';'),
-      `ACCT;9659086893219337559;HOLDER;26.02.2020;SHOP;SECTOR;21.62;USD;;CHF;${debit};;`,
-      '',
-    ].join('\n');
-  const dir = mkdtempSync(join(tmpdir(), 'abt-pending-'));
-  const pendingPath = join(dir, 'pending.csv');
-  const bookedPath = join(dir, 'booked.csv');
-  writeFileSync(pendingPath, lines(''), 'latin1');
-  writeFileSync(bookedPath, lines('20.35'), 'latin1');
-  const [pending] = cardsCsv.parse(pendingPath).transactions;
-  const [booked] = cardsCsv.parse(bookedPath).transactions;
-  assert.ok(pending?.pending);
-  assert.ok(booked);
-  assert.equal(booked.pending, undefined);
-  assert.equal(booked.amountCents, -2035);
-  assert.equal(pending.importedId, booked.importedId);
 });
 
 test('a cards row with an unreadable debit is still dropped with its problem', () => {

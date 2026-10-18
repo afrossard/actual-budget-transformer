@@ -15,7 +15,7 @@ _Avoid_: source transaction, row, record, entry
 The identifier attached to each statement transaction so a later run pairs it with what an earlier run wrote; stored as Actual's `imported_id`.
 The bank's reference where the statement carries one.
 Blank where a format that normally carries one did not, because a later export will carry the real one and a minted identifier would never match it.
-Minted deterministically only where the bank never supplies one, as on the UBS cards CSV.
+Minted deterministically only where the bank never supplies one, as on the UBS cards CSV, from fields a purchase keeps from **Pending** to booked: its date and its original amount and currency.
 _Avoid_: dedup key, hash, fingerprint
 
 **Pending**:

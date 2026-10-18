@@ -87,15 +87,17 @@ processors:
     date_format: "%d.%m.%Y"
 
     # Columns used to generate a stable transaction reference (hash).
-    # Use original-currency fields rather than converted amounts, which
-    # can shift between exports due to exchange rate changes.
+    # Use fields a purchase keeps from pending to booked: the original
+    # amount and currency rather than the converted one, which is only set
+    # when the purchase books, and not "Texte comptable", which the bank
+    # rewrites then.
     #
     # WARNING: changing these changes every minted reference, so card
-    # transactions already imported stop matching and come back as new.
-    # Change them on a fresh account, or expect to resolve duplicates by hand.
+    # transactions already imported stop pairing by it. Booked ones still
+    # pair on amount and date; a pending one already imported does not pair
+    # with its booked copy, and is listed in Actual, not in the statement.
     reference_columns:
       - "Date d'achat"
-      - "Texte comptable"
       - "Montant"
       - "Monnaie originale"
 
