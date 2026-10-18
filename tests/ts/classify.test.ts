@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   classify,
   tally,
-  toFixInActual,
+  correctionOf,
   unpairedActual,
   type ActualTransaction,
   type Classified,
@@ -323,16 +323,66 @@ test('classify never mutates its inputs', () => {
   assert.equal(JSON.stringify({ sources, existing }), snapshot);
 });
 
-test('a pair whose amounts differ is something to fix in Actual', () => {
+test('a booked pair by imported ID whose amounts differ is a correction', () => {
   const classified = classify(
     [src({ importedId: 'T-X', amountCents: -7500 })],
     [actual({ imported_id: 'T-X', amount: -8000, id: 'stored' })],
     null,
   );
   assert.equal(classified[0]!.pair?.actual.id, 'stored');
-  assert.deepEqual(toFixInActual(classified[0]!), [
-    { kind: 'amount-differs', actualAmount: -8000 },
-  ]);
+  assert.deepEqual(correctionOf(classified[0]!), { actualAmount: -8000, hold: null });
+});
+
+test('a pending statement transaction never corrects', () => {
+  // Its amount is not final, so an older export must not undo a correction.
+  const [one] = classify(
+    [
+      src({
+        importedId: 'T-X',
+        amountCents: -1495,
+        pending: { originalCurrency: 'USD', accountCurrency: 'CHF' },
+      }),
+    ],
+    [actual({ imported_id: 'T-X', amount: -1290 })],
+    null,
+  );
+  assert.notEqual(one!.pair, null);
+  assert.equal(correctionOf(one!), null);
+});
+
+test('a reconciled Actual transaction is held for review, a split always', () => {
+  const [reconciled, split, both] = classify(
+    [
+      src({ importedId: 'R', amountCents: -7500 }),
+      src({ importedId: 'S', amountCents: -7500 }),
+      src({ importedId: 'B', amountCents: -7500 }),
+    ],
+    [
+      actual({ imported_id: 'R', amount: -8000, reconciled: true }),
+      actual({
+        imported_id: 'S',
+        amount: -8000,
+        is_parent: true,
+        subtransactions: [{ amount: -5000 }, { amount: -3000 }],
+      }),
+      actual({ imported_id: 'B', amount: -8000, reconciled: true, is_parent: true }),
+    ],
+    null,
+  );
+  assert.equal(correctionOf(reconciled!)?.hold, 'reconciled');
+  assert.equal(correctionOf(split!)?.hold, 'split');
+  // Review cannot make a split one either, so that is what is said.
+  assert.equal(correctionOf(both!)?.hold, 'split');
+});
+
+test('a transfer is never corrected, reconciled or not', () => {
+  // Actual moves the other account's side with it (ADR 0007's guards).
+  const [one] = classify(
+    [src({ importedId: 'T', amountCents: -7500 })],
+    [actual({ imported_id: 'T', amount: -8000, transfer_id: 'other-side' })],
+    null,
+  );
+  assert.equal(correctionOf(one!)?.hold, 'transfer');
 });
 
 test('two Actual transactions sharing one imported ID are a duplicate, not a fix', () => {
@@ -350,7 +400,7 @@ test('two Actual transactions sharing one imported ID are a duplicate, not a fix
   });
   const classified = classify([src({ importedId: 'SHARED' })], [first, second], null);
   assert.equal(classified[0]!.pair?.actual.id, 'first');
-  assert.deepEqual(toFixInActual(classified[0]!), []);
+  assert.equal(correctionOf(classified[0]!), null);
   assert.deepEqual(unpairedActual(classified, [first, second], MARCH), [
     { actual: second, twin: first },
   ]);
@@ -379,13 +429,13 @@ test('a reference the bank itself repeats pairs each copy, and is no duplicate',
     null,
   );
   assert.deepEqual(pairs(classified), ['a', 'b']);
-  assert.deepEqual(classified.flatMap(toFixInActual), []);
+  assert.deepEqual(classified.map(correctionOf), [null, null]);
   assert.deepEqual(unpairedActual(classified, existing, MARCH), []);
 });
 
-test('a pair made on amount and date is nothing to fix', () => {
+test('a pair made on amount and date is no correction', () => {
   const [one] = classify([src()], [actual({ date: isoDate('2031-03-11') })], null);
-  assert.deepEqual(toFixInActual(one!), []);
+  assert.equal(correctionOf(one!), null);
 });
 
 test('a second holder of an imported ID is a lookalike as a duplicate, not as a pair', () => {

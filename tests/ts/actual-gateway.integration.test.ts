@@ -1,5 +1,6 @@
 /**
- * The gateway's targeted reads, against a real Actual server (#67).
+ * The gateway's targeted reads, against a real Actual server (#67), and its one
+ * patch, the correction (ADR 0007).
  *
  * Each read answers one question about one account, and each must answer it
  * completely: a read that misses a row is a classification that is silently
@@ -212,6 +213,110 @@ describe('integration: the gateway reads only what a question needs', { skip }, 
       assert.deepEqual(
         parent.subtransactions?.map((s) => s.amount),
         [-600, -400],
+      );
+    });
+  });
+
+  describe('correctAmount', () => {
+    async function seeded(label: string, reconciled: boolean, split = false) {
+      const id = await account(label);
+      await session.api.addTransactions(id, [
+        {
+          date: '2031-04-10',
+          amount: -1495,
+          imported_id: 'FX',
+          payee_name: 'Renamed in Actual',
+          ...(split ? { subtransactions: [{ amount: -995 }, { amount: -500 }] } : {}),
+        },
+      ]);
+      await session.api.sync();
+      if (reconciled) await reconcile(id, isoDate('2031-04-10'));
+      const [tx] = await session.gateway.findByImportedIds(id, ['FX']);
+      assert.ok(tx);
+      return { id, tx };
+    }
+
+    async function stored(id: AccountId) {
+      const [tx, ...rest] = await session.gateway.getAccountHistory(id);
+      assert.equal(rest.length, 0);
+      assert.ok(tx);
+      return tx;
+    }
+
+    it('sets the amount alone', async () => {
+      const { id, tx } = await seeded('correct', false);
+      await session.gateway.correctAmount(id, tx, -1290, {
+        reconciledConfirmed: false,
+      });
+      await session.gateway.sync();
+      const after = await stored(id);
+      assert.equal(after.amount, -1290);
+      assert.equal(after.date, tx.date);
+      assert.equal(after.payeeName, 'Renamed in Actual');
+    });
+
+    it('refuses a reconciled one unless review confirmed it', async () => {
+      const { id, tx } = await seeded('correct-reconciled', true);
+      await assert.rejects(
+        session.gateway.correctAmount(id, tx, -1290, { reconciledConfirmed: false }),
+        /reconciled/,
+      );
+      assert.equal((await stored(id)).amount, -1495);
+
+      await session.gateway.correctAmount(id, tx, -1290, { reconciledConfirmed: true });
+      await session.gateway.sync();
+      assert.equal((await stored(id)).amount, -1290);
+    });
+
+    it('refuses a split, even confirmed', async () => {
+      const { id, tx } = await seeded('correct-split', false, true);
+      await assert.rejects(
+        session.gateway.correctAmount(id, tx, -1290, { reconciledConfirmed: true }),
+        /split/,
+      );
+      assert.equal((await stored(id)).amount, -1495);
+    });
+
+    it('refuses a transfer, even confirmed', async () => {
+      const id = await account('correct-transfer');
+      const other = await account('correct-transfer-other');
+      const payee = (await session.api.getPayees()).find(
+        (p) => p.transfer_acct === other,
+      )!;
+      await session.api.addTransactions(
+        id,
+        [{ date: '2031-04-10', amount: -1495, imported_id: 'FX', payee: payee.id }],
+        { runTransfers: true },
+      );
+      await session.api.sync();
+      const [tx] = await session.gateway.findByImportedIds(id, ['FX']);
+      assert.ok(tx?.transfer_id);
+      await assert.rejects(
+        session.gateway.correctAmount(id, tx, -1290, { reconciledConfirmed: true }),
+        /transfer/,
+      );
+      assert.equal((await stored(id)).amount, -1495);
+    });
+
+    it('refuses one whose amount has changed in Actual since it was read', async () => {
+      // The human may fix it by hand while a review prompt waits.
+      const { id, tx } = await seeded('correct-changed', false);
+      await session.api.updateTransaction(tx.id, { amount: -1300 });
+      await session.api.sync();
+      await assert.rejects(
+        session.gateway.correctAmount(id, tx, -1290, { reconciledConfirmed: true }),
+        /changed in Actual/,
+      );
+      assert.equal((await stored(id)).amount, -1300);
+    });
+
+    it('refuses one reconciled since it was read', async () => {
+      // The guard is on what Actual holds now, not on the copy the run read.
+      const { id, tx } = await seeded('correct-stale', false);
+      await reconcile(id, isoDate('2031-04-10'));
+      await assert.rejects(
+        session.gateway.correctAmount(id, tx, -1290, { reconciledConfirmed: false }),
+        /reconciled/,
       );
     });
   });

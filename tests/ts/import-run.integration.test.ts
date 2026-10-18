@@ -280,9 +280,10 @@ describe('integration: a whole run from a statement file', { skip }, () => {
     assert.doesNotMatch(pending?.notes ?? '', /9930282TI7700001/);
   });
 
-  it('pairs a pending card purchase with its booked copy, listing the amount to fix', async () => {
+  it('pairs a pending card purchase with its booked copy, and corrects its amount', async () => {
     // Booking rewrites the merchant text and converts the amount (#48): the
-    // booked copy pairs by imported ID, and the CHF amount is fixed in Actual.
+    // booked copy pairs by imported ID, and Actual takes the bank's CHF amount
+    // (ADR 0007), its date and payee left as they were.
     const { config, accountId } = await arrange(
       'cards-pending-booked',
       '9659086893219337559',
@@ -302,15 +303,97 @@ describe('integration: a whole run from a statement file', { skip }, () => {
     const transcript = io.transcript.join('\n');
     assert.match(
       transcript,
-      /in Actual, but to fix there\n {2}! #1 MERCHANT\*7K2Q9X4M.*: Actual holds -14\.95, the bank says -12\.90$/m,
+      /^ {2}corrected in Actual\n {2}~ #1 MERCHANT\*7K2Q9X4M.*: -14\.95 → -12\.90$/m,
     );
+    assert.doesNotMatch(transcript, /to fix there/);
     const summary = io.transcript.slice(io.transcript.indexOf('Import summary:'));
-    assert.equal(summary.at(-1), `  ${paths[1]}: 0 imported, 1 already in Actual`);
+    assert.equal(
+      summary.at(-1),
+      `  ${paths[1]}: 0 imported, 1 corrected, 0 already in Actual`,
+    );
     const stored = await session.gateway.getAccountHistory(accountId);
     assert.deepEqual(
       stored.map((t) => [t.date, t.amount]),
-      [['2026-10-10', -1495]],
+      [['2026-10-10', -1290]],
     );
+
+    // Running the older, pending export again never undoes the correction.
+    const again = createScriptedIo([]);
+    await runImports({
+      paths: [paths[0]!],
+      config,
+      mode: 'unattended',
+      gateway: session.gateway,
+      io: again,
+    });
+    assert.doesNotMatch(again.transcript.join('\n'), /correct|to fix there/);
+    assert.deepEqual(
+      (await session.gateway.getAccountHistory(accountId)).map((t) => t.amount),
+      [-1290],
+    );
+  });
+
+  it('leaves a reconciled pair to fix in Actual unattended, and corrects it under review', async () => {
+    const { config, accountId } = await arrange(
+      'cards-booked-reconciled',
+      '9659086893219337559',
+    );
+    const pending = DATA + 'ubs_cards_pending_fx.csv';
+    const booked = DATA + 'ubs_cards_booked_fx.csv';
+    await runImports({
+      paths: [pending],
+      config,
+      mode: 'unattended',
+      gateway: session.gateway,
+      io: createScriptedIo([]),
+    });
+    const [written] = await session.gateway.getAccountHistory(accountId);
+    await session.api.updateTransaction(written!.id, { reconciled: true });
+    await session.api.sync();
+
+    const io = createScriptedIo([]);
+    const outcomes = await runImports({
+      paths: [booked],
+      config,
+      mode: 'unattended',
+      gateway: session.gateway,
+      io,
+    });
+    assert.equal(allInActual(outcomes), false, 'Actual disagrees with the bank');
+    const transcript = io.transcript.join('\n');
+    assert.match(
+      transcript,
+      /^ {2}in Actual, but to fix there\n {2}! #1 MERCHANT\*7K2Q9X4.*: Actual holds -14\.95, the bank says -12\.90 \(reconciled\)$/m,
+    );
+    assert.match(
+      transcript,
+      /^Run again with --review to correct what is reconciled\.$/m,
+    );
+    assert.equal(
+      io.transcript.at(-1),
+      `  ${booked}: 0 imported, 1 to fix in Actual, 0 already in Actual`,
+    );
+    assert.equal(
+      (await session.gateway.getAccountHistory(accountId))[0]!.amount,
+      -1495,
+    );
+
+    const reviewed = createScriptedIo(['c']);
+    const confirmed = await runImports({
+      paths: [booked],
+      config,
+      mode: 'review',
+      gateway: session.gateway,
+      io: reviewed,
+    });
+    assert.equal(allInActual(confirmed), true);
+    assert.match(
+      reviewed.transcript.join('\n'),
+      /! reconciled in Actual: correcting it changes a reconciled balance\n {2}\[c\]orrect {2}\[l\]eave {2}\[\?\] detail {2}\[q\]uit > c +corrected to -12\.90/,
+    );
+    const [after] = await session.gateway.getAccountHistory(accountId);
+    assert.equal(after!.amount, -1290);
+    assert.equal(after!.reconciled, true);
   });
 
   it('lists two Actual transactions sharing one imported ID as a duplicate couple', async () => {

@@ -5,9 +5,9 @@
  * These are the five probes from `prototype/38-interactive-import`, turned from
  * scripts that print into tests that assert. Everything the write path was
  * designed around is here: the whole reason `importTransactions` is bypassed,
- * why patching an Actual transaction from the bank's data is not safe to do
- * lightly (splits, and no reconciled guard), and so why this tool, which
- * pairs and never patches, leaves that fix to the human in Actual.
+ * and why patching an Actual transaction from the bank's data is not safe to
+ * do lightly (splits, and no reconciled guard), and so why the one patch this
+ * tool makes, a correction of the amount (ADR 0007), carries its own guards.
  *
  * ADR-007 and ADR 0004 exist because Actual version skew has broken assumptions
  * before, so these are the assertions that should fail loudly on a version bump
@@ -259,8 +259,8 @@ describe('integration: what @actual-app/api actually does', { skip }, () => {
 
   it('updateTransaction has no reconciled guard, so the guard has to be ours', async () => {
     // ADR-002's keystone rule - never touch a reconciled transaction - is not
-    // something Actual enforces on this path. This tool never calls it, and a
-    // test in write-path.test.ts keeps it that way.
+    // something Actual enforces on this path. The gateway's correctAmount is
+    // its only caller, and refuses a reconciled one unless review confirmed it.
     const id = await account('patch');
     await api.addTransactions(id, [
       {
@@ -287,6 +287,90 @@ describe('integration: what @actual-app/api actually does', { skip }, () => {
     assert.equal(after.amount, -1111);
     assert.equal(after.notes, 'patched');
     assert.equal(after.reconciled, true, 'and reconciled stayed true');
+  });
+
+  it('updateTransaction on an amount alone: plain, reconciled and split parent', async () => {
+    // What a correction (ADR 0007) is built on. Actual takes the amount on all
+    // three, and only the date, payee and parts stay as they were: so the
+    // gateway's correct() refuses a reconciled one outside review and a split
+    // always, because Actual refuses neither.
+    const id = await account('amount');
+    await api.addTransactions(id, [
+      { date: '2035-05-10', amount: -1495, imported_id: 'AM-PLAIN', payee_name: 'P' },
+      { date: '2035-05-11', amount: -1495, imported_id: 'AM-RECON', payee_name: 'R' },
+      {
+        date: '2035-05-12',
+        amount: -4500,
+        imported_id: 'AM-SPLIT',
+        payee_name: 'S',
+        subtransactions: [{ amount: -2500 }, { amount: -2000 }],
+      },
+    ]);
+    await api.sync();
+    const byId = async () => new Map((await rows(id)).map((t) => [t.imported_id, t]));
+    let held = await byId();
+    await api.updateTransaction(held.get('AM-RECON')!.id, { reconciled: true });
+    await api.sync();
+
+    for (const key of ['AM-PLAIN', 'AM-RECON']) {
+      await api.updateTransaction(held.get(key)!.id, { amount: -1290 });
+    }
+    await api.updateTransaction(held.get('AM-SPLIT')!.id, { amount: -5400 });
+    await api.sync();
+    const before = held;
+    held = await byId();
+
+    for (const key of ['AM-PLAIN', 'AM-RECON']) {
+      const tx = held.get(key)!;
+      assert.equal(tx.amount, -1290, `${key}: the amount is taken`);
+      assert.equal(tx.date, before.get(key)!.date, `${key}: the date stays`);
+      assert.equal(tx.payee, before.get(key)!.payee, `${key}: the payee stays`);
+    }
+    assert.equal(held.get('AM-RECON')!.reconciled, true, 'no reconciled guard');
+
+    const split = held.get('AM-SPLIT')!;
+    assert.equal(split.amount, -5400, 'a split parent takes the amount too');
+    assert.deepEqual(
+      split.subtransactions?.map((s) => s.amount),
+      [-2500, -2000],
+      'its parts are left alone, so they no longer sum to it',
+    );
+    assert.equal(
+      (split.error as { type?: string } | null)?.type,
+      'SplitTransactionError',
+      'and Actual flags the split as broken',
+    );
+  });
+
+  it("updateTransaction on a transfer's amount moves the other side, or nothing", async () => {
+    // So a correction (ADR 0007) never touches a transfer: it would change
+    // another account's balance, and when that side is reconciled Actual
+    // drops the change without a word.
+    const transfer = async (reconcileOtherSide: boolean) => {
+      const from = await account('transfer-from');
+      const to = await account('transfer-to');
+      const payee = (await api.getPayees()).find((p) => p.transfer_acct === to)!;
+      await api.addTransactions(
+        from,
+        [{ date: '2035-06-10', amount: -5000, payee: payee.id }],
+        { runTransfers: true },
+      );
+      await api.sync();
+      const [side] = await rows(from);
+      const [other] = await rows(to);
+      assert.equal(side!.transfer_id, other!.id, 'each side names the other');
+      if (reconcileOtherSide)
+        await api.updateTransaction(other!.id, { reconciled: true });
+      await api.updateTransaction(side!.id, { amount: -4000 });
+      await api.sync();
+      return [(await rows(from))[0]!.amount, (await rows(to))[0]!.amount];
+    };
+    assert.deepEqual(await transfer(false), [-4000, 4000], 'the other side moves too');
+    assert.deepEqual(
+      await transfer(true),
+      [-5000, 5000],
+      'with the other side reconciled, nothing changes and nothing says so',
+    );
   });
 });
 

@@ -31,7 +31,14 @@ export type ActualTransaction = {
   reconciled?: boolean;
   is_parent?: boolean;
   subtransactions?: { id?: string; amount: number }[] | null;
+  /** The other side's id when this is one side of a transfer between accounts. */
+  transfer_id?: string | null;
 };
+
+/** Whether it is split into parts, which must sum to it. */
+export function isSplit(tx: ActualTransaction): boolean {
+  return tx.is_parent === true || (tx.subtransactions ?? []).length > 0;
+}
 
 /** The Actual transaction a statement transaction is taken to be, and why. */
 export type Pair = {
@@ -84,12 +91,25 @@ export type Classified = {
 };
 
 /**
- * Something about a pair that Actual needs fixed, there rather than here.
- * Only an imported-ID pair can have one: an amount pair has the same amount by
- * definition. A second holder of the imported ID is not one of these but a
- * duplicate, listed with the unpaired Actual transactions.
+ * A correction (ADR 0007): the bank booked a statement transaction at another
+ * amount than its pair by imported ID holds in Actual, so Actual's amount is
+ * set to the bank's. Only an imported-ID pair can have one: an amount pair has
+ * the same amount by definition. A second holder of the imported ID is not one
+ * of these but a duplicate, listed with the unpaired Actual transactions.
  */
-export type ToFix = { kind: 'amount-differs'; actualAmount: number };
+export type Correction = {
+  /** The amount Actual holds; the bank's is the statement transaction's. */
+  actualAmount: number;
+  /**
+   * What keeps it from being made unattended. `reconciled`: it changes a
+   * reconciled balance, so only review makes it. `split`: which part absorbs
+   * the difference is the human's choice. `transfer`: Actual moves the other
+   * account's side with it, and drops the change silently when that side is
+   * reconciled (pinned by the characterization tests). Neither of the last two
+   * is ever made; each stays to fix in Actual.
+   */
+  hold: 'reconciled' | 'split' | 'transfer' | null;
+};
 
 /** How many days apart two amounts may be and still pair. */
 export const PAIRING_WINDOW_DAYS = 1;
@@ -248,11 +268,28 @@ function reservedFor(
   return i < 0 ? undefined : i;
 }
 
-/** What Actual needs fixed about this pair, if anything; never prompted. */
-export function toFixInActual(classified: Classified): ToFix[] {
+/**
+ * The correction this statement transaction makes to its pair, if any. A
+ * pending one makes none, and its differing amount is not listed: the amount
+ * is not final, and an older export run after a newer one would otherwise
+ * undo a correction.
+ */
+export function correctionOf(classified: Classified): Correction | null {
   const { pair, source } = classified;
-  if (pair === null || pair.actual.amount === source.amountCents) return [];
-  return [{ kind: 'amount-differs', actualAmount: pair.actual.amount }];
+  if (pair === null || pair.by !== 'imported-id' || source.pending !== undefined)
+    return null;
+  const { actual } = pair;
+  if (actual.amount === source.amountCents) return null;
+  return {
+    actualAmount: actual.amount,
+    hold: isSplit(actual)
+      ? 'split'
+      : actual.transfer_id
+        ? 'transfer'
+        : actual.reconciled === true
+          ? 'reconciled'
+          : null,
+  };
 }
 
 /**

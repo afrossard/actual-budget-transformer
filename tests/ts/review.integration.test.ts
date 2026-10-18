@@ -1,6 +1,6 @@
 /**
- * Writing what is not in Actual, unattended and under review, against a real
- * Actual server.
+ * Writing what is not in Actual, and correcting what Actual holds at another
+ * amount, unattended and under review, against a real Actual server.
  *
  * Nothing here is mocked. The reason these tests exist is that Actual's real
  * behaviour is surprising, and a mock would encode our assumptions rather than
@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import { ActualGateway, type AccountId } from '../../src/actual-gateway.ts';
 import { classify, tally, type ActualTransaction } from '../../src/classify.ts';
 import { createScriptedIo } from '../../src/io.ts';
-import { complete, importUnpaired } from '../../src/review.ts';
+import { complete, importStatement } from '../../src/review.ts';
 import {
   closeSession,
   createRunAccount,
@@ -110,9 +110,10 @@ describe('integration: writing what is not in Actual', { skip }, () => {
     const { accountId, scenario, existing, reconciledThrough } =
       await arrange('leave-all');
     const classified = classify(scenario.source, existing, reconciledThrough);
-    const io = createScriptedIo(TO_REVIEW.map(() => 'l'));
+    // The correction of #13 PRICE CHANGED is asked about first.
+    const io = createScriptedIo(['l', ...TO_REVIEW.map(() => 'l')]);
 
-    const result = await importUnpaired({
+    const result = await importStatement({
       mode: 'review',
       gateway: session.gateway,
       accountId,
@@ -126,15 +127,19 @@ describe('integration: writing what is not in Actual', { skip }, () => {
     assert.equal(result.stopped, false);
     assert.equal(
       result.outcomes.length,
-      TO_REVIEW.length,
-      'only the unpaired are asked',
+      TO_REVIEW.length + 1,
+      'only the unpaired and the correction are asked',
     );
     assert.equal(
       result.outcomes.every((o) => o.wrote === 'nothing'),
       true,
     );
     assert.deepEqual(await session.gateway.getAccountHistory(accountId), existing);
-    assert.equal(io.transcript.at(-1), '0 imported, 11 left, 5 already in Actual.');
+    assert.equal(
+      io.transcript.at(-1),
+      '0 imported, 11 left, 1 to fix in Actual, 4 already in Actual.',
+    );
+    assert.equal(complete(result), false, 'a correction left is not in Actual');
   });
 
   /**
@@ -163,7 +168,7 @@ describe('integration: writing what is not in Actual', { skip }, () => {
     const classified = classify(source, existing, reconciledThrough);
     const io = createScriptedIo([]);
 
-    const result = await importUnpaired({
+    const result = await importStatement({
       mode: 'unattended',
       gateway: session.gateway,
       accountId,
@@ -185,6 +190,11 @@ describe('integration: writing what is not in Actual', { skip }, () => {
     );
     const after = await session.gateway.getAccountHistory(accountId);
     assert.equal(after.length, existing.length + TO_REVIEW.length);
+    assert.equal(
+      after.find((t) => t.id === scenario.amountMismatchId)!.amount,
+      -7500,
+      'the bank amount is taken',
+    );
     const written = (ref: string) =>
       after.find((t) => t.imported_id === `${scenario.tag}-${ref}`);
     // On the reconciled-through date is written like any other (ADR 0005).
@@ -206,8 +216,12 @@ describe('integration: writing what is not in Actual', { skip }, () => {
       /^ +17 2030-06-29 +-5\.20 NEWSAGENT +left out: reconciled period$/m,
     );
     assert.doesNotMatch(transcript, /──|> /, 'no block and no prompt');
+    assert.match(
+      transcript,
+      /^ {2}corrected in Actual\n {2}~ #13 PRICE CHANGED: -80\.00 → -75\.00$/m,
+    );
     assert.deepEqual(io.transcript.slice(-2), [
-      '11 imported, 1 left out, 5 already in Actual.',
+      '11 imported, 1 corrected, 1 left out, 4 already in Actual.',
       'Run again with --review to import what was left out.',
     ]);
   });
@@ -224,7 +238,7 @@ describe('integration: writing what is not in Actual', { skip }, () => {
       unpaired: [],
       reconciledThrough,
     };
-    await importUnpaired({
+    await importStatement({
       ...options,
       classified: classify(source, existing, reconciledThrough),
       io: createScriptedIo([]),
@@ -232,7 +246,7 @@ describe('integration: writing what is not in Actual', { skip }, () => {
     const afterFirst = await session.gateway.getAccountHistory(accountId);
 
     const io = createScriptedIo([]);
-    const second = await importUnpaired({
+    const second = await importStatement({
       ...options,
       classified: classify(source, afterFirst, reconciledThrough),
       io,
@@ -262,7 +276,7 @@ describe('integration: writing what is not in Actual', { skip }, () => {
     const newsagent = classified.find((c) => c.source.payee === 'NEWSAGENT')!;
     const io = createScriptedIo(['i']);
 
-    const result = await importUnpaired({
+    const result = await importStatement({
       mode: 'review',
       gateway: session.gateway,
       accountId,
@@ -290,9 +304,9 @@ describe('integration: writing what is not in Actual', { skip }, () => {
     const { accountId, scenario, existing, reconciledThrough } =
       await arrange('reconciled-date');
     const classified = classify(scenario.source, existing, reconciledThrough);
-    const io = createScriptedIo(['q']);
+    const io = createScriptedIo(['l', 'q']);
 
-    await importUnpaired({
+    await importStatement({
       mode: 'review',
       gateway: session.gateway,
       accountId,
@@ -304,17 +318,17 @@ describe('integration: writing what is not in Actual', { skip }, () => {
     });
 
     const transcript = io.transcript.join('\n');
-    assert.match(transcript, /── 1 of 11 ─+\n {2}#2 +2030-06-30 +-3\.00 +KIOSK/);
+    assert.match(transcript, /── 2 of 12 ─+\n {2}#2 +2030-06-30 +-3\.00 +KIOSK/);
     assert.doesNotMatch(transcript, /reconciled period/);
   });
 
-  it('never asks about a pair, and lists the one Actual needs fixed', async () => {
+  it('under review, asks about a correction first and never about a pair', async () => {
     const { accountId, scenario, existing, reconciledThrough } =
-      await arrange('fix-in-actual');
+      await arrange('correct-in-review');
     const classified = classify(scenario.source, existing, reconciledThrough);
-    const io = createScriptedIo(['q']);
+    const io = createScriptedIo(['?', 'c', 'q']);
 
-    await importUnpaired({
+    const result = await importStatement({
       mode: 'review',
       gateway: session.gateway,
       accountId,
@@ -329,15 +343,61 @@ describe('integration: writing what is not in Actual', { skip }, () => {
     assert.match(transcript, /^ {4}- 5 already in Actual\n {4}- 11 to review$/m);
     assert.match(
       transcript,
-      /^ {2}! #13 PRICE CHANGED: Actual holds -80\.00, the bank says -75\.00$/m,
+      /^ {2}to correct in Actual\n {2}~ #13 PRICE CHANGED: -80\.00 → -75\.00$/m,
     );
+    assert.match(
+      transcript,
+      /── 1 of 12 ─+\n {2}#13 +2031-03-15 +-75\.00 +PRICE CHANGED\n.*\n {2}in Actual at -80\.00 · correct it to the bank's -75\.00\n {2}\[c\]orrect {2}\[l\]eave {2}\[\?\] detail {2}\[q\]uit > \?/,
+    );
+    assert.match(transcript, /^ {2}actual {3}date {9}2031-03-15$/m);
+    assert.match(transcript, /> c {2,}corrected to -75\.00$/m);
     assert.doesNotMatch(transcript, /clean|suspicious|skip|locked/);
-    const after = await session.gateway.getAccountHistory(accountId);
-    assert.equal(
-      after.find((t) => t.id === scenario.amountMismatchId)!.amount,
-      -8000,
-      'nothing is written for a pair',
+    assert.deepEqual(
+      result.outcomes.map((o) => [o.kind, o.action, o.wrote]),
+      [
+        ['correction', 'correct', 'corrected'],
+        ['write', 'quit', 'nothing'],
+      ],
     );
+    const after = await session.gateway.getAccountHistory(accountId);
+    assert.equal(after.find((t) => t.id === scenario.amountMismatchId)!.amount, -7500);
+    assert.equal(after.length, existing.length, 'nothing else is written');
+  });
+
+  it('unattended, leaves a reconciled pair uncorrected and says how to correct it', async () => {
+    const { accountId, scenario, existing, reconciledThrough } =
+      await arrange('correct-reconciled');
+    await session.api.updateTransaction(scenario.amountMismatchId, {
+      reconciled: true,
+    });
+    await session.api.sync();
+    const reread = await session.gateway.getAccountHistory(accountId);
+    const classified = classify(scenario.source, reread, reconciledThrough);
+    const io = createScriptedIo([]);
+
+    const result = await importStatement({
+      mode: 'unattended',
+      gateway: session.gateway,
+      accountId,
+      period: PERIOD,
+      unpaired: [],
+      classified,
+      reconciledThrough,
+      io,
+    });
+
+    assert.equal(complete(result), false);
+    assert.match(
+      io.transcript.join('\n'),
+      /^ {2}! #13 PRICE CHANGED: Actual holds -80\.00, the bank says -75\.00 \(reconciled\)$/m,
+    );
+    assert.deepEqual(io.transcript.slice(-2), [
+      '11 imported, 1 to fix in Actual, 4 already in Actual.',
+      'Run again with --review to correct what is reconciled.',
+    ]);
+    const after = await session.gateway.getAccountHistory(accountId);
+    assert.equal(after.find((t) => t.id === scenario.amountMismatchId)!.amount, -8000);
+    assert.equal(after.length, existing.length + TO_REVIEW.length);
   });
 
   it('says which statement transaction took a lookalike, and shows it in full on [?]', async () => {
@@ -347,7 +407,7 @@ describe('integration: writing what is not in Actual', { skip }, () => {
     const coffee = classified.find((c) => c.number === 8)!;
     const io = createScriptedIo(['?', 'l']);
 
-    await importUnpaired({
+    await importStatement({
       mode: 'review',
       gateway: session.gateway,
       accountId,
@@ -376,7 +436,7 @@ describe('integration: writing what is not in Actual', { skip }, () => {
     const { accountId, scenario, existing, reconciledThrough } =
       await arrange('idempotent');
     const first = classify(scenario.source, existing, reconciledThrough);
-    const firstResult = await importUnpaired({
+    const firstResult = await importStatement({
       mode: 'review',
       gateway: session.gateway,
       accountId,
@@ -384,9 +444,10 @@ describe('integration: writing what is not in Actual', { skip }, () => {
       unpaired: [],
       classified: first,
       reconciledThrough,
-      io: createScriptedIo(TO_REVIEW.map(() => 'i')),
+      io: createScriptedIo(['c', ...TO_REVIEW.map(() => 'i')]),
     });
     assert.equal(firstResult.outcomes.filter((o) => o.wrote === 'added').length, 11);
+    assert.equal(firstResult.outcomes.filter((o) => o.wrote === 'corrected').length, 1);
 
     const afterFirst = await session.gateway.getAccountHistory(accountId);
     const second = classify(scenario.source, afterFirst, reconciledThrough);
@@ -394,7 +455,7 @@ describe('integration: writing what is not in Actual', { skip }, () => {
     assert.deepEqual(tally(second), { paired: 16, toReview: 0 });
 
     const io = createScriptedIo([]);
-    const secondResult = await importUnpaired({
+    const secondResult = await importStatement({
       mode: 'review',
       gateway: session.gateway,
       accountId,
@@ -422,7 +483,7 @@ describe('integration: writing what is not in Actual', { skip }, () => {
     const gateway = new ActualGateway(await testSettings());
 
     await assert.rejects(
-      importUnpaired({
+      importStatement({
         mode: 'unattended',
         gateway,
         accountId,
@@ -441,12 +502,54 @@ describe('integration: writing what is not in Actual', { skip }, () => {
     );
   });
 
+  it('on a quit, counts a correction not reached as still to fix', async () => {
+    const { accountId, scenario, reconciledThrough } =
+      await arrange('quit-corrections');
+    // A second correction: #16 UBS TWINT, held at -160.00 where the bank says -150.00.
+    await session.api.addTransactions(accountId, [
+      {
+        date: '2031-03-25',
+        amount: -16000,
+        imported_id: `${scenario.tag}-T-0010`,
+        payee_name: 'UBS TWINT',
+      },
+    ]);
+    await session.api.sync();
+    const existing = await session.gateway.getAccountHistory(accountId);
+    const classified = classify(scenario.source, existing, reconciledThrough);
+    const io = createScriptedIo(['q']);
+
+    const result = await importStatement({
+      mode: 'review',
+      gateway: session.gateway,
+      accountId,
+      period: PERIOD,
+      unpaired: [],
+      classified,
+      reconciledThrough,
+      io,
+    });
+
+    assert.deepEqual(
+      result.outcomes.map((o) => [o.kind, o.action]),
+      [
+        ['correction', 'quit'],
+        ['correction', 'quit'],
+      ],
+    );
+    assert.ok(io.transcript.some((l) => l.endsWith('stopped, 12 left untouched')));
+    assert.equal(
+      io.transcript.at(-1),
+      '0 imported, 10 left, 2 to fix in Actual, 4 already in Actual.',
+    );
+  });
+
   it('stops the run on quit and leaves the rest untouched', async () => {
     const { accountId, scenario, existing, reconciledThrough } = await arrange('quit');
     const classified = classify(scenario.source, existing, reconciledThrough);
     const io = createScriptedIo(['l', 'q']);
 
-    const result = await importUnpaired({
+    const result = await importStatement({
       mode: 'review',
       gateway: session.gateway,
       accountId,
@@ -460,7 +563,7 @@ describe('integration: writing what is not in Actual', { skip }, () => {
     assert.equal(result.stopped, true);
     assert.equal(result.outcomes.length, 2);
     assert.equal(result.outcomes[1]!.action, 'quit');
-    assert.ok(io.transcript.some((l) => l.endsWith('stopped, 10 left untouched')));
+    assert.ok(io.transcript.some((l) => l.endsWith('stopped, 11 left untouched')));
     assert.equal(
       (await session.gateway.getAccountHistory(accountId)).length,
       existing.length,

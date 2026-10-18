@@ -2,8 +2,10 @@
 /**
  * `abt-import` - read bank statement files and write every transaction Actual
  * does not hold, except one dated before the reconciled-through date, which is
- * left out (ADR 0005). Under `--review` it asks about each one instead, those
- * included, and writes only what the human confirms.
+ * left out (ADR 0005), and set each amount Actual holds differently from the
+ * booked statement, except on a reconciled or split transaction (ADR 0007).
+ * Under `--review` it asks about each one instead, a reconciled one included,
+ * and writes only what the human confirms.
  *
  * Any mix of files and directories, each directory one level deep, one file
  * at a time in the order given, and an import summary at the end. A re-run of
@@ -24,14 +26,15 @@ const USAGE = `usage: abt-import [-c <config.yml>] [--review] [--no-colour]
                   <statement file or directory>...
 
   -c, --config     path to config.yml (default: $ACTUAL_BUDGET_TRANSFORMER_CONFIG)
-      --review     ask before writing each transaction, including one dated
-                   before the reconciled-through date, which is otherwise left out
+      --review     ask before writing each transaction or correcting an amount,
+                   including one dated before the reconciled-through date or a
+                   reconciled one, which are otherwise left out
       --no-colour  plain output, no ANSI styling
 
 A directory is read one level deep, its files in name order.
 
 Exits non-zero unless everything is in Actual: a file not imported, a failure,
-a quit, or a transaction left out makes it 1.
+a quit, a transaction left out or an amount left to fix makes it 1.
 
 Server settings come from the config's actual_budget block, overridden by
 ACTUAL_BUDGET_URL, ACTUAL_BUDGET_PASSWORD and ACTUAL_BUDGET_SYNC_ID.`;

@@ -17,7 +17,6 @@ import {
   detail,
   explain,
   fit,
-  fixLines,
   listHeader,
   listLine,
   noteTag,
@@ -292,39 +291,113 @@ test('an unpaired Actual transaction line never outgrows the terminal', () => {
   }
 });
 
-test('a pair whose amount Actual holds differently is listed, to fix in Actual', () => {
-  const classified = classify(
-    [src(), src({ importedId: 'T-PRICE', amountCents: -7500, payee: 'PRICE CHANGED' })],
-    [actual({ imported_id: 'T-PRICE', amount: -8000, date: isoDate('2031-03-15') })],
-    null,
-  );
-  assert.deepEqual(fixLines(classified[1]!), [
-    '#2 PRICE CHANGED: Actual holds -80.00, the bank says -75.00',
-  ]);
-  const lines = report(
+/** A statement report of `classified`, with nothing unpaired in Actual. */
+function reportIn(
+  classified: ReturnType<typeof classify>,
+  mode: 'unattended' | 'review',
+) {
+  return report(
     {
       period: MARCH,
       classified,
       unpaired: [],
       reconciledThrough: null,
       dropped: [],
-      mode: 'review',
+      mode,
     },
     plain,
   );
-  assert.deepEqual(section(lines, '  in Actual, but to fix there'), [
-    '  ! #2 PRICE CHANGED: Actual holds -80.00, the bank says -75.00',
+}
+
+/** A plain, a reconciled and a split pair, each held at -80.00 where the bank says -75.00. */
+function threeCorrections() {
+  return classify(
+    [
+      src(),
+      src({ importedId: 'T-PLAIN', amountCents: -7500, payee: 'PRICE CHANGED' }),
+      src({ importedId: 'T-RECON', amountCents: -7500, payee: 'SBB CFF FFS' }),
+      src({ importedId: 'T-SPLIT', amountCents: -7500, payee: 'MIGROS' }),
+    ],
+    [
+      actual({ imported_id: 'T-PLAIN', amount: -8000 }),
+      actual({ imported_id: 'T-RECON', amount: -8000, reconciled: true }),
+      actual({
+        imported_id: 'T-SPLIT',
+        amount: -8000,
+        is_parent: true,
+        subtransactions: [{ amount: -5000 }, { amount: -3000 }],
+      }),
+    ],
+    null,
+  );
+}
+
+test('unattended, a correction is listed as made, and a held one to fix in Actual', () => {
+  const lines = reportIn(threeCorrections(), 'unattended');
+  assert.deepEqual(section(lines, '  corrected in Actual'), [
+    '  ~ #2 PRICE CHANGED: -80.00 → -75.00',
   ]);
-  assert.equal(lines[3], '    - 1 already in Actual');
+  assert.deepEqual(section(lines, '  in Actual, but to fix there'), [
+    '  ! #3 SBB CFF FFS: Actual holds -80.00, the bank says -75.00 (reconciled)',
+    '  ! #4 MIGROS: Actual holds -80.00, the bank says -75.00 (split)',
+  ]);
+  assert.equal(lines[3], '    - 3 already in Actual');
 });
 
-test('a long payee is cut on a line to fix, never the amounts', () => {
+test('under review, a reconciled correction is to review, and a split still to fix', () => {
+  const lines = reportIn(threeCorrections(), 'review');
+  assert.deepEqual(section(lines, '  to correct in Actual'), [
+    '  ~ #2 PRICE CHANGED: -80.00 → -75.00',
+    '  ~ #3 SBB CFF FFS: -80.00 → -75.00 (reconciled)',
+  ]);
+  assert.deepEqual(section(lines, '  in Actual, but to fix there'), [
+    '  ! #4 MIGROS: Actual holds -80.00, the bank says -75.00 (split)',
+  ]);
+});
+
+test('a transfer is listed to fix in Actual, in either mode', () => {
+  const classified = classify(
+    [src({ importedId: 'T-XFER', amountCents: -7500, payee: 'TO SAVINGS' })],
+    [actual({ imported_id: 'T-XFER', amount: -8000, transfer_id: 'other-side' })],
+    null,
+  );
+  for (const mode of ['unattended', 'review'] as const) {
+    assert.deepEqual(
+      section(reportIn(classified, mode), '  in Actual, but to fix there'),
+      ['  ! #1 TO SAVINGS: Actual holds -80.00, the bank says -75.00 (transfer)'],
+    );
+  }
+});
+
+test('a pending statement transaction whose amount differs is not listed', () => {
+  const classified = classify(
+    [
+      src({
+        importedId: 'T-FX',
+        amountCents: -1495,
+        pending: { originalCurrency: 'USD', accountCurrency: 'CHF' },
+      }),
+    ],
+    [actual({ imported_id: 'T-FX', amount: -1290 })],
+    null,
+  );
+  const text = reportIn(classified, 'unattended').join('\n');
+  assert.doesNotMatch(text, /correct|to fix there/);
+});
+
+test('a long payee is cut on a correction or a line to fix, never the amounts', () => {
   // A booked card purchase's text runs long (#48), and unattended there is no
   // [?] to read the amounts from.
   const payee = 'MERCHANT*7K2Q9X4M        NEWARK       USANJ';
   const classified = classify(
-    [src({ importedId: 'T-FX', amountCents: -1290, payee })],
-    [actual({ imported_id: 'T-FX', amount: -1495 })],
+    [
+      src({ importedId: 'T-FX', amountCents: -1290, payee }),
+      src({ importedId: 'T-FY', amountCents: -1290, payee }),
+    ],
+    [
+      actual({ imported_id: 'T-FX', amount: -1495 }),
+      actual({ imported_id: 'T-FY', amount: -1495, is_parent: true }),
+    ],
     null,
   );
   const lines = report(
@@ -336,11 +409,40 @@ test('a long payee is cut on a line to fix, never the amounts', () => {
       dropped: [],
       mode: 'unattended',
     },
+    { colour: false, width: 60 },
+  );
+  assert.deepEqual(section(lines, '  corrected in Actual'), [
+    '  ~ #1 MERCHANT*7K2Q9X4M        NEWARK    …: -14.95 → -12.90',
+  ]);
+  assert.deepEqual(section(lines, '  in Actual, but to fix there'), [
+    '  ! #2 M…: Actual holds -14.95, the bank says -12.90 (split)',
+  ]);
+});
+
+test('a reviewed correction says what Actual holds and what the bank says', () => {
+  const [, , reconciled] = threeCorrections();
+  const lines = block(
+    { position: 1, total: 2, classified: reconciled!, warnings: ['mind this'] },
     plain,
   );
-  assert.deepEqual(section(lines, '  in Actual, but to fix there'), [
-    '  ! #1 MERCHANT*7K2Q9X4M        NEWA…: Actual holds -14.95, the bank says -12.90',
+  assert.deepEqual(lines.slice(1), [
+    '  #3       2031-03-10     -75.00  SBB CFF FFS',
+    '                                  Carte',
+    "  in Actual at -80.00 · correct it to the bank's -75.00",
+    '  ! mind this',
   ]);
+});
+
+test("a correction's detail shows the Actual transaction it corrects", () => {
+  const [, , reconciled] = threeCorrections();
+  const text = detail(reconciled!, plain).join('\n');
+  assert.match(
+    text,
+    /^ {2}why {6}paired by imported ID, and the bank booked it at -75\.00$/m,
+  );
+  assert.match(text, /^ {2}actual {3}date {9}2031-03-09$/m);
+  assert.match(text, /^ {11}amount {7}-80\.00$/m);
+  assert.match(text, /^ {11}reconciled {3}yes$/m);
 });
 
 test('the note says the reconciled period, the lookalike, and the repeat', () => {

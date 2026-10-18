@@ -23,7 +23,7 @@ import {
 import { resolveAccount } from './account-resolution.ts';
 import { accountTargetFor, type Config } from './config.ts';
 import { parseStatement } from './sources/index.ts';
-import { importUnpaired, type ImportResult, type ReviewIo } from './review.ts';
+import { importStatement, type ImportResult, type ReviewIo } from './review.ts';
 import type { ActualGateway } from './actual-gateway.ts';
 import type { Period, SourceTransaction } from './sources/types.ts';
 import { shiftDays, type IsoDate } from './iso-date.ts';
@@ -43,7 +43,7 @@ export type RunResult = ImportResult & {
   accountName: string;
   /** How many statement transactions the file holds. */
   statementTransactions: number;
-  /** How many of them paired: already in Actual, so nothing was written. */
+  /** How many of them paired: already in Actual, a corrected one included. */
   alreadyInActual: number;
 };
 
@@ -135,7 +135,7 @@ export async function runImport(options: RunOptions): Promise<RunResult> {
   const classified = classify(statement.transactions, existing, reconciledThrough);
   const unpaired = unpairedActual(classified, existing, period);
 
-  const result = await importUnpaired({
+  const result = await importStatement({
     mode: options.mode,
     gateway,
     accountId: account.id,

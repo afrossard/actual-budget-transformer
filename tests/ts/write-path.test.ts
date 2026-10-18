@@ -3,15 +3,16 @@
  *
  * These are cheap and they protect decisions that are easy to undo by accident:
  * that `importTransactions` never comes back, that the gateway stays the only
- * door to `@actual-app/api`, that nothing ever patches an Actual transaction,
- * and that review offers import and leave and no more.
+ * door to `@actual-app/api`, that the only patch of an Actual transaction is
+ * the gateway's amount-only correction, and that review offers import or
+ * correct, and leave, and no more.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { classify } from '../../src/classify.ts';
-import { ACTIONS, warnings } from '../../src/review.ts';
+import { OFFERED, warnings } from '../../src/review.ts';
 import type { SourceTransaction } from '../../src/sources/types.ts';
 import { isoDate } from './iso-date-fixture.ts';
 
@@ -49,18 +50,25 @@ test('the write path never calls importTransactions', () => {
   assert.deepEqual(offenders, []);
 });
 
-test('nothing in src patches an Actual transaction', () => {
-  // A paired statement transaction is already in Actual, and nothing is
-  // written for it (ADR 0003). `updateTransaction` would also patch a
-  // reconciled transaction without complaint, so its absence is the guard.
-  const offenders = sourceFiles().filter((path) =>
-    readFileSync(path, 'utf8').includes('updateTransaction('),
+test('the only patch in src is the gateway setting an amount alone', () => {
+  // A correction (ADR 0007) sets the amount and nothing else. Actual's
+  // `updateTransaction` patches any field, of a reconciled transaction too,
+  // so the guard is on where it is called and with what.
+  const calls = sourceFiles().flatMap((path) =>
+    [...readFileSync(path, 'utf8').matchAll(/updateTransaction\([^)]*\)/g)].map(
+      ([call]) => [path.slice(SRC.length), call] as const,
+    ),
   );
-  assert.deepEqual(offenders, []);
+  assert.deepEqual(calls, [
+    ['actual-gateway.ts', 'updateTransaction(current.id, { amount: amountCents })'],
+  ]);
 });
 
-test('review offers import and leave, and no more', () => {
-  assert.deepEqual(ACTIONS, ['import', 'leave']);
+test('review offers import or correct, and leave, and no more', () => {
+  assert.deepEqual(OFFERED, {
+    write: ['import', 'leave'],
+    correction: ['correct', 'leave'],
+  });
 });
 
 function src(over: Partial<SourceTransaction> = {}): SourceTransaction {
