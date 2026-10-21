@@ -17,7 +17,12 @@
  * Review offers two actions for each and no more: import or correct it, or
  * leave it (ADR 0003, ADR 0007).
  */
-import { correctionOf, type Classified, type UnpairedActual } from './classify.ts';
+import {
+  correctionOf,
+  type Classified,
+  type Correction,
+  type UnpairedActual,
+} from './classify.ts';
 import {
   block,
   corrects,
@@ -59,6 +64,8 @@ export type Outcome = {
    */
   action: Action | 'quit' | 'left-out';
   wrote: Wrote;
+  /** Why a correction was left out, so the summary need not work it out again. */
+  held?: NonNullable<Correction['hold']>;
 };
 
 export type ReviewIo = {
@@ -149,13 +156,15 @@ export async function importStatement(options: ImportOptions): Promise<ImportRes
   for (const c of classified) {
     const correction = correctionOf(c);
     if (correction === null) continue;
-    if (corrects(correction, mode)) steps.push({ kind: 'correction', classified: c });
+    if (correction.hold === null || corrects(correction, mode))
+      steps.push({ kind: 'correction', classified: c });
     else
       outcomes.push({
         classified: c,
         kind: 'correction',
         action: 'left-out',
         wrote: 'nothing',
+        held: correction.hold,
       });
   }
   for (const c of classified) {
@@ -394,11 +403,6 @@ function printSummary(
   );
   if (mode === 'review') return;
   if (leftOut > 0) io.write('Run again with --review to import what was left out.');
-  const reconciled = outcomes.some(
-    (o) =>
-      o.kind === 'correction' &&
-      o.action === 'left-out' &&
-      correctionOf(o.classified)?.hold === 'reconciled',
-  );
-  if (reconciled) io.write('Run again with --review to correct what is reconciled.');
+  if (outcomes.some((o) => o.held === 'reconciled'))
+    io.write('Run again with --review to correct what is reconciled.');
 }
