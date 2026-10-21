@@ -438,7 +438,11 @@ export function report(
   if (corrections.length > 0) {
     lines.push(
       '',
-      line(mode === 'review' ? '  to correct in Actual' : '  corrected in Actual'),
+      line(
+        mode === 'review'
+          ? '  correcting in Actual, if you confirm'
+          : '  correcting in Actual',
+      ),
     );
     for (const correction of corrections) lines.push(line(`  ~ ${correction}`));
   }

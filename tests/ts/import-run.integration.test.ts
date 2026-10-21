@@ -303,7 +303,7 @@ describe('integration: a whole run from a statement file', { skip }, () => {
     const transcript = io.transcript.join('\n');
     assert.match(
       transcript,
-      /^ {2}corrected in Actual\n {2}~ #1 MERCHANT\*7K2Q9X4M.*: -14\.95 → -12\.90$/m,
+      /^ {2}correcting in Actual\n {2}~ #1 MERCHANT\*7K2Q9X4M.*: -14\.95 → -12\.90$/m,
     );
     assert.doesNotMatch(transcript, /to fix there/);
     const summary = io.transcript.slice(io.transcript.indexOf('Import summary:'));

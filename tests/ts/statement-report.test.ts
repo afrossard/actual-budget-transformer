@@ -334,7 +334,7 @@ function threeCorrections() {
 
 test('unattended, a correction is listed as made, and a held one to fix in Actual', () => {
   const lines = reportIn(threeCorrections(), 'unattended');
-  assert.deepEqual(section(lines, '  corrected in Actual'), [
+  assert.deepEqual(section(lines, '  correcting in Actual'), [
     '  ~ #2 PRICE CHANGED: -80.00 → -75.00',
   ]);
   assert.deepEqual(section(lines, '  in Actual, but to fix there'), [
@@ -346,7 +346,7 @@ test('unattended, a correction is listed as made, and a held one to fix in Actua
 
 test('under review, a reconciled correction is to review, and a split still to fix', () => {
   const lines = reportIn(threeCorrections(), 'review');
-  assert.deepEqual(section(lines, '  to correct in Actual'), [
+  assert.deepEqual(section(lines, '  correcting in Actual, if you confirm'), [
     '  ~ #2 PRICE CHANGED: -80.00 → -75.00',
     '  ~ #3 SBB CFF FFS: -80.00 → -75.00 (reconciled)',
   ]);
@@ -411,7 +411,7 @@ test('a long payee is cut on a correction or a line to fix, never the amounts', 
     },
     { colour: false, width: 60 },
   );
-  assert.deepEqual(section(lines, '  corrected in Actual'), [
+  assert.deepEqual(section(lines, '  correcting in Actual'), [
     '  ~ #1 MERCHANT*7K2Q9X4M        NEWARK    …: -14.95 → -12.90',
   ]);
   assert.deepEqual(section(lines, '  in Actual, but to fix there'), [

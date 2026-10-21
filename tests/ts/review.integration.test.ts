@@ -218,7 +218,7 @@ describe('integration: writing what is not in Actual', { skip }, () => {
     assert.doesNotMatch(transcript, /──|> /, 'no block and no prompt');
     assert.match(
       transcript,
-      /^ {2}corrected in Actual\n {2}~ #13 PRICE CHANGED: -80\.00 → -75\.00$/m,
+      /^ {2}correcting in Actual\n {2}~ #13 PRICE CHANGED: -80\.00 → -75\.00$/m,
     );
     assert.deepEqual(io.transcript.slice(-2), [
       '11 imported, 1 corrected, 1 left out, 4 already in Actual.',
@@ -343,7 +343,7 @@ describe('integration: writing what is not in Actual', { skip }, () => {
     assert.match(transcript, /^ {4}- 5 already in Actual\n {4}- 11 to review$/m);
     assert.match(
       transcript,
-      /^ {2}to correct in Actual\n {2}~ #13 PRICE CHANGED: -80\.00 → -75\.00$/m,
+      /^ {2}correcting in Actual, if you confirm\n {2}~ #13 PRICE CHANGED: -80\.00 → -75\.00$/m,
     );
     assert.match(
       transcript,
