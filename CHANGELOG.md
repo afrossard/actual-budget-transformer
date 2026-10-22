@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.3.0](https://github.com/afrossard/actual-budget-transformer/compare/0.2.2...0.3.0) (2026-10-22)
+
+
+### Features
+
+* accept several statement files and directories in one run ([#145](https://github.com/afrossard/actual-budget-transformer/issues/145)) ([7d7220b](https://github.com/afrossard/actual-budget-transformer/commit/7d7220b210cfd8b5035439cbd29564eac7478927))
+* correct an Actual transaction's amount from the booked statement ([#156](https://github.com/afrossard/actual-budget-transformer/issues/156)) ([7c9a8a5](https://github.com/afrossard/actual-budget-transformer/commit/7c9a8a5dc813ad76751b28da898ffb35859ec898))
+* import unpaired statement transactions without review ([#143](https://github.com/afrossard/actual-budget-transformer/issues/143)) ([e609bb0](https://github.com/afrossard/actual-budget-transformer/commit/e609bb0a1f59ff75598fd3a3a89f0bec1c2593b6))
+
+
+### Bug Fixes
+
+* pair a pending account row with its booked copy ([#150](https://github.com/afrossard/actual-budget-transformer/issues/150)) ([2756e7f](https://github.com/afrossard/actual-budget-transformer/commit/2756e7f75b4a67b985877f1a411b71f5dceb3d7d))
+* pair a pending card purchase with its booked copy ([#151](https://github.com/afrossard/actual-budget-transformer/issues/151)) ([aed56ed](https://github.com/afrossard/actual-budget-transformer/commit/aed56ede2d9aca34948852a970ba3d924d46ea1b))
+* read the UBS account CSV's renamed Devise and No de transaction columns ([#153](https://github.com/afrossard/actual-budget-transformer/issues/153)) ([5980cb6](https://github.com/afrossard/actual-budget-transformer/commit/5980cb6baf16ba7c649c7ddbb1ec9ee355e71a62))
+
 ## [0.2.2](https://github.com/afrossard/actual-budget-transformer/compare/0.2.1...0.2.2) (2026-10-10)
 
 
