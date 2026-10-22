@@ -23,23 +23,28 @@ The budget is downloaded once, and each file is paired against what the files be
 For each file, it reads the account from the file, reads from Actual what each statement transaction could pair with, and pairs each one once.
 A pair is the Actual transaction that shares its imported ID, or failing that one with the same amount within a day, whatever reference each carries; each Actual transaction pairs at most once.
 
-A paired statement transaction is already in Actual, so nothing is written for it.
-It then prints a statement report: how many are already in Actual, the pairs Actual needs fixed (an amount that differs, or two transactions holding one imported ID), and one line per unpaired statement transaction.
+A paired statement transaction is already in Actual, so nothing is written for it, with one exception: when the bank has booked it at another amount than Actual holds for the same imported ID - a card purchase in another currency imported while pending, say - Actual's amount is corrected to the bank's.
+Only the amount changes: the date and payee stay as they are in Actual.
+It then prints a statement report: how many are already in Actual, the amounts it corrects, the pairs Actual needs fixed (an amount it cannot correct, or two transactions holding one imported ID), and one line per unpaired statement transaction.
 
 It writes every unpaired one without asking, except one dated before your reconciled-through date - the date of the newest reconciled transaction - because writing it changes a reconciled balance.
 That one is left out, the report says so, and the run exits non-zero.
 One dated on the reconciled-through date is written like any other.
-What the report lists to fix in Actual never holds the file back: the fix is made in Actual.
+An amount on a reconciled transaction is not corrected either, for the same reason.
+One on a split or a transfer is never corrected, because which part takes the difference is yours to choose, and a transfer would move the other account too.
+Each is listed to fix in Actual, and the run exits non-zero.
+What the report lists to fix in Actual never holds the file back.
 
-`--review` asks about each unpaired one instead, including one left out otherwise, which carries a warning.
-Two answers: **i**mport it or **l**eave it. `?` shows the detail and `q` stops the run, files not yet reached included.
+`--review` asks about each correction and each unpaired one instead, including one left out otherwise, which carries a warning.
+Two answers: **i**mport it (or **c**orrect it) or **l**eave it.
+`?` shows the detail and `q` stops the run, files not yet reached included.
 
 A run ends with an import summary: one line per file saying what came of it.
 A file not recognised as a statement, or whose account is not in the budget, is skipped with the reason there, and the run goes on; for a CSV that comes close to a format, the reason names the columns that format expected and did not find, which is how a changed UBS export shows.
 A failed write stops the run.
-The exit code is 0 only when everything is in Actual: a skipped file, a failure, a quit or a left-out transaction makes it 1.
+The exit code is 0 only when everything is in Actual as the bank has it: a skipped file, a failure, a quit, a left-out transaction or an amount not corrected makes it 1.
 
-Nothing in Actual is ever changed, and re-running the same files has nothing left to write - which is also how an interrupted run resumes.
+Nothing in Actual is changed but a corrected amount, and re-running the same files has nothing left to write - which is also how an interrupted run resumes.
 
 Server settings come from the config's `actual_budget` block, overridden by `ACTUAL_BUDGET_URL`, `ACTUAL_BUDGET_PASSWORD` and `ACTUAL_BUDGET_SYNC_ID`.
 The budget is identified by its Sync ID, found in Actual under *Settings → Show advanced settings*, because two budgets on one server can share a name.

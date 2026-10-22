@@ -1,15 +1,17 @@
 /**
  * The statement report, printed before anything is written: what the
- * statement holds and what Actual holds, the pairs Actual needs fixed, the
- * Actual transactions the statement does not hold, and one line per unpaired
- * statement transaction - to import, or left out for being in the reconciled
- * period, or under review to review. Then, under review, one block per
- * statement transaction as it is reviewed, and what `[?]` shows.
+ * statement holds and what Actual holds, the corrections, the pairs Actual
+ * needs fixed, the Actual transactions the statement does not hold, and one
+ * line per unpaired statement transaction - to import, or left out for being
+ * in the reconciled period, or under review to review. Then, under review, one
+ * block per statement transaction or correction as it is reviewed, and what
+ * `[?]` shows.
  *
  * Paired statement transactions are never listed one by one: they are already
- * in Actual. The exception is a pair Actual needs fixed, which is listed and
- * never prompted, because the fix is made in Actual. So is every unpaired
- * Actual transaction: nothing is ever written for one.
+ * in Actual. The exceptions are a correction (ADR 0007), and a pair whose
+ * amount differs but cannot be corrected here, which is listed to be fixed in
+ * Actual. So is every unpaired Actual transaction: nothing is ever written for
+ * one.
  *
  * Every line is fitted to the terminal and cut with `…`. A line that wraps puts
  * its tail in column 0, and from there on the columns stop meaning anything
@@ -17,10 +19,11 @@
  */
 import { formatCents } from './money.ts';
 import {
+  correctionOf,
   tally,
-  toFixInActual,
   type ActualTransaction,
   type Classified,
+  type Correction,
   type Lookalike,
   type UnpairedActual,
 } from './classify.ts';
@@ -233,20 +236,56 @@ export function listLine(
 }
 
 /**
- * What Actual needs fixed about one pair, one line each, no wider than `width`.
- * The payee is cut first, because the amounts are the fix, and unattended
- * there is no `[?]` to read them from.
+ * Whether this run makes the correction - unattended, or under review once
+ * confirmed - rather than leaving it to be fixed in Actual.
  */
-export function fixLines(classified: Classified, width = Infinity): string[] {
-  const { number, source } = classified;
-  return toFixInActual(classified).map((fix) => {
-    const head = `#${number} `;
-    const tail =
-      `: Actual holds ${amount(fix.actualAmount)}, ` +
-      `the bank says ${amount(source.amountCents)}`;
-    const room = Math.max(1, width - head.length - tail.length);
-    return `${head}${clip(source.payee, room)}`.trimEnd() + tail;
-  });
+export function corrects(correction: Correction, mode: Mode): boolean {
+  return (
+    correction.hold === null || (correction.hold === 'reconciled' && mode === 'review')
+  );
+}
+
+/**
+ * `#n payee` then `tail`, no wider than `width`. The payee is cut first,
+ * because the amounts are the point, and unattended there is no `[?]` to read
+ * them from.
+ */
+function pairLine({ number, source }: Classified, tail: string, width: number): string {
+  const head = `#${number} `;
+  const room = Math.max(1, width - head.length - tail.length);
+  return `${head}${clip(source.payee, room)}`.trimEnd() + tail;
+}
+
+/** The correction this run makes to one pair, if any, on one line. */
+export function correctionLines(
+  classified: Classified,
+  mode: Mode,
+  width = Infinity,
+): string[] {
+  const correction = correctionOf(classified);
+  if (correction === null || !corrects(correction, mode)) return [];
+  const tail =
+    `: ${amount(correction.actualAmount)} → ${amount(classified.source.amountCents)}` +
+    (correction.hold === 'reconciled' ? ' (reconciled)' : '');
+  return [pairLine(classified, tail, width)];
+}
+
+/**
+ * What Actual needs fixed about one pair, there rather than here, and why this
+ * run did not: `split` or `reconciled`. That review would correct a reconciled
+ * one is said once, after the run, as the line has no room for it.
+ */
+export function fixLines(
+  classified: Classified,
+  mode: Mode,
+  width = Infinity,
+): string[] {
+  const correction = correctionOf(classified);
+  if (correction?.hold == null || corrects(correction, mode)) return [];
+  const tail =
+    `: Actual holds ${amount(correction.actualAmount)}, ` +
+    `the bank says ${amount(classified.source.amountCents)} (${correction.hold})`;
+  return [pairLine(classified, tail, width)];
 }
 
 const DUPLICATE = 'duplicate, delete one';
@@ -394,11 +433,23 @@ export function report(
     ),
     line(`    - ${unpaired.length} not in the statement`),
   );
-  const bullet = '  ! ';
-  const fixes = classified.flatMap((c) => fixLines(c, style.width - bullet.length));
+  const room = style.width - '  ! '.length;
+  const corrections = classified.flatMap((c) => correctionLines(c, mode, room));
+  if (corrections.length > 0) {
+    lines.push(
+      '',
+      line(
+        mode === 'review'
+          ? '  correcting in Actual, if you confirm'
+          : '  correcting in Actual',
+      ),
+    );
+    for (const correction of corrections) lines.push(line(`  ~ ${correction}`));
+  }
+  const fixes = classified.flatMap((c) => fixLines(c, mode, room));
   if (fixes.length > 0) {
     lines.push('', line('  in Actual, but to fix there'));
-    for (const fix of fixes) lines.push(line(bullet + fix, WARN));
+    for (const fix of fixes) lines.push(line(`  ! ${fix}`, WARN));
   }
   if (unpaired.length > 0) {
     lines.push('', line('  in Actual, not in the statement'));
@@ -441,7 +492,9 @@ export type ReviewedBlock = {
 
 /**
  * One reviewed statement transaction: the bank's version under its `#`, then
- * whether anything in Actual is alike to it, then what to watch out for.
+ * whether anything in Actual is alike to it, then what to watch out for. A
+ * paired one is reviewed only for its correction, and says what Actual holds
+ * instead.
  */
 export function block(reviewed: ReviewedBlock, style: ReportStyle): string[] {
   const { position, total, classified } = reviewed;
@@ -476,7 +529,12 @@ export function block(reviewed: ReviewedBlock, style: ReportStyle): string[] {
     );
   }
 
-  const status = '  not in Actual';
+  // A paired one has no lookalikes: they are looked for only when unpaired.
+  const status =
+    classified.pair === null
+      ? '  not in Actual'
+      : `  in Actual at ${amount(classified.pair.actual.amount)} · ` +
+        `correct it to the bank's ${amount(source.amountCents)}`;
   const [first, ...more] = lookalikes;
   lines.push(
     fit(
@@ -536,10 +594,15 @@ export function wrap(text: string, width: number): string[] {
  * Why a statement transaction is reviewed, one phrase per reason, for `[?]`.
  *
  * A phrase never describes an Actual transaction: the detail lists each
- * lookalike once, beside these.
+ * lookalike once, beside these, and a correction's pair.
  */
 export function explain(classified: Classified): string[] {
   const { source, lookalikes, repeatOf, inReconciledPeriod } = classified;
+  if (classified.pair !== null) {
+    return [
+      `paired by imported ID, and the bank booked it at ${amount(source.amountCents)}`,
+    ];
+  }
   const why =
     lookalikes.length > 0
       ? 'an Actual transaction alike to it belongs to another statement transaction'
@@ -607,15 +670,10 @@ export function detail(classified: Classified, style: ReportStyle): string[] {
         : `${source.importedId}, ${ORIGIN[source.importedIdOrigin]}`,
     ],
   ]);
-  for (const lookalike of classified.lookalikes) {
-    const tx = lookalike.actual;
+  // Every field of an Actual transaction, uncut.
+  const fields = (tx: ActualTransaction): (readonly [string, string])[] => {
     const parts = tx.subtransactions ?? [];
-    const whose = {
-      pair: `in Actual, the pair of #${lookalike.of}`,
-      'extra-holder': `in Actual, a second holder of #${lookalike.of}'s imported ID`,
-    }[lookalike.role];
-    section('alike', [
-      ['', whose],
+    return [
       ['date', tx.date],
       ['amount', amount(tx.amount)],
       ['payee', tx.payeeName ?? ''],
@@ -625,7 +683,16 @@ export function detail(classified: Classified, style: ReportStyle): string[] {
         ? [['split into', parts.map((p) => amount(p.amount)).join(', ')] as const]
         : []),
       ...(tx.reconciled ? [['reconciled', 'yes'] as const] : []),
-    ]);
+    ];
+  };
+  // Reviewed for its correction: the transaction it corrects.
+  if (classified.pair !== null) section('actual', fields(classified.pair.actual));
+  for (const lookalike of classified.lookalikes) {
+    const whose = {
+      pair: `in Actual, the pair of #${lookalike.of}`,
+      'extra-holder': `in Actual, a second holder of #${lookalike.of}'s imported ID`,
+    }[lookalike.role];
+    section('alike', [['', whose], ...fields(lookalike.actual)]);
   }
   return lines;
 }

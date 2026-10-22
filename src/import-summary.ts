@@ -3,7 +3,7 @@
  * report of a run - one line per statement file with what came of it, and why
  * for each file it did not import.
  */
-import { complete } from './review.ts';
+import { complete, counted } from './review.ts';
 import type { RunResult } from './import-run.ts';
 import { DEFAULT_WIDTH, wrap } from './statement-report.ts';
 
@@ -18,9 +18,10 @@ export type FileOutcome =
   | { path: string; kind: 'not-reached' };
 
 /**
- * Whether everything the files hold is in Actual, or was left by the human's
- * own answer: false for any file not imported, a failure, a quit, or a
- * statement transaction left out for being in the reconciled period.
+ * Whether everything the files hold is in Actual as the bank has it, or was
+ * left by the human's own answer: false for any file not imported, a failure,
+ * a quit, a statement transaction left out for being in the reconciled period,
+ * or a correction not made.
  */
 export function allInActual(outcomes: readonly FileOutcome[]): boolean {
   return outcomes.every((o) => o.kind === 'imported' && complete(o.result));
@@ -53,17 +54,21 @@ function lines(outcome: FileOutcome, width: number): string[] {
 
 function cameOf(result: RunResult): string {
   if (result.statementTransactions === 0) return 'no transactions';
-  const imported = result.outcomes.filter((o) => o.wrote === 'added').length;
-  const leftOut = result.outcomes.filter((o) => o.action === 'left-out').length;
+  const { imported, corrected, leftOut, toFix, already } = counted(
+    result.outcomes,
+    result.alreadyInActual,
+  );
   // Under review, everything not imported is left, answered or not.
   const left =
     result.statementTransactions - result.alreadyInActual - imported - leftOut;
   return [
     ...(result.stopped ? ['stopped'] : []),
     `${imported} imported`,
+    ...(corrected > 0 ? [`${corrected} corrected`] : []),
     ...(leftOut > 0 ? [`${leftOut} left out`] : []),
     ...(left > 0 ? [`${left} left`] : []),
-    `${result.alreadyInActual} already in Actual`,
+    ...(toFix > 0 ? [`${toFix} to fix in Actual`] : []),
+    `${already} already in Actual`,
   ].join(', ');
 }
 

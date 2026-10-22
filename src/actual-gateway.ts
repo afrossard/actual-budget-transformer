@@ -8,13 +8,13 @@
  * the bank's amount nor the bank's date while always stamping its own imported
  * ID. Two matchers competing over one decision caused every surprise in #38.
  * This tool pairs, so it reads and adds: `getTransactions`, `aqlQuery`,
- * `addTransactions`. It never patches an Actual transaction: a paired one is
- * already in Actual, and nothing is written for it.
+ * `addTransactions`. Its one patch is a correction (ADR 0007): an amount, and
+ * nothing else, through `correctAmount`, which guards what Actual does not.
  */
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { ActualTransaction } from './classify.ts';
+import { isSplit, type ActualTransaction } from './classify.ts';
 import { toIsoDate, type IsoDate } from './iso-date.ts';
 import {
   assertVersionCompatible,
@@ -255,6 +255,7 @@ export class ActualGateway {
         id: s.id,
         amount: s.amount,
       })),
+      transfer_id: t.transfer_id ?? null,
     }));
   }
 
@@ -284,6 +285,49 @@ export class ActualGateway {
     // cached list is now behind, and a later read would show the new
     // transaction's payee as its raw imported name.
     this.#payeeNames = null;
+  }
+
+  /**
+   * A correction (ADR 0007): set one Actual transaction's amount to the bank's,
+   * and nothing else - its date and payee are the human's.
+   *
+   * Actual patches a reconciled transaction without complaint, patches a
+   * split's parent while leaving its parts summing to the old amount, and
+   * moves a transfer's other side with it, or drops the change when that side
+   * is reconciled (pinned by the characterization tests). So the guards are
+   * here: a reconciled one only once review confirmed it, a split or a
+   * transfer never. They are checked against what Actual holds now rather than
+   * the copy the run read, and an amount changed since that read is not
+   * overwritten.
+   */
+  async correctAmount(
+    accountId: AccountId,
+    target: Pick<ActualTransaction, 'id' | 'date' | 'amount'>,
+    amountCents: number,
+    options: { reconciledConfirmed: boolean },
+  ): Promise<void> {
+    const [current] = (
+      await this.getTransactions(accountId, target.date, target.date)
+    ).filter((tx) => tx.id === target.id);
+    const what = `Actual transaction ${target.id}`;
+    if (current === undefined) {
+      throw new Error(
+        `${what} is no longer dated ${target.date} in this account; not corrected`,
+      );
+    }
+    if (current.amount !== target.amount) {
+      throw new Error(`${what} has changed in Actual since it was read; not corrected`);
+    }
+    if (isSplit(current)) {
+      throw new Error(`${what} is split, and a split is never corrected`);
+    }
+    if (current.transfer_id) {
+      throw new Error(`${what} is a transfer, and a transfer is never corrected`);
+    }
+    if (current.reconciled === true && !options.reconciledConfirmed) {
+      throw new Error(`${what} is reconciled, and only review corrects one`);
+    }
+    await this.#require().updateTransaction(current.id, { amount: amountCents });
   }
 
   async sync(): Promise<void> {

@@ -17,6 +17,7 @@ function ran(
     accountName: 'Checking',
     outcomes: actions.map((action) => ({
       classified: {} as Outcome['classified'],
+      kind: 'write',
       action,
       wrote: action === 'import' ? 'added' : 'nothing',
     })),
@@ -49,6 +50,29 @@ test('one line per statement file, with what came of it', () => {
   ]);
   assert.equal(allInActual(outcomes), false, 'b.csv left one out');
   assert.equal(allInActual([outcomes[0]!, outcomes[2]!]), true);
+});
+
+test('corrections are counted beside writes, and one not made is to fix in Actual', () => {
+  const correction = (wrote: Outcome['wrote']): Outcome => ({
+    classified: {} as Outcome['classified'],
+    kind: 'correction',
+    action: wrote === 'corrected' ? 'correct' : 'left-out',
+    wrote,
+  });
+  const fixed = ran(['import'], { statementTransactions: 3, alreadyInActual: 2 });
+  fixed.outcomes.push(correction('corrected'));
+  const held = ran([], { statementTransactions: 1, alreadyInActual: 1 });
+  held.outcomes.push(correction('nothing'));
+  const outcomes: FileOutcome[] = [
+    { path: 'a.csv', kind: 'imported', result: fixed },
+    { path: 'b.csv', kind: 'imported', result: held },
+  ];
+  assert.deepEqual(importSummary(outcomes).slice(2), [
+    '  a.csv: 1 imported, 1 corrected, 1 already in Actual',
+    '  b.csv: 0 imported, 1 to fix in Actual, 0 already in Actual',
+  ]);
+  assert.equal(allInActual([outcomes[0]!]), true);
+  assert.equal(allInActual([outcomes[1]!]), false, 'Actual disagrees with the bank');
 });
 
 test('a file not imported says why, under its line', () => {
