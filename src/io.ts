@@ -128,6 +128,48 @@ function readKey(stdin: NodeJS.ReadStream): Promise<string> {
   });
 }
 
+const BACKSPACE = new Set([8, 127]);
+
+/**
+ * Ask for the Actual password on a terminal, echoing nothing, not even
+ * asterisks. Null when there is no terminal to ask on, or when the answer is
+ * empty, Ctrl-C or Ctrl-D: each of those stops the run before anything is
+ * read, as quitting the review does.
+ */
+export function askPassword(
+  prompt: string,
+  stdin: NodeJS.ReadStream = process.stdin,
+  // Not stdout, which may be redirected to keep the run's output.
+  output: NodeJS.WriteStream = process.stderr,
+): Promise<string | null> {
+  if (!stdin.isTTY) return Promise.resolve(null);
+  output.write(prompt);
+  return new Promise((resolve) => {
+    const wasRaw = stdin.isRaw;
+    let typed = '';
+    const finish = (password: string | null): void => {
+      stdin.off('data', onData);
+      stdin.pause();
+      stdin.setRawMode(wasRaw);
+      output.write('\n');
+      resolve(password === '' ? null : password);
+    };
+    // A paste arrives as one chunk, its Enter included.
+    const onData = (chunk: Buffer): void => {
+      for (const key of chunk.toString('utf8')) {
+        const code = key.charCodeAt(0);
+        if (code === CTRL_C || code === CTRL_D) return finish(null);
+        if (key === '\r' || key === '\n') return finish(typed);
+        if (BACKSPACE.has(code)) typed = [...typed].slice(0, -1).join('');
+        else typed += key;
+      }
+    };
+    stdin.setRawMode(true);
+    stdin.on('data', onData);
+    stdin.resume();
+  });
+}
+
 /** An io that answers from a fixed script, for tests and for `--answers`. */
 export function createScriptedIo(
   answers: readonly string[],

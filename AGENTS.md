@@ -148,6 +148,7 @@ The devcontainer sets `ACTUAL_SERVER_URL`; anywhere else, export `ACTUAL_SERVER_
 - **Never mock `@actual-app/api`.** These tests exist because Actual's real behaviour is surprising; a mock would encode our assumptions instead of checking them.
 - **`tests/ts/actual-api.characterization.test.ts`** holds the five probes from `prototype/38-interactive-import`, turned into assertions, and the ActualQL filter shapes the gateway's reads are built on (#67), the silently wrong ones included. They are the guard that an api version bump cannot quietly invalidate the write path or the reads (ADR-007, ADR 0004). If one fails, the design they pin needs re-reading, not the test.
 - **Each integration run creates its own account.** The reconciled-through date is account-global server state, so owning the account is what lets this suite skip date partitioning altogether. Test accounts are named `TS <label> <tag>`; `npm run actual:down` + `npm run actual:up` + `npm run bootstrap` clears the debris.
+- **The server takes 5 failed logins per 15 minutes**, then refuses every login with `too-many-requests`, a right password included. The suite makes one (the wrong-password test); a few manual wrong-password tries on top fail everything else, and the same restart clears it.
 
 ### Choices, so they are not re-litigated
 
@@ -181,7 +182,10 @@ The devcontainer sets `ACTUAL_SERVER_URL`; anywhere else, export `ACTUAL_SERVER_
   `scripts/abt-import` pins the version on a line marked `x-release-please-version`, which release-please bumps and `tests/ts/abt-import-script.test.ts` checks against `.release-please-manifest.json`.
 - **The PR check** (`container` in `test.yaml`) builds the image for amd64 and runs it with no arguments, which must print the usage line and fail.
   That is the guard against an entry point that exits 0 having done nothing.
-- **`scripts/abt-import`** runs the image under `msb run` as the calling user, with the config and the statement mounted read-only and the `ACTUAL_BUDGET_*` variables forwarded.
+- **`scripts/abt-import`** runs the image under `msb run` as the calling user, with the config and the statement mounted read-only and `ACTUAL_BUDGET_URL` and `ACTUAL_BUDGET_SYNC_ID` forwarded.
+  `ACTUAL_BUDGET_PASSWORD` is not, because msb's `-e` takes `KEY=value` only and would put it in the host's process list (#164); the script says so when it is set.
+  The CLI asks for a missing password on a terminal instead (`askPassword` in `src/io.ts`), and msb gives it one when stdin is a terminal.
+  msb's `--secret` was rejected: the guest sees only a placeholder that msb substitutes on outbound requests, which for Actual's login over HTTPS means TLS interception.
   It passes `--net private --no-dns-rebind-protection`: without them a self-hosted server's name failed to resolve in the sandbox (`ENOTFOUND`), and with both it answered. Neither flag has been tried alone.
   The docker equivalent and the retired image are comments in it.
   `tests/ts/abt-import-script.test.ts` checks the `msb run` line it assembles against a stub `msb`; booting it for real needs KVM.

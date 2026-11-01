@@ -12,7 +12,6 @@ See [Actual Budget](https://actualbudget.org/)
 
 ```bash
 npm ci
-read -s ACTUAL_BUDGET_PASSWORD && export ACTUAL_BUDGET_PASSWORD # Sets a password without leaving traces in shell history
 ACTUAL_BUDGET_URL=http://localhost:5006 npm run import -- -c config.yaml statement.csv
 ```
 
@@ -47,6 +46,7 @@ The exit code is 0 only when everything is in Actual as the bank has it: a skipp
 Nothing in Actual is changed but a corrected amount, and re-running the same files has nothing left to write - which is also how an interrupted run resumes.
 
 Server settings come from the config's `actual_budget` block, overridden by `ACTUAL_BUDGET_URL`, `ACTUAL_BUDGET_PASSWORD` and `ACTUAL_BUDGET_SYNC_ID`.
+With no password in either, a run on a terminal asks for it before reading anything, showing nothing as you type; without a terminal it fails instead.
 The budget is identified by its Sync ID, found in Actual under *Settings → Show advanced settings*, because two budgets on one server can share a name.
 *Reset sync* in Actual gives the budget a new Sync ID, so update `sync_id` after using it; until then the import stops and lists the budgets with their current IDs.
 The account names in `account_names` must match the account names in your budget.
@@ -63,11 +63,13 @@ Homebrew installs it as `abt-import`; msb is not installed with it, so get it wi
 
 ```bash
 brew install afrossard/tap/actual-budget-transformer
-read -s ACTUAL_BUDGET_PASSWORD && export ACTUAL_BUDGET_PASSWORD
 abt-import -c config.yaml statements/
 ```
 
 From a checkout, `scripts/abt-import` runs the same way.
+
+It does not forward `ACTUAL_BUDGET_PASSWORD`, because msb would show it in the process list: the run asks for the password instead.
+For a run with no terminal, put it in `config.yaml`, which is mounted read-only.
 
 With docker instead, `-it` gives the prompts a terminal and `--init` lets Ctrl-C through:
 
@@ -76,7 +78,6 @@ docker run --rm -it --init \
  --user "$(id -u):$(id -g)" \
  -v "$PWD/config.yaml":/abt/config.yaml:ro \
  -v "$PWD/statements":/abt/statements:ro \
- -e ACTUAL_BUDGET_PASSWORD \
  ghcr.io/afrossard/actual-budget-transformer:latest \
  -c /abt/config.yaml /abt/statements
 ```

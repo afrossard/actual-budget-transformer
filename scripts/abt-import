@@ -4,11 +4,11 @@
 #   abt-import [-c <config.yaml>] [--review] [--no-colour] <statement file or directory>...
 #
 # The config comes from -c, or else $ACTUAL_BUDGET_TRANSFORMER_CONFIG, exactly
-# as for `npm run import`. Server settings and their ACTUAL_BUDGET_URL,
-# ACTUAL_BUDGET_PASSWORD and ACTUAL_BUDGET_SYNC_ID overrides are forwarded from
-# this shell; set the password without it entering shell history:
-#
-#   read -s ACTUAL_BUDGET_PASSWORD && export ACTUAL_BUDGET_PASSWORD
+# as for `npm run import`. The ACTUAL_BUDGET_URL and ACTUAL_BUDGET_SYNC_ID
+# overrides are forwarded from this shell; ACTUAL_BUDGET_PASSWORD is not, because
+# msb would show it in the process list. With no password in the config, the
+# CLI asks for it on the terminal; an unattended run keeps it in the config,
+# which is mounted read-only.
 #
 # The config and each statement file or directory are mounted read-only, and
 # the CLI runs as the calling user. A statement path is mounted at its own
@@ -22,7 +22,6 @@
 #     --user "$(id -u):$(id -g)" \
 #     -v "$PWD/config.yaml":/abt/config.yaml:ro \
 #     -v "$PWD/statements":/abt/statements:ro \
-#     -e ACTUAL_BUDGET_PASSWORD \
 #     ghcr.io/afrossard/actual-budget-transformer:<version> \
 #     -c /abt/config.yaml /abt/statements
 #
@@ -137,9 +136,15 @@ for statement in ${statements[@]+"${statements[@]}"}; do
 done
 
 # msb's -e takes KEY=value only, so a forwarded value is visible in this
-# host's process list while the run lasts.
+# host's process list while the run lasts. That rules out the password. msb's
+# --secret would hide it, but the guest then sees only a placeholder msb swaps
+# in on outbound requests, which for Actual's login over HTTPS means TLS
+# interception (#164).
+if [[ -n ${ACTUAL_BUDGET_PASSWORD:-} ]]; then
+  echo "ACTUAL_BUDGET_PASSWORD is not forwarded: it would show in the process list. The run asks for it." >&2
+fi
 envs=()
-for var in ACTUAL_BUDGET_URL ACTUAL_BUDGET_PASSWORD ACTUAL_BUDGET_SYNC_ID; do
+for var in ACTUAL_BUDGET_URL ACTUAL_BUDGET_SYNC_ID; do
   if [[ -n ${!var:-} ]]; then
     envs+=(-e "$var=${!var}")
   fi

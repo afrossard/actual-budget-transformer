@@ -16,7 +16,7 @@ import { realpathSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { ActualGateway } from './actual-gateway.ts';
 import { loadConfig, requireActualConfig } from './config.ts';
-import { createTerminalIo } from './io.ts';
+import { askPassword, createTerminalIo } from './io.ts';
 import { runImports } from './import-run.ts';
 import { allInActual } from './import-summary.ts';
 import { statementPaths } from './statement-paths.ts';
@@ -37,7 +37,8 @@ Exits non-zero unless everything is in Actual: a file not imported, a failure,
 a quit, a transaction left out or an amount left to fix makes it 1.
 
 Server settings come from the config's actual_budget block, overridden by
-ACTUAL_BUDGET_URL, ACTUAL_BUDGET_PASSWORD and ACTUAL_BUDGET_SYNC_ID.`;
+ACTUAL_BUDGET_URL, ACTUAL_BUDGET_PASSWORD and ACTUAL_BUDGET_SYNC_ID. With no
+password in either, a run on a terminal asks for it.`;
 
 export async function main(argv: readonly string[]): Promise<number> {
   let parsed;
@@ -65,10 +66,21 @@ export async function main(argv: readonly string[]): Promise<number> {
     process.stderr.write(`expected a statement file or directory\n${USAGE}\n`);
     return 2;
   }
-  const paths = statementPaths(parsed.positionals);
 
   const config = loadConfig(parsed.values.config);
-  const settings = requireActualConfig(config);
+  let settings = requireActualConfig(config, {
+    terminal: process.stdin.isTTY === true,
+  });
+  // Asked first, so the run reads nothing before it has every setting.
+  if (settings.password === '') {
+    const password = await askPassword(`Actual password for ${settings.serverUrl}: `);
+    if (password === null) {
+      process.stderr.write('no password given; nothing was read\n');
+      return 1;
+    }
+    settings = { ...settings, password };
+  }
+  const paths = statementPaths(parsed.positionals);
   const io = createTerminalIo();
   const style = {
     colour: !parsed.values['no-colour'] && process.stdout.isTTY === true,

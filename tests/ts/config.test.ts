@@ -41,7 +41,7 @@ test('the environment wins over the file on the sensitive values', () => {
     ACTUAL_BUDGET_PASSWORD: 'from-env',
     ACTUAL_BUDGET_SYNC_ID: '0d3a2c1e-sync',
   });
-  assert.deepEqual(requireActualConfig(config), {
+  assert.deepEqual(requireActualConfig(config, { terminal: false }), {
     serverUrl: 'http://localhost:5006',
     password: 'from-env',
     syncId: '0d3a2c1e-sync',
@@ -52,8 +52,23 @@ test('the environment wins over the file on the sensitive values', () => {
 test('an incomplete config fails before the server is touched, naming what is missing', () => {
   const config = loadConfig(REPO + 'config.template.yml', {});
   assert.throws(
-    () => requireActualConfig(config),
-    /missing password \(or ACTUAL_BUDGET_PASSWORD\), sync_id/,
+    () => requireActualConfig(config, { terminal: false }),
+    /missing password \(or ACTUAL_BUDGET_PASSWORD; a terminal would have asked for it\), sync_id/,
+  );
+});
+
+test('on a terminal a missing password is left for the run to ask for', () => {
+  const config = loadConfig(REPO + 'config.template.yml', {
+    ACTUAL_BUDGET_SYNC_ID: '0d3a2c1e-sync',
+  });
+  assert.equal(requireActualConfig(config, { terminal: true }).password, '');
+});
+
+test('a terminal asks for the password only, not the server or the budget', () => {
+  const config = loadConfig(undefined, {});
+  assert.throws(
+    () => requireActualConfig(config, { terminal: true }),
+    /missing server_url \(or ACTUAL_BUDGET_URL\), sync_id \(or ACTUAL_BUDGET_SYNC_ID\)$/,
   );
 });
 
@@ -68,7 +83,7 @@ test('a config that still names the budget is told where to find its sync ID', (
       'actual_budget:\n  server_url: x\n  password: p\n  budget_name: Personal\n',
     );
     assert.throws(
-      () => requireActualConfig(loadConfig(path, {})),
+      () => requireActualConfig(loadConfig(path, {}), { terminal: false }),
       /missing sync_id \(or ACTUAL_BUDGET_SYNC_ID\)\. budget_name is not read, because two budgets can share a name: copy the Sync ID from Settings → Show advanced settings in Actual\.$/,
     );
   } finally {
@@ -81,13 +96,16 @@ test('a budget named through ACTUAL_BUDGET_FILE gets the same pointer', () => {
     ACTUAL_BUDGET_PASSWORD: 'p',
     ACTUAL_BUDGET_FILE: 'Personal',
   });
-  assert.throws(() => requireActualConfig(config), /budget_name is not read/);
+  assert.throws(
+    () => requireActualConfig(config, { terminal: false }),
+    /budget_name is not read/,
+  );
 });
 
 test('no config file at all is an incomplete config, not a crash', () => {
   const config = loadConfig(undefined, {});
   assert.deepEqual(config.accountNames, {});
-  assert.throws(() => requireActualConfig(config), /server_url/);
+  assert.throws(() => requireActualConfig(config, { terminal: false }), /server_url/);
 });
 
 test('format settings default to the shipped UBS layout', () => {
