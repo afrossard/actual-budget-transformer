@@ -1,5 +1,5 @@
 /**
- * Terminal input and output for the review loop.
+ * Terminal input and output: the review loop's, and the password prompt.
  *
  * On a real terminal the prompt takes a single keystroke, so reviewing a month
  * is a row of keypresses rather than a row of Enters. Anywhere else - a pipe, a
@@ -7,6 +7,7 @@
  * drivable without a TTY.
  */
 import { createInterface } from 'node:readline/promises';
+import { Writable } from 'node:stream';
 import type { ReviewIo } from './review.ts';
 import { terminalWidth } from './statement-report.ts';
 
@@ -128,13 +129,15 @@ function readKey(stdin: NodeJS.ReadStream): Promise<string> {
   });
 }
 
-const BACKSPACE = new Set([8, 127]);
-
 /**
  * Ask for the Actual password on a terminal, echoing nothing, not even
  * asterisks. Null when there is no terminal to ask on, or when the answer is
  * empty, Ctrl-C or Ctrl-D: each of those stops the run before anything is
  * read, as quitting the review does.
+ *
+ * readline edits the line - backspace, arrow keys, a paste - and what it
+ * echoes goes nowhere. Not the `read` package or `@inquirer/password`: both
+ * are readline underneath, and both leave the run hanging on Ctrl-D.
  */
 export function askPassword(
   prompt: string,
@@ -144,29 +147,20 @@ export function askPassword(
 ): Promise<string | null> {
   if (!stdin.isTTY) return Promise.resolve(null);
   output.write(prompt);
+  const muted = new Writable({ write: (_chunk, _encoding, done) => done() });
+  const lines = createInterface({ input: stdin, output: muted, terminal: true });
   return new Promise((resolve) => {
-    const wasRaw = stdin.isRaw;
-    let typed = '';
-    const finish = (password: string | null): void => {
-      stdin.off('data', onData);
-      stdin.pause();
-      stdin.setRawMode(wasRaw);
+    let password: string | null = null;
+    lines.once('line', (line) => {
+      password = line;
+      lines.close();
+    });
+    lines.once('SIGINT', () => lines.close());
+    // Ctrl-D on an empty line closes it too.
+    lines.once('close', () => {
       output.write('\n');
-      resolve(password === '' ? null : password);
-    };
-    // A paste arrives as one chunk, its Enter included.
-    const onData = (chunk: Buffer): void => {
-      for (const key of chunk.toString('utf8')) {
-        const code = key.charCodeAt(0);
-        if (code === CTRL_C || code === CTRL_D) return finish(null);
-        if (key === '\r' || key === '\n') return finish(typed);
-        if (BACKSPACE.has(code)) typed = [...typed].slice(0, -1).join('');
-        else typed += key;
-      }
-    };
-    stdin.setRawMode(true);
-    stdin.on('data', onData);
-    stdin.resume();
+      resolve(password || null);
+    });
   });
 }
 

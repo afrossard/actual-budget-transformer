@@ -197,15 +197,14 @@ export function requireActualConfig(
   const missing = (
     [
       ['server_url', 'ACTUAL_BUDGET_URL', config.actual.serverUrl],
-      [
-        'password',
-        'ACTUAL_BUDGET_PASSWORD; a terminal would have asked for it',
-        config.actual.password,
-      ],
+      ['password', 'ACTUAL_BUDGET_PASSWORD', config.actual.password],
       ['sync_id', 'ACTUAL_BUDGET_SYNC_ID', config.actual.syncId],
     ] as const
   ).filter(([key, , value]) => value === '' && !(terminal && key === 'password'));
   if (missing.length > 0) {
+    const asked = missing.some(([key]) => key === 'password')
+      ? '. On a terminal the run would have asked for the password'
+      : '';
     const renamed =
       config.hasBudgetName && config.actual.syncId === ''
         ? '. budget_name is not read, because two budgets can share a name: ' +
@@ -214,6 +213,7 @@ export function requireActualConfig(
     throw new Error(
       'actual_budget config incomplete; missing ' +
         missing.map(([key, envVar]) => `${key} (or ${envVar})`).join(', ') +
+        asked +
         renamed,
     );
   }

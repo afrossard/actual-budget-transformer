@@ -53,7 +53,7 @@ test('an incomplete config fails before the server is touched, naming what is mi
   const config = loadConfig(REPO + 'config.template.yml', {});
   assert.throws(
     () => requireActualConfig(config, { terminal: false }),
-    /missing password \(or ACTUAL_BUDGET_PASSWORD; a terminal would have asked for it\), sync_id/,
+    /missing password \(or ACTUAL_BUDGET_PASSWORD\), sync_id \(or ACTUAL_BUDGET_SYNC_ID\)\. On a terminal the run would have asked for the password$/,
   );
 });
 

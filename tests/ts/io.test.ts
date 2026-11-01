@@ -60,6 +60,20 @@ test('takes a pasted password and its Enter in one chunk, and honours backspace'
   assert.equal(await answer, 'p@ss word');
 });
 
+test('edits the line as a terminal does, a character split across chunks included', async () => {
+  const { stdin, type } = terminal();
+  const out = output();
+
+  const answer = askPassword(PROMPT, stdin, out.stream);
+  // a, b, Left, x, then an ä whose two bytes arrive apart, typed before the b.
+  type('ab\x1b[Dx');
+  stdin.push(Buffer.from([0xc3]));
+  stdin.push(Buffer.from([0xa4, 0x0d]));
+
+  assert.equal(await answer, 'axäb');
+  assert.equal(out.text(), `${PROMPT}\n`);
+});
+
 for (const [name, keys] of [
   ['an empty answer', '\r'],
   ['Ctrl-C', 'hun\x03'],
