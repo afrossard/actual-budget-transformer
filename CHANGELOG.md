@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/afrossard/actual-budget-transformer/compare/0.3.0...0.4.0) (2026-11-01)
+
+
+### Features
+
+* ask for the Actual password when none is set ([#165](https://github.com/afrossard/actual-budget-transformer/issues/165)) ([ddd909a](https://github.com/afrossard/actual-budget-transformer/commit/ddd909a2d1a1ff887de77e1c9fbc68365372ebdf))
+
 ## [0.3.0](https://github.com/afrossard/actual-budget-transformer/compare/0.2.2...0.3.0) (2026-10-22)
 
 
