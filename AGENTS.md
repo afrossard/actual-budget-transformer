@@ -82,7 +82,7 @@ src/
 ├── actual-version.ts  # ADR 0004: the server must be the api version
 ├── review.ts          # corrections, then writing what is not in Actual: unattended, or the review loop (import or correct, or leave)
 ├── statement-report.ts # the statement report, the review blocks, and [?]
-├── io.ts              # terminal input (single keystroke on a TTY, lines otherwise)
+├── io.ts              # terminal input (single keystroke on a TTY, lines otherwise); the password prompt
 ├── imported-id.ts     # minting
 ├── iso-date.ts        # IsoDate: the only way to make one is a calendar check (#111)
 ├── money.ts           # integer cents; the debit/credit sign convention
@@ -148,6 +148,8 @@ The devcontainer sets `ACTUAL_SERVER_URL`; anywhere else, export `ACTUAL_SERVER_
 - **Never mock `@actual-app/api`.** These tests exist because Actual's real behaviour is surprising; a mock would encode our assumptions instead of checking them.
 - **`tests/ts/actual-api.characterization.test.ts`** holds the five probes from `prototype/38-interactive-import`, turned into assertions, and the ActualQL filter shapes the gateway's reads are built on (#67), the silently wrong ones included. They are the guard that an api version bump cannot quietly invalidate the write path or the reads (ADR-007, ADR 0004). If one fails, the design they pin needs re-reading, not the test.
 - **Each integration run creates its own account.** The reconciled-through date is account-global server state, so owning the account is what lets this suite skip date partitioning altogether. Test accounts are named `TS <label> <tag>`; `npm run actual:down` + `npm run actual:up` + `npm run bootstrap` clears the debris.
+- **The server takes 5 failed logins per 15 minutes**, then refuses every login with `too-many-requests`, a right password included.
+  The suite makes one (the wrong-password test); a few manual wrong-password tries on top fail everything else, and the same restart clears it.
 
 ### Choices, so they are not re-litigated
 
@@ -159,6 +161,9 @@ The devcontainer sets `ACTUAL_SERVER_URL`; anywhere else, export `ACTUAL_SERVER_
   On security, csv-parse is the one with the **recent** advisory, so this is a trade rather than a win: GHSA-8cw4-87c7-c6xx (moderate, 2026-09-08) is *"prototype replacement **still** reachable via columns path"*, and "still" means an earlier fix was incomplete. We are clear twice — it is fixed in 7.0.2 and we pin `^7.0.3`, and the parsers never pass the `columns` option because the header sits on line 10. Both parsers also carry an ancient ReDoS, fixed long before the versions in use. csv-parse has npm provenance attestations where papaparse does not; papaparse has two maintainers where csv-parse has one.
 
   **Run `npm audit` after touching dependencies.** It was not run while this code was written, and the tree then carried three high advisories, all transitive through a stale `@actual-app/api`.
+- **The password prompt: `node:readline`, with its echo sent nowhere.**
+  The `read` package (npm's own) and `@inquirer/password` were driven on a PTY first: both are readline underneath, both handled backspace, arrows and Ctrl-C, and both left the promise unsettled on Ctrl-D, so node exited 13 with a warning instead of stopping cleanly.
+  `@inquirer/password` also restyles the prompt (`? … [input is masked]`), against the wording #164 decided.
 - **YAML: `yaml`.** Reads the `config.yml` users already had for the Python package. Both its advisories are fixed well below the pinned version.
 - **`allowScripts` denies `better-sqlite3`'s install script.** From 13 (pulled in by api 26.10.0) it ships its own prebuilt binaries, but npm still runs an implicit `node-gyp rebuild` for its `binding.gyp`, which fails wherever there is no Python: this devcontainer and the slim `Containerfile` builder (WiseLibs/better-sqlite3#1503, npm/cli#9837).
   The deny is npm's own policy field, honoured by npm 11; nothing else in the tree has an install script. Drop it once npm stops inventing the script.
@@ -181,7 +186,10 @@ The devcontainer sets `ACTUAL_SERVER_URL`; anywhere else, export `ACTUAL_SERVER_
   `scripts/abt-import` pins the version on a line marked `x-release-please-version`, which release-please bumps and `tests/ts/abt-import-script.test.ts` checks against `.release-please-manifest.json`.
 - **The PR check** (`container` in `test.yaml`) builds the image for amd64 and runs it with no arguments, which must print the usage line and fail.
   That is the guard against an entry point that exits 0 having done nothing.
-- **`scripts/abt-import`** runs the image under `msb run` as the calling user, with the config and the statement mounted read-only and the `ACTUAL_BUDGET_*` variables forwarded.
+- **`scripts/abt-import`** runs the image under `msb run` as the calling user, with the config and the statement mounted read-only and `ACTUAL_BUDGET_URL` and `ACTUAL_BUDGET_SYNC_ID` forwarded.
+  `ACTUAL_BUDGET_PASSWORD` is not, because msb's `-e` takes `KEY=value` only and would put it in the host's process list (#164); the script says so when it is set.
+  The CLI asks for a missing password on a terminal instead (`askPassword` in `src/io.ts`), and msb gives it one when stdin is a terminal.
+  msb's `--secret` was rejected: the guest sees only a placeholder that msb substitutes on outbound requests, which for Actual's login over HTTPS means TLS interception.
   It passes `--net private --no-dns-rebind-protection`: without them a self-hosted server's name failed to resolve in the sandbox (`ENOTFOUND`), and with both it answered. Neither flag has been tried alone.
   The docker equivalent and the retired image are comments in it.
   `tests/ts/abt-import-script.test.ts` checks the `msb run` line it assembles against a stub `msb`; booting it for real needs KVM.

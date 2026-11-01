@@ -183,16 +183,28 @@ export function loadConfig(
   };
 }
 
-/** Fail before touching the server rather than halfway through a run. */
-export function requireActualConfig(config: Config): ActualConfig {
+/**
+ * Fail before touching the server rather than halfway through a run.
+ *
+ * On a terminal a missing password is not missing: it comes back empty, for
+ * the run to ask for. Without one the run never waits for input, so a missing
+ * password fails here like the rest.
+ */
+export function requireActualConfig(
+  config: Config,
+  { terminal }: { terminal: boolean },
+): ActualConfig {
   const missing = (
     [
       ['server_url', 'ACTUAL_BUDGET_URL', config.actual.serverUrl],
       ['password', 'ACTUAL_BUDGET_PASSWORD', config.actual.password],
       ['sync_id', 'ACTUAL_BUDGET_SYNC_ID', config.actual.syncId],
     ] as const
-  ).filter(([, , value]) => value === '');
+  ).filter(([key, , value]) => value === '' && !(terminal && key === 'password'));
   if (missing.length > 0) {
+    const asked = missing.some(([key]) => key === 'password')
+      ? '. On a terminal the run would have asked for the password'
+      : '';
     const renamed =
       config.hasBudgetName && config.actual.syncId === ''
         ? '. budget_name is not read, because two budgets can share a name: ' +
@@ -201,6 +213,7 @@ export function requireActualConfig(config: Config): ActualConfig {
     throw new Error(
       'actual_budget config incomplete; missing ' +
         missing.map(([key, envVar]) => `${key} (or ${envVar})`).join(', ') +
+        asked +
         renamed,
     );
   }

@@ -47,6 +47,18 @@ describe('integration: the gateway opens a budget by sync ID', { skip }, () => {
       await gateway.close();
     }
   });
+
+  it('says a wrong password is one, naming the server', async () => {
+    const settings = await testSettings();
+    const gateway = new ActualGateway({ ...settings, password: 'not-the-password' });
+    try {
+      await assert.rejects(gateway.open(), {
+        message: `wrong password for ${SERVER_URL}`,
+      });
+    } finally {
+      await gateway.close();
+    }
+  });
 });
 
 describe('integration: the gateway reads only what a question needs', { skip }, () => {

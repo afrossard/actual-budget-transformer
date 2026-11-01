@@ -123,7 +123,7 @@ test('reads the config from ACTUAL_BUDGET_TRANSFORMER_CONFIG and forwards only t
 
   const { msb } = run([statement!], {
     ACTUAL_BUDGET_TRANSFORMER_CONFIG: config!,
-    ACTUAL_BUDGET_PASSWORD: 'p@ss word',
+    ACTUAL_BUDGET_URL: 'https://budget.example.ch',
     ACTUAL_BUDGET_SYNC_ID: '',
     ABT_IMAGE: 'abt:dev',
   });
@@ -131,8 +131,33 @@ test('reads the config from ACTUAL_BUDGET_TRANSFORMER_CONFIG and forwards only t
   assert.ok(msb);
   assert.ok(msb.includes(`${config}:/abt/config.yaml:ro`));
   const envs = msb.flatMap((arg, i) => (msb[i - 1] === '-e' ? [arg] : []));
-  assert.deepEqual(envs, ['ACTUAL_BUDGET_PASSWORD=p@ss word']);
+  assert.deepEqual(envs, ['ACTUAL_BUDGET_URL=https://budget.example.ch']);
   assert.equal(msb[msb.indexOf('--') - 1], 'abt:dev');
+});
+
+test('never forwards the password, which msb would show in the process list, and says so', () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'abt-files-')));
+  const [statement] = files(dir, ['account.csv']);
+
+  const { status, stderr, msb } = run([statement!], {
+    ACTUAL_BUDGET_PASSWORD: 'p@ss word',
+    ACTUAL_BUDGET_SYNC_ID: '0d3a2c1e-sync',
+  });
+
+  assert.equal(status, 0);
+  assert.ok(msb);
+  assert.ok(!msb.some((arg) => arg.includes('ACTUAL_BUDGET_PASSWORD')));
+  assert.ok(!msb.some((arg) => arg.includes('p@ss word')));
+  assert.equal(
+    stderr,
+    'ACTUAL_BUDGET_PASSWORD is not forwarded: it would show in the process list. The run asks for it.\n',
+  );
+});
+
+test('says nothing about the password when it is not set', () => {
+  const { stderr } = run([]);
+
+  assert.equal(stderr, '');
 });
 
 test('with no arguments, still runs the image, so the CLI prints its usage', () => {

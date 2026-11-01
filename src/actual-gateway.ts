@@ -80,16 +80,25 @@ export class ActualGateway {
     }
 
     const api = await import('@actual-app/api');
-    await api.init({
-      serverURL: this.#settings.serverUrl,
-      password: this.#settings.password,
-      dataDir,
-      // The api otherwise logs its own progress - "Syncing since ...", "Got
-      // messages from server 0" - to stdout, in between the statement report's
-      // lines (#81).
-      // Its warnings and errors go to stderr regardless.
-      verbose: false,
-    });
+    try {
+      await api.init({
+        serverURL: this.#settings.serverUrl,
+        password: this.#settings.password,
+        dataDir,
+        // The api otherwise logs its own progress - "Syncing since ...", "Got
+        // messages from server 0" - to stdout, in between the statement report's
+        // lines (#81).
+        // Its warnings and errors go to stderr regardless.
+        verbose: false,
+      });
+    } catch (error) {
+      // The api's own "Authentication failed: invalid-password" reads as a
+      // fault, and a password typed at the prompt is the likeliest cause.
+      if ((error as { code?: unknown }).code === 'invalid-password') {
+        throw new Error(`wrong password for ${this.#settings.serverUrl}`);
+      }
+      throw error;
+    }
     this.#api = api;
 
     // By sync ID, never by name: a server can hold two budgets under one name,

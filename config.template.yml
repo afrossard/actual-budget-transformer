@@ -110,7 +110,9 @@ processors:
 #   ACTUAL_BUDGET_SYNC_ID   overrides sync_id
 actual_budget:
   server_url: "http://actual-server:5006"
-  password: "" # set via ACTUAL_BUDGET_PASSWORD
+  # Left empty here and in ACTUAL_BUDGET_PASSWORD, a run on a terminal asks for
+  # it; one without a terminal fails.
+  password: ""
   # The budget's Sync ID: Settings → Show advanced settings in Actual. Not its
   # name, because two budgets can share a name.
   sync_id: ""
