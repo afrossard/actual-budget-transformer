@@ -13,7 +13,7 @@ services:
 
   actual-server:
     profiles: ["actual"]
-    image: actualbudget/actual-server:26.10.0
+    image: actualbudget/actual-server:26.11.0
     ports:
       - "5006:5006"
     tmpfs:

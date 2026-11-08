@@ -302,12 +302,11 @@ export class ActualGateway {
    *
    * Actual patches a reconciled transaction without complaint, patches a
    * split's parent while leaving its parts summing to the old amount, and
-   * moves a transfer's other side with it, or drops the change when that side
-   * is reconciled (pinned by the characterization tests). So the guards are
-   * here: a reconciled one only once review confirmed it, a split or a
-   * transfer never. They are checked against what Actual holds now rather than
-   * the copy the run read, and an amount changed since that read is not
-   * overwritten.
+   * moves a transfer's other side with it, even when that side is reconciled
+   * (pinned by the characterization tests). So the guards are here: a
+   * reconciled one only once review confirmed it, a split or a transfer never.
+   * They are checked against what Actual holds now rather than the copy the
+   * run read, and an amount changed since that read is not overwritten.
    */
   async correctAmount(
     accountId: AccountId,

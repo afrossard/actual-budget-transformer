@@ -104,9 +104,9 @@ export type Correction = {
    * What keeps it from being made unattended. `reconciled`: it changes a
    * reconciled balance, so only review makes it. `split`: which part absorbs
    * the difference is the human's choice. `transfer`: Actual moves the other
-   * account's side with it, and drops the change silently when that side is
-   * reconciled (pinned by the characterization tests). Neither of the last two
-   * is ever made; each stays to fix in Actual.
+   * account's side with it, even when that side is reconciled (pinned by the
+   * characterization tests). Neither of the last two is ever made; each stays
+   * to fix in Actual.
    */
   hold: 'reconciled' | 'split' | 'transfer' | null;
 };
