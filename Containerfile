@@ -10,7 +10,7 @@
 # disagree (AGENTS.md, "Versions: follow Actual").
 
 # The builder holds npm's cache and anything an install script leaves behind.
-FROM node:24.18.1-trixie-slim AS builder
+FROM node:24.22.1-trixie-slim AS builder
 
 ARG TARGETPLATFORM
 
@@ -21,7 +21,7 @@ RUN --mount=type=cache,target=/root/.npm,id=npm-${TARGETPLATFORM} \
   --mount=type=bind,source=package-lock.json,target=package-lock.json \
   npm ci --omit=dev
 
-FROM node:24.18.1-trixie-slim
+FROM node:24.22.1-trixie-slim
 
 ENV NODE_ENV=production
 

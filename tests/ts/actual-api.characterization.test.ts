@@ -342,10 +342,9 @@ describe('integration: what @actual-app/api actually does', { skip }, () => {
     );
   });
 
-  it("updateTransaction on a transfer's amount moves the other side, or nothing", async () => {
+  it("updateTransaction on a transfer's amount moves the other side, reconciled or not", async () => {
     // So a correction (ADR 0007) never touches a transfer: it would change
-    // another account's balance, and when that side is reconciled Actual
-    // drops the change without a word.
+    // another account's balance, even one the human has already reconciled.
     const transfer = async (reconcileOtherSide: boolean) => {
       const from = await account('transfer-from');
       const to = await account('transfer-to');
@@ -363,13 +362,22 @@ describe('integration: what @actual-app/api actually does', { skip }, () => {
         await api.updateTransaction(other!.id, { reconciled: true });
       await api.updateTransaction(side!.id, { amount: -4000 });
       await api.sync();
-      return [(await rows(from))[0]!.amount, (await rows(to))[0]!.amount];
+      const [otherAfter] = await rows(to);
+      return [
+        (await rows(from))[0]!.amount,
+        otherAfter!.amount,
+        otherAfter!.reconciled,
+      ];
     };
-    assert.deepEqual(await transfer(false), [-4000, 4000], 'the other side moves too');
+    assert.deepEqual(
+      await transfer(false),
+      [-4000, 4000, false],
+      'the other side moves too',
+    );
     assert.deepEqual(
       await transfer(true),
-      [-5000, 5000],
-      'with the other side reconciled, nothing changes and nothing says so',
+      [-4000, 4000, true],
+      'with the other side reconciled it moves all the same, and stays reconciled',
     );
   });
 });
