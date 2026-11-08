@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/afrossard/actual-budget-transformer/compare/0.4.0...0.5.0) (2026-11-08)
+
+
+### Features
+
+* **deps:** require actual server 26.11.0 ([#169](https://github.com/afrossard/actual-budget-transformer/issues/169)) ([a52abcf](https://github.com/afrossard/actual-budget-transformer/commit/a52abcf6c6a3d2b63023988067568fc5cd8fb252))
+
 ## [0.4.0](https://github.com/afrossard/actual-budget-transformer/compare/0.3.0...0.4.0) (2026-11-01)
 
 
