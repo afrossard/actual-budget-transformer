@@ -7,6 +7,7 @@ release-please cuts the releases, and the commit type is what computes the versi
 
 Pull requests are squash-merged with the PR title as the commit subject, so **the PR title is the commit message**.
 The `PR title lint` check rejects a title that does not follow the convention.
+The squash commit body is left empty, so release-please reads only the title; mark a breaking change with `!` in the PR title, because a `BREAKING CHANGE:` footer in a branch commit never reaches `main`.
 
 ## Versioning
 
@@ -19,7 +20,7 @@ From 1.0 on:
 
 | Change | Commit | Bump |
 | --- | --- | --- |
-| A `config.yaml` change that makes you edit yours, a removed or renamed CLI flag | `feat!:`, or a `BREAKING CHANGE:` footer | major |
+| A `config.yaml` change that makes you edit yours, a removed or renamed CLI flag | `feat!:` | major |
 | New behaviour, a new statement format, **a new Actual version** | `feat:` | minor |
 | A parser fix after a UBS export change, wording, docs | `fix:` | patch |
 | Tests, CI, tooling, refactoring | `chore:`, `ci:`, `test:`, `refactor:` | no release |
